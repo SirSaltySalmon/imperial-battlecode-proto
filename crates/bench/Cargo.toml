@@ -1,0 +1,23 @@
+[package]
+name = "ibc-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Bench and balance harness: paired A/B tests, leagues, balance reports, replay dumps, with honest statistics."
+
+[lib]
+name = "ibc_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ibc-bench"
+path = "src/main.rs"
+
+[dependencies]
+ibc-engine = { workspace = true }
+ibc-abi = { workspace = true, features = ["host"] }
+ibc-replay = { workspace = true }
+ibc-sim = { path = "../sim" }
+ibc = { path = "../../sdk/rust" }
+serde = { workspace = true }
+serde_json = { workspace = true }

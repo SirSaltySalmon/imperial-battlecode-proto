@@ -565,6 +565,19 @@ name = "ibc-abi"
 version = "0.1.0"
 
 [[package]]
+name = "ibc-bench"
+version = "0.1.0"
+dependencies = [
+ "ibc",
+ "ibc-abi",
+ "ibc-engine",
+ "ibc-replay",
+ "ibc-sim",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ibc-cli"
 version = "0.1.0"
 dependencies = [
