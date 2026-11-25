@@ -431,10 +431,12 @@ fn charges_are_validated_bought_and_refilled() {
 
     let w = &mut m.world;
     w.units[0].credits = flash.price * flash.max_charges + flash.price - 1;
+    // Charges are bought through the shop, which takes the credits; `add_charge` only checks and grants.
+    let item = w.rules.items.iter().find(|it| it.kind == ITEM_KIND_ABILITY_CHARGE && it.value == 1).unwrap().id;
     for _ in 0..flash.max_charges {
-        assert_eq!(abilities::add_charge(w, 0, 1), OK);
+        assert_eq!(ibc_engine::economy::buy(w, 0, item), OK);
     }
-    assert_eq!(w.units[0].credits, flash.price - 1, "the ability's own price is charged");
+    assert_eq!(w.units[0].credits, flash.price - 1, "the ability's own price is charged exactly once");
     assert_eq!(abilities::add_charge(w, 0, 1), ERR_NOT_ALLOWED, "already at max_charges");
     w.units[0].abil.charges[1] -= 1;
     assert_eq!(abilities::add_charge(w, 0, 1), ERR_INSUFFICIENT_FUNDS);

@@ -76,3 +76,27 @@ name = "ability_charge_1"
 kind = 3
 price = 0
 value = 1
+
+[[item]]
+name = "smg"
+kind = 1
+price = 1500
+value = 2
+
+[[item]]
+name = "shotgun"
+kind = 1
+price = 1800
+value = 3
+
+[[item]]
+name = "marksman"
+kind = 1
+price = 3200
+value = 4
+
+[[item]]
+name = "lmg"
+kind = 1
+price = 2300
+value = 5

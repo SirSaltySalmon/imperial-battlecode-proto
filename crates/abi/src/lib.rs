@@ -151,6 +151,8 @@ pub const EFFECT_FLASH: i32 = 4;
 pub const EFFECT_RECON: i32 = 5;
 pub const EFFECT_HEAL: i32 = 6;
 pub const EFFECT_DECOY: i32 = 7;
+/// Ability effect id only (an instant move); never appears in `T_EFFECTS`.
+pub const EFFECT_DASH: i32 = 8;
 
 pub const DROP_CHARGE: i32 = 1;
 pub const DROP_WEAPON: i32 = 2;

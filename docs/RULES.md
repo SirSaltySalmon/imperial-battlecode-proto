@@ -22,8 +22,9 @@ so never hard-code them. This file describes the mechanics; the TOML files are t
   before a plant, by defusing, or when the action timer runs out. After a plant, killing all attackers is not
   enough: the charge must be defused.
 - Team A attacks for the first `rounds_per_half` rounds, then sides swap and credits reset. First to
-  `rounds_to_win` wins. If regulation ends level the match is decided by kills, then damage, then a seed coin flip
-  (overtime is planned).
+  `rounds_to_win` wins. If regulation ends level, overtime is played in pairs of rounds, one per side; see
+  [rules/economy.md](rules/economy.md). Details of weapons and abilities are in [rules/combat.md](rules/combat.md)
+  and [rules/abilities.md](rules/abilities.md).
 - The match always ends by `max_ticks`.
 
 ## A tick

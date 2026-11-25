@@ -21,7 +21,7 @@ pub use effects::step;
 
 /// `AbilityRules.effect` of the dash, which leaves nothing in the world. The ABI has no constant for it yet:
 /// this is the next free id of the `EFFECT_*` group.
-pub const EFFECT_DASH: i32 = 8;
+pub use ibc_abi::EFFECT_DASH;
 
 /// A thrown device that meets a wall or barrier comes to rest this far in front of it, so it never sits on
 /// the boundary of the tile that stopped it. A geometric epsilon, not a balance number.
@@ -305,7 +305,7 @@ pub fn add_charge(w: &mut World, u: usize, slot: i32) -> i32 {
     if unit.credits < rules.price + item_price {
         return ERR_INSUFFICIENT_FUNDS;
     }
-    unit.credits -= rules.price;
+    // The shop (economy::buy) takes the credits; this only checks and grants.
     unit.abil.charges[slot as usize] += 1;
     OK
 }

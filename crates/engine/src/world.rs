@@ -734,8 +734,10 @@ impl World {
                 continue;
             }
             let d2 = fixed::dist2(pos, (d.x, d.y));
-            if d2 <= reach * reach && best.map_or(true, |(_, b)| d2 < b) {
-                best = Some((i, d2));
+            // The charge always wins over a weapon in reach, so a dropped gun can never block the objective.
+            let key = if d.kind == DROP_CHARGE { -1 } else { d2 };
+            if d2 <= reach * reach && best.map_or(true, |(_, b)| key < b) {
+                best = Some((i, key));
             }
         }
         if let Some((i, _)) = best {

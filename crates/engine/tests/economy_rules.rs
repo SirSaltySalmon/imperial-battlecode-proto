@@ -58,12 +58,26 @@ fn buy(m: &mut Match, unit: u32, item: i32) -> i32 {
 
 /// The built-in ruleset plus a second primary and a second sidearm, each with its one-block shop item.
 fn rules_with_extra_weapons() -> (Ruleset, i32, i32) {
+    // The real ruleset has the smg; add a priced sidearm so sidearm trade-ins can be tested too.
+    let base = Ruleset::builtin();
+    let revolver_id = base.weapons.len();
     let weapons = format!(
-        "{}\n[[weapon]]\nname = \"smg\"\nslot = 0\nprice = 1500\n\n[[weapon]]\nname = \"revolver\"\nslot = 1\nprice = 600\n",
+        "{}
+[[weapon]]
+name = \"revolver\"
+slot = 1
+price = 600
+",
         include_str!("../../../rules/weapons.toml")
     );
     let economy = format!(
-        "{}\n[[item]]\nname = \"smg\"\nkind = 1\nprice = 1500\nvalue = 2\n\n[[item]]\nname = \"revolver\"\nkind = 1\nprice = 600\nvalue = 3\n",
+        "{}
+[[item]]
+name = \"revolver\"
+kind = 1
+price = 600
+value = {revolver_id}
+",
         include_str!("../../../rules/economy.toml")
     );
     let r = Ruleset::from_toml(
@@ -73,8 +87,9 @@ fn rules_with_extra_weapons() -> (Ruleset, i32, i32) {
         &economy,
     )
     .unwrap();
+    let smg = r.items.iter().find(|i| i.kind == ITEM_KIND_WEAPON && i.value == 2).unwrap().id;
     let n = r.items.len() as i32;
-    (r, n - 2, n - 1)
+    (r, smg, n - 1)
 }
 
 #[test]
@@ -190,7 +205,7 @@ fn trade_in_refunds_purchases_of_the_same_buy_phase() {
     assert_eq!((m.world.units[0].weapons[0], credits(&m, 0)), (1, 1300));
     // Sidearm: buying the free default back returns the upgrade's price.
     assert_eq!(buy(&mut m, 0, revolver), OK);
-    assert_eq!((m.world.units[0].weapons[1], credits(&m, 0)), (3, 700));
+    assert_eq!((m.world.units[0].weapons[1], credits(&m, 0)), (6, 700));
     assert_eq!(buy(&mut m, 0, PISTOL), OK);
     assert_eq!((m.world.units[0].weapons[1], credits(&m, 0)), (0, 1300));
     // The trade-in can make an otherwise unaffordable swap affordable, and never mints credits.

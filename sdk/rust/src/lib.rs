@@ -413,5 +413,5 @@ pub fn debug_line(a: (i32, i32), b: (i32, i32), color: u32) {
 }
 /// Draw a dot in the viewer (`color` is 0xRRGGBB).
 pub fn debug_dot(p: (i32, i32), color: u32) {
-    sys::sys_debug_draw(DEBUG_DOT, p.0, p.1, p.0, p.1, color);
+    sys::sys_debug_draw(DEBUG_DOT, p.0, p.1, 0, 0, color);
 }
