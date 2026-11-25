@@ -1,0 +1,89 @@
+# Imperial Battlecode worker.
+#
+#   install -m 755 ibc ibc-worker /usr/local/bin/
+#   install -m 644 deploy/ibc-worker.service /etc/systemd/system/
+#   install -d -m 700 /etc/ibc-worker
+#   printf 'IBC_COORDINATOR=https://coordinator.example\n' > /etc/ibc-worker/env
+#   printf '%s' "$REGISTRATION_TOKEN" > /etc/ibc-worker/registration-token && chmod 600 /etc/ibc-worker/registration-token
+#   systemctl enable --now ibc-worker
+#
+# The registration token is only read on the first start; after that the worker uses its own token in
+# /var/lib/ibc-worker/worker-token.json (mode 600) and the registration token file can be emptied
+# (`: > /etc/ibc-worker/registration-token`; the file itself must stay, LoadCredential needs it).
+
+[Unit]
+Description=Imperial Battlecode match worker
+Documentation=https://github.com/SirSaltySalmon/imperial-battlecode-proto/blob/main/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+# Keep trying forever: an unreachable coordinator is handled inside the worker, a crash by systemd.
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+Environment=IBC_RUNNER=/usr/local/bin/ibc IBC_WORKER_LABELS=x86_64-linux IBC_WORKER_NAME=%H
+# Must set IBC_COORDINATOR. May override IBC_WORKER_NAME, IBC_WORKER_LABELS, IBC_WORKER_CONCURRENCY, IBC_LOG.
+EnvironmentFile=/etc/ibc-worker/env
+LoadCredential=registration-token:/etc/ibc-worker/registration-token
+ExecStart=/usr/local/bin/ibc-worker \
+    --registration-token-file ${CREDENTIALS_DIRECTORY}/registration-token \
+    --token-file ${STATE_DIRECTORY}/worker-token.json \
+    --cache ${CACHE_DIRECTORY} \
+    --drain-file ${RUNTIME_DIRECTORY}/drain
+
+# Drain on stop: SIGTERM stops leasing and lets running matches finish (the worker's own drain timeout is
+# 90 s); systemd waits a little longer before SIGKILL. Whatever is lost is simply re-leased after expiry.
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=110
+# A drained worker exits 0 and stays down (its machine is going away, or an operator stopped it).
+Restart=on-failure
+RestartSec=5
+
+# Unprivileged, throw-away identity; only these three directories are writable.
+DynamicUser=yes
+StateDirectory=ibc-worker
+StateDirectoryMode=0700
+CacheDirectory=ibc-worker
+CacheDirectoryMode=0700
+# The cloud interruption watcher (see deploy/cloud-init.yaml) creates /run/ibc-worker/drain as root.
+# The directory, and with it the drain file, is removed when the service stops.
+RuntimeDirectory=ibc-worker
+
+# Hardening. The worker needs outbound TCP, its three directories, and to exec `ibc`. Nothing else.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+# No MemoryDenyWriteExecute: wasmtime JIT-compiles bot modules and needs W^X transitions.
+
+# A runaway match cannot take the box down. Matches are CPU-bound; this is the lowest scheduling priority.
+Nice=10
+CPUSchedulingPolicy=batch
+OOMPolicy=continue
+TasksMax=4096
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

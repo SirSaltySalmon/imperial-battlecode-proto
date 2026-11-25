@@ -1,0 +1,74 @@
+#cloud-config
+# Boot a rented box or a spot instance into a registered Imperial Battlecode worker.
+#
+# Set the two variables below and paste this file as user data. Nothing listens on the box: the worker only
+# makes outbound HTTPS connections to the coordinator, so no inbound firewall rule is needed.
+#
+# RELEASE_URL is a per-deployment constant, not a per-box variable: a tarball holding `ibc`, `ibc-worker` and
+# `ibc-worker.service` for the current patch (build it with deploy/README.md, "Building a release").
+
+write_files:
+  - path: /etc/ibc-worker/bootstrap.env
+    permissions: "0600"
+    content: |
+      IBC_COORDINATOR=https://coordinator.example.org
+      IBC_REGISTRATION_TOKEN=paste-a-short-lived-registration-token
+      RELEASE_URL=https://github.com/SirSaltySalmon/imperial-battlecode-proto/releases/latest/download/ibc-worker-x86_64-linux.tar.gz
+
+  # Turns a cloud interruption notice into a drain: the worker stops leasing and finishes what it runs.
+  # AWS spot gives 120 s of notice, GCP and Azure spot about 30 s; a match takes well under a second.
+  - path: /usr/local/sbin/ibc-interruption-watch
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # Polls the metadata service of whichever cloud this is; touches the worker's drain file on notice.
+      DRAIN=/run/ibc-worker/drain
+      M=http://169.254.169.254
+      while sleep 5; do
+        # AWS (IMDSv2): 200 on spot/instance-action once the instance is marked for reclaim.
+        T=$(curl -fs -m 2 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' "$M/latest/api/token" 2>/dev/null) &&
+          curl -fs -m 2 -H "X-aws-ec2-metadata-token: $T" "$M/latest/meta-data/spot/instance-action" >/dev/null 2>&1 && break
+        # GCP: "TRUE" once preempted.
+        [ "$(curl -fs -m 2 -H 'Metadata-Flavor: Google' "$M/computeMetadata/v1/instance/preempted" 2>/dev/null)" = TRUE ] && break
+        # Azure: a Preempt event in scheduled events.
+        curl -fs -m 2 -H 'Metadata: true' "$M/metadata/scheduledevents?api-version=2020-07-01" 2>/dev/null | grep -q '"Preempt"' && break
+      done
+      touch "$DRAIN"
+      logger -t ibc-worker "interruption notice: draining"
+
+  - path: /etc/systemd/system/ibc-interruption-watch.service
+    content: |
+      [Unit]
+      Description=Drain the Imperial Battlecode worker on a cloud interruption notice
+      After=ibc-worker.service
+      BindsTo=ibc-worker.service
+      [Service]
+      ExecStart=/usr/local/sbin/ibc-interruption-watch
+      Restart=on-failure
+      [Install]
+      WantedBy=ibc-worker.service
+
+runcmd:
+  - |
+    set -eu
+    . /etc/ibc-worker/bootstrap.env
+    tmp=$(mktemp -d)
+    curl -fsSL --retry 5 "$RELEASE_URL" | tar -xz -C "$tmp"
+    install -m 755 "$tmp/ibc" "$tmp/ibc-worker" /usr/local/bin/
+    install -m 644 "$tmp/ibc-worker.service" /etc/systemd/system/
+    rm -rf "$tmp"
+    # The service reads the coordinator URL from an env file and the token as a systemd credential.
+    printf 'IBC_COORDINATOR=%s\n' "$IBC_COORDINATOR" > /etc/ibc-worker/env
+    ( umask 077; printf '%s' "$IBC_REGISTRATION_TOKEN" > /etc/ibc-worker/registration-token )
+    shred -u /etc/ibc-worker/bootstrap.env || rm -f /etc/ibc-worker/bootstrap.env
+    systemctl daemon-reload
+    systemctl enable --now ibc-worker.service ibc-interruption-watch.service
+    # Registered (the worker token now lives in /var/lib/ibc-worker): the registration token is not needed again.
+    # If registration has not happened within two minutes, keep the token so a restart can still register.
+    for _ in $(seq 60); do
+      if [ -s /var/lib/private/ibc-worker/worker-token.json ] || [ -s /var/lib/ibc-worker/worker-token.json ]; then
+        : > /etc/ibc-worker/registration-token
+        break
+      fi
+      sleep 2
+    done
