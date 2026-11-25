@@ -9,5 +9,5 @@ description = "Replay container (.ibcr), match summary and replay verification f
 ibc-engine = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-miniz_oxide = "0.8"
-sha2 = "0.10"
+miniz_oxide = "0.9"
+sha2 = "0.11"
