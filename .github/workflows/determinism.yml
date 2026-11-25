@@ -1,0 +1,58 @@
+name: Determinism
+
+# The proof that a match gives the same result on any hardware: the same golden cases, the same pinned bot
+# modules, four OS/CPU combinations, and the replay files must hash to the committed SHA-256 on all of them.
+# It is the expensive workflow (macOS minutes are billed at 10x, Windows at 2x), so it never runs on PRs:
+# start it by hand before a release, and it runs on release tags and once a week.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  schedule:
+    - cron: "17 4 * * 1"
+
+concurrency:
+  group: determinism-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  golden:
+    name: goldens on ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-latest }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm }
+          - { name: windows-x86_64, os: windows-latest }
+          - { name: macos-aarch64, os: macos-latest }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: determinism-${{ matrix.name }}
+      - name: Native and wasm goldens
+        run: cargo xtask golden verify
+      - name: Browser engine equals native engine
+        run: cargo xtask engine-wasm --require-node out/golden/wasm/*/replay.ibcr
+      - name: Keep the outputs of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-out-${{ matrix.name }}
+          path: out/golden
+          retention-days: 14

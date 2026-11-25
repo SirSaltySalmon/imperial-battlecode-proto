@@ -1,0 +1,99 @@
+{
+  "patch": {
+    "engine": "0.1.0",
+    "ruleset_hash": "00d2cae8a4f4c61b",
+    "abi": 0
+  },
+  "cases": [
+    {
+      "name": "crossfire-rusher-holder-s1",
+      "map": "maps/crossfire.ibcmap",
+      "seed": 1,
+      "a": "rusher",
+      "b": "holder",
+      "finished": true,
+      "winner": 0,
+      "score": [
+        7,
+        0
+      ],
+      "ticks": 557,
+      "final_state_hash": "c792aedc6644a51c"
+    },
+    {
+      "name": "crossfire-holder-rusher-s2",
+      "map": "maps/crossfire.ibcmap",
+      "seed": 2,
+      "a": "holder",
+      "b": "rusher",
+      "finished": true,
+      "winner": 1,
+      "score": [
+        2,
+        7
+      ],
+      "ticks": 678,
+      "final_state_hash": "a7276b5f42fee657"
+    },
+    {
+      "name": "tunnels-rusher-holder-s1",
+      "map": "maps/tunnels.ibcmap",
+      "seed": 1,
+      "a": "rusher",
+      "b": "holder",
+      "finished": true,
+      "winner": 0,
+      "score": [
+        7,
+        0
+      ],
+      "ticks": 314,
+      "final_state_hash": "be65337739b72b34"
+    },
+    {
+      "name": "tunnels-holder-rusher-s2",
+      "map": "maps/tunnels.ibcmap",
+      "seed": 2,
+      "a": "holder",
+      "b": "rusher",
+      "finished": true,
+      "winner": 1,
+      "score": [
+        0,
+        7
+      ],
+      "ticks": 253,
+      "final_state_hash": "2ca7ca9a7a5f339c"
+    },
+    {
+      "name": "crossfire-rusher-rusher-s3",
+      "map": "maps/crossfire.ibcmap",
+      "seed": 3,
+      "a": "rusher",
+      "b": "rusher",
+      "finished": true,
+      "winner": 1,
+      "score": [
+        6,
+        6
+      ],
+      "ticks": 703,
+      "final_state_hash": "768aac978ef5da93"
+    },
+    {
+      "name": "tunnels-holder-idle-s4",
+      "map": "maps/tunnels.ibcmap",
+      "seed": 4,
+      "a": "holder",
+      "b": "idle",
+      "finished": true,
+      "winner": 0,
+      "score": [
+        7,
+        0
+      ],
+      "ticks": 579,
+      "final_state_hash": "9a5177aed2898ec3"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "patch": {
+    "engine": "0.1.0",
+    "ruleset_hash": "00d2cae8a4f4c61b",
+    "wasmtime": "51.0.0",
+    "abi": 0
+  },
+  "bots": {
+    "holder": "fa1a393c71e4faaa25a2b655894091a2baeb5b01f3a02f7ab3fb814a318d002b",
+    "idle": "7cfdee7b32bb4c00d9a61267d8bf15e01e2e335453c7a53c355d47ce5fa89bcc",
+    "rusher": "82e70ece45c9b936fe00a9215d7a4af638370d689db36d6da54c93fe8833d906"
+  },
+  "cases": [
+    {
+      "name": "crossfire-rusher-holder-s1",
+      "map": "maps/crossfire.ibcmap",
+      "seed": 1,
+      "a": "rusher",
+      "b": "holder",
+      "finished": true,
+      "winner": 0,
+      "score": [
+        7,
+        0
+      ],
+      "ticks": 557,
+      "final_state_hash": "c792aedc6644a51c",
+      "replay_sha256": "de7cd84b4fd76e6ed08b262a0ce94e7e27c7bdf4c62bab49ed6b5a54b17f0bea"
+    },
+    {
+      "name": "tunnels-holder-rusher-s2",
+      "map": "maps/tunnels.ibcmap",
+      "seed": 2,
+      "a": "holder",
+      "b": "rusher",
+      "finished": true,
+      "winner": 1,
+      "score": [
+        0,
+        7
+      ],
+      "ticks": 253,
+      "final_state_hash": "2ca7ca9a7a5f339c",
+      "replay_sha256": "4238352475d9f1e6fcb1f029034acf5f0c2cbdae7b2b73e613d33dce550f1d82"
+    },
+    {
+      "name": "crossfire-idle-rusher-s5",
+      "map": "maps/crossfire.ibcmap",
+      "seed": 5,
+      "a": "idle",
+      "b": "rusher",
+      "finished": true,
+      "winner": 1,
+      "score": [
+        0,
+        7
+      ],
+      "ticks": 347,
+      "final_state_hash": "bd50e63e2a6a0cc4",
+      "replay_sha256": "c8428cac2f547c63228e4dc4f0776a98ec4a037eb63934774e8283710c478c3b"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Repository tasks: `cargo xtask check | golden | engine-wasm | dist | patch-id`."
+
+# No wasmtime here on purpose: the native goldens and the patch identity must build in seconds.
+[dependencies]
+ibc-abi = { workspace = true }
+ibc-engine = { workspace = true }
+ibc-replay = { workspace = true }
+ibc-sim = { path = "../crates/sim" }
+ibc-engine-wasm = { path = "../crates/engine-wasm" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# This crate is held to `clippy -D warnings` from day one (see src/check.rs); the toolchain is pinned, so
+# a new compiler cannot introduce warnings behind our back.
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

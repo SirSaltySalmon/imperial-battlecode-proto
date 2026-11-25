@@ -1,0 +1,121 @@
+name: CI
+
+# Lean on purpose: this repository is private, so every minute is billed.
+# - Docs-only and viewer-only changes do not start this workflow at all (paths below).
+# - One Linux job does everything a PR always needs. No OS matrix here: the cross-platform proof is
+#   determinism.yml, which runs on demand, on tags and weekly.
+# - The Wasmtime job only does work when something that can change a wasm match was touched.
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "xtask/**"
+      - "sdk/**"
+      - "bots/**"
+      - "rules/**"
+      - "maps/**"
+      - "fixtures/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".github/workflows/ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "xtask/**"
+      - "sdk/**"
+      - "bots/**"
+      - "rules/**"
+      - "maps/**"
+      - "fixtures/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - ".github/workflows/ci.yml"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  check:
+    name: fmt, clippy, tests, native goldens
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain and its wasm targets come from rust-toolchain.toml.
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check
+          # PRs read the cache that main wrote; they do not write their own.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: fmt, clippy, tests
+        run: cargo xtask check
+      - name: Native goldens
+        run: cargo xtask golden verify --native
+
+  wasm:
+    name: wasm goldens, native-vs-wasm engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # Decided inside the job: a skipped run costs one billed minute, a separate "changes" job would
+      # cost that minute on every run.
+      - uses: dorny/paths-filter@v3
+        id: changed
+        with:
+          filters: |
+            wasm:
+              - "crates/abi/**"
+              - "crates/engine/**"
+              - "crates/engine-wasm/**"
+              - "crates/replay/**"
+              - "crates/runner/**"
+              - "crates/cli/**"
+              - "xtask/**"
+              - "sdk/**"
+              - "bots/**"
+              - "rules/**"
+              - "maps/**"
+              - "fixtures/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".cargo/**"
+              - ".github/workflows/ci.yml"
+      - name: Install the pinned toolchain
+        if: steps.changed.outputs.wasm == 'true'
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changed.outputs.wasm == 'true'
+        with:
+          shared-key: wasm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Wasm goldens (builds ibc and the reference bots)
+        if: steps.changed.outputs.wasm == 'true'
+        run: cargo xtask golden verify --wasm
+      - name: Browser engine equals native engine
+        if: steps.changed.outputs.wasm == 'true'
+        run: cargo xtask engine-wasm --require-node out/golden/wasm/*/replay.ibcr
+      - name: Keep the outputs of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-out
+          path: out/golden
+          retention-days: 7

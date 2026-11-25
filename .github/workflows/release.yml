@@ -1,0 +1,169 @@
+name: Release
+
+# On a tag v<engine version>: build the binaries for six targets, pack them, and open a DRAFT GitHub
+# Release with SHA256SUMS and the patch identity in its notes. A person publishes the draft after the
+# checklist in docs/release.md. Started by hand (workflow_dispatch) it is a dry run: everything is built
+# and kept as workflow artifacts, and no release is created.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  preflight:
+    name: tag and patch identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-xtask
+      - name: Patch identity
+        run: |
+          cargo xtask patch-id
+          cargo xtask patch-id --markdown > patch.md
+          cargo xtask patch-id --json > patch.json
+      - name: The tag must name the engine version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          engine="$(jq -r .engine patch.json)"
+          case "$GITHUB_REF_NAME" in
+            "v$engine" | "v$engine"-*) echo "tag $GITHUB_REF_NAME matches engine $engine" ;;
+            *) echo "::error::tag $GITHUB_REF_NAME does not match engine version $engine (expected v$engine)"; exit 1 ;;
+          esac
+      - name: Native goldens must match what is committed
+        run: cargo xtask golden verify --native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patch
+          path: |
+            patch.md
+            patch.json
+          retention-days: 7
+
+  build:
+    name: ${{ matrix.target }}
+    needs: preflight
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native runners where one exists at normal price; zig for the Linux arm64 cross build;
+          # the second Windows and macOS architectures are plain cross builds on the same runner.
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, builder: cargo, runs_here: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-latest, builder: zigbuild, runs_here: false }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, builder: cargo, runs_here: true }
+          - { target: aarch64-pc-windows-msvc, os: windows-latest, builder: cargo, runs_here: false }
+          - { target: aarch64-apple-darwin, os: macos-latest, builder: cargo, runs_here: true }
+          - { target: x86_64-apple-darwin, os: macos-latest, builder: cargo, runs_here: false }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain and the target
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build tools
+        run: |
+          python -m pip install --disable-pip-version-check "maturin>=1.7,<2"
+          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
+            sudo apt-get update && sudo apt-get install -y musl-tools
+          fi
+          if [ "${{ matrix.builder }}" = "zigbuild" ]; then
+            python -m pip install --disable-pip-version-check ziglang cargo-zigbuild
+          fi
+      - name: Binaries and archive
+        run: cargo xtask dist --target ${{ matrix.target }} --builder ${{ matrix.builder }}
+      - name: The binary reports the patch identity of these sources
+        if: matrix.runs_here
+        run: |
+          ext=""; case "${{ matrix.target }}" in *windows*) ext=".exe" ;; esac
+          cargo xtask patch-id --bin "target/${{ matrix.target }}/release/ibc$ext"
+      - name: Wheel (pip install imperial-battlecode)
+        working-directory: packaging/pip
+        run: |
+          zig=""; if [ "${{ matrix.builder }}" = "zigbuild" ]; then zig="--zig"; fi
+          maturin build --release --locked --target ${{ matrix.target }} $zig --out ../../dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: draft GitHub Release
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: patch
+          path: patch
+      - name: SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum -- * > ../SHA256SUMS
+          mv ../SHA256SUMS SHA256SUMS
+          cat SHA256SUMS
+      - name: Release notes
+        run: |
+          {
+            echo "## Patch identity"
+            echo
+            cat patch/patch.md
+            echo
+            echo "A match is a pure function of (this patch, map, bots, seed). Replays record the patch they"
+            echo "were played on; keep this build to re-verify them."
+            echo
+            echo "Verify a download: \`sha256sum -c SHA256SUMS --ignore-missing\`"
+          } > notes.md
+          cat notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: |
+            dist
+            notes.md
+          retention-days: 14
+      - name: Create the draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
