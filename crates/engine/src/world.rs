@@ -381,7 +381,10 @@ impl World {
     fn after_round(&mut self) {
         let c = self.rules.core;
         let lead = if self.score[0] >= self.score[1] { 0 } else { 1 };
-        if self.score[lead] >= c.rounds_to_win && self.score[0] != self.score[1] {
+        // CORE CHANGE (unit/economy): `rounds_to_win` only ends the match in regulation. In overtime the
+        // economy seam decides, so that both rounds of an overtime pair are played.
+        let regulation = self.round <= 2 * c.rounds_per_half.max(1);
+        if regulation && self.score[lead] >= c.rounds_to_win && self.score[0] != self.score[1] {
             return self.finish(lead as i32);
         }
         if self.round >= 2 * c.rounds_per_half {

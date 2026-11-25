@@ -1,15 +1,40 @@
-# Economy. Item ids = position in the [[item]] list. kind: 1 weapon (value = weapon id), 2 armour (value = points),
-# 3 ability charge (value = slot), 4 defuse kit.
+# Economy and match flow. The exact rules and a worked example are in docs/rules/economy.md.
+
+# Credits are per unit. Everyone has start_credits in the first round of each half (the "pistol round": no
+# primary weapon is affordable) and can never hold more than max_credits.
 start_credits = 800
-max_credits = 9000
+max_credits = 8000
+
+# Round income, paid to every unit of the team when the round ends. A loss pays
+# loss_reward + loss_streak_bonus * min(losses in a row before this one, loss_streak_cap): 1400, 1900, 2400, 2900.
 win_reward = 3000
-loss_reward = 1900
+loss_reward = 1400
 loss_streak_bonus = 500
-loss_streak_cap = 2
+loss_streak_cap = 3
+
+# Objective income. A plant pays every attacker at once, win or lose; a defuse pays every defender on top of
+# win_reward. Weapon kills pay the weapon's kill_reward (rules/weapons.toml); other kills ability_kill_reward.
 plant_reward = 300
+defuse_reward = 300
+ability_kill_reward = 200
+
+# Replacing a weapon or armour bought earlier in the same buy phase returns this share of what was paid for it.
+refund_pct = 100
+
+# Overtime, when regulation ends level: pairs of rounds, one per side. Every overtime round starts fresh with
+# overtime_credits each. Taking both rounds of a pair wins; after overtime_max_pairs split pairs the tie-break
+# (kills, damage, seed coin flip) decides. rules/core.toml max_ticks must cover regulation plus these rounds.
+overtime_credits = 5000
+overtime_max_pairs = 3
+
 default_sidearm = 0
 armor_absorb_pct = 50
 
+# The shop. Item ids = position in this list and are append-only: never reorder or remove, add new items at the
+# end. kind: 1 weapon (value = weapon id in rules/weapons.toml; keep price equal to the weapon's price),
+# 2 armour (value = armour points), 3 ability charge (value = ability slot; the charge costs this price plus the
+# price of the ability the buyer's kit has in that slot), 4 defuse kit (defenders only).
+# A new weapon needs exactly one new block:  name = "<weapon name>", kind = 1, price = <its price>, value = <its id>.
 [[item]]
 name = "rifle"
 kind = 1
@@ -33,3 +58,21 @@ name = "defuse_kit"
 kind = 4
 price = 400
 value = 0
+
+[[item]]
+name = "pistol"
+kind = 1
+price = 0
+value = 0
+
+[[item]]
+name = "ability_charge_0"
+kind = 3
+price = 0
+value = 0
+
+[[item]]
+name = "ability_charge_1"
+kind = 3
+price = 0
+value = 1

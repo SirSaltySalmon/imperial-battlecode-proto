@@ -31,6 +31,8 @@ pub struct Ruleset {
     pub items: Vec<ItemRules>,
     pub item_names: Vec<String>,
     pub econ: EconRules,
+    /// CORE CHANGE (unit/economy): income and overtime numbers owned and parsed by the economy module.
+    pub flow: crate::economy::FlowRules,
 }
 
 fn gi(t: &Table, k: &str, d: i32) -> i32 {
@@ -206,6 +208,7 @@ impl Ruleset {
             items,
             item_names,
             econ,
+            flow: crate::economy::FlowRules::from_table(&e),
         })
     }
 
@@ -240,6 +243,7 @@ impl Ruleset {
         ] {
             h.i32(v);
         }
+        self.flow.hash(&mut h);
         h.finish()
     }
 }
