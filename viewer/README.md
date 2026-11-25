@@ -32,6 +32,10 @@ or any static server over `dist/` (`npx vite preview`, `python -m http.server`),
 `cargo run -p ibc-combatviz -- --out viewer/public/lab.json`. Drop a `lab.json` on the page if it is not
 served from `public/`.
 
+`/play.html` is the page of `ibc play` (play one unit against a bot; see `docs/PLAY.md`). It only works
+served by `ibc play`, which provides its `/setup`, `/state` and input endpoints. Its code is in `src/play/`
+and reuses the renderer, map parser and perspective of the replay viewer; it needs no engine module.
+
 `ibc view` finds the built viewer through `--viewer-dir`, then `IBC_VIEWER_DIR`, then a `viewer/dist` beside
 the working directory or the binary. The viewer is not embedded in the `ibc` binary on purpose: that would
 make building `ibc` depend on Node.
@@ -57,7 +61,8 @@ A replay only re-simulates on the engine version that recorded it. `scripts/copy
 `public/engine/<engine_version>.wasm`, then rewrites `public/engine/index.json` from the files present.
 Builds already in that directory are kept, so several versions sit side by side: to keep old replays
 viewable, keep (or copy in) the `.wasm` of each released engine before building. Pass a path to add one:
-`node scripts/copy-engine.mjs path/to/ibc_engine_wasm.wasm`.
+`node scripts/copy-engine.mjs path/to/ibc_engine_wasm.wasm`. Without a path it takes the build under
+`$CARGO_TARGET_DIR` (or `target/`), or `$IBC_ENGINE_WASM`.
 
 On load the viewer reads the replay header with a small JS parser of the container (`src/ibcr.ts`), fetches
 `engine/<engine_version>.wasm`, and reports a clear error if that version is not shipped. Errors from the
@@ -115,6 +120,7 @@ the frame of that tick.
 | `src/render.ts`, `src/draw-*.ts` | canvas drawing |
 | `src/ui.ts`, `src/main.ts` | side panel, feed, banner, controls, input |
 | `src/theme.ts` | colours for both themes |
+| `src/play/` | the `ibc play` page: controls (key and mouse to input messages), HUD, server API |
 
 Frames stay inside the engine's memory as JSON strings; the viewer decodes a frame when it is shown and
 keeps at most 48 parsed, so a long match costs little beyond the engine's own copy.

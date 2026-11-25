@@ -172,17 +172,70 @@ fn scale(base: u64, milli: u64) -> u64 {
     ((base as u128 * milli as u128 / 1000).min((u64::MAX / 4) as u128) as u64).max(1)
 }
 
+/// Drives some units from outside the runner (a human at a keyboard, a test script) instead of their team's
+/// wasm bot. A driven unit acts through the same `ibc_abi::Host` calls as a bot, at its place in the turn
+/// order, so the engine validates it the same way and the replay records it the same way.
+pub trait Driver {
+    /// True if this unit is driven here rather than by its team's bot. Asked once per unit before tick 0.
+    /// A team whose units are all driven needs no module: its `BotSpec::wasm` is not loaded and the
+    /// replay header gives it an empty sha256.
+    fn drives(&self, unit: u32, team: i32) -> bool;
+    /// Sees the match before the first tick and after every step. May block (a human thinking, a tick
+    /// clock). Returning false stops the match there; it is then recorded as unfinished.
+    fn observe(&mut self, game: &Match) -> bool;
+    /// The turn of a driven unit this tick: issue its acts on `game` through `ibc_abi::Host`.
+    fn turn(&mut self, unit: u32, game: &mut Match);
+}
+
+/// No unit is driven from outside: every unit runs its team's bot.
+struct Bots;
+
+impl Driver for Bots {
+    fn drives(&self, _unit: u32, _team: i32) -> bool {
+        false
+    }
+    fn observe(&mut self, _game: &Match) -> bool {
+        true
+    }
+    fn turn(&mut self, _unit: u32, _game: &mut Match) {}
+}
+
+/// The module of each team and its sha256, loaded only if one of the team's units runs it (not driven).
+fn load_team_modules(
+    env: &HostEnv,
+    bots: &[BotSpec; 2],
+    teams: &[i32],
+    driven: &[bool],
+) -> Result<([Option<Module>; 2], [String; 2])> {
+    let mut modules = [None, None];
+    let mut shas = [String::new(), String::new()];
+    for t in 0..2 {
+        if (0..teams.len()).any(|u| !driven[u] && teams[u] == t as i32) {
+            let (module, sha) = load_module(env, &bots[t])?;
+            modules[t] = Some(module);
+            shas[t] = sha;
+        }
+    }
+    Ok((modules, shas))
+}
+
 pub fn run_match(cfg: MatchConfig) -> Result<MatchOutput> {
+    run_driven(cfg, &mut Bots)
+}
+
+/// `run_match` with some units driven by `driver` instead of their bots (see `Driver`).
+pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutput> {
     let env = host()?;
     let map = Map::parse(&cfg.map_text).map_err(|e| anyhow!("map: {e}"))?;
     let mults = [milli(cfg.bots[0].fuel_multiplier)?, milli(cfg.bots[1].fuel_multiplier)?];
-    let (module_a, sha_a) = load_module(env, &cfg.bots[0])?;
-    let (module_b, sha_b) = load_module(env, &cfg.bots[1])?;
-    let modules = [module_a, module_b];
-    let shas = [sha_a, sha_b];
-
     let ruleset_hash = hash_hex(cfg.rules.hash());
     let map_hash = hash_hex(map.hash());
+    let game = Arc::new(Mutex::new(Match::new(cfg.rules, map, cfg.seed)));
+    let n = lock(&game).unit_count();
+    let teams: Vec<i32> = (0..n).map(|u| lock(&game).unit_team(u)).collect();
+    let driven: Vec<bool> = (0..n).map(|u| driver.drives(u, teams[u as usize])).collect();
+    let (modules, shas) = load_team_modules(env, &cfg.bots, &teams, &driven)?;
+
     let bot_info = |i: usize| BotInfo {
         name: cfg.bots[i].name.clone(),
         sha256: shas[i].clone(),
@@ -202,8 +255,6 @@ pub fn run_match(cfg: MatchConfig) -> Result<MatchOutput> {
     };
     let mut writer = ReplayWriter::new(header);
 
-    let game = Arc::new(Mutex::new(Match::new(cfg.rules, map, cfg.seed)));
-    let n = lock(&game).unit_count();
     let mut units: Vec<UnitStats> = Vec::with_capacity(n as usize);
     let mut vms: Vec<Option<UnitVm>> = Vec::with_capacity(n as usize);
     let mut logs: Vec<Vec<u8>> = vec![Vec::new(); n as usize];
@@ -234,15 +285,22 @@ pub fn run_match(cfg: MatchConfig) -> Result<MatchOutput> {
     };
 
     for unit in 0..n {
-        let team = lock(&game).unit_team(unit);
+        let team = teams[unit as usize];
         if !(0..=1).contains(&team) {
             bail!("engine reported team {team} for unit {unit}");
         }
         units.push(UnitStats { team, ..Default::default() });
+        let module = match &modules[team as usize] {
+            Some(m) if !driven[unit as usize] => m,
+            _ => {
+                vms.push(None);
+                continue;
+            }
+        };
         match UnitVm::new(
             &env.engine,
             &env.linker,
-            &modules[team as usize],
+            module,
             game.clone(),
             unit,
             cfg.seed,
@@ -260,17 +318,22 @@ pub fn run_match(cfg: MatchConfig) -> Result<MatchOutput> {
     let mut frames = cfg.frames.then(|| vec![lock(&game).frame_json()]);
     let mut team_fuel = [TeamFuel::default(), TeamFuel::default()];
     let mut final_hash = lock(&game).state_hash();
+    let mut go_on = driver.observe(&lock(&game));
 
     loop {
         let order = {
             let g = lock(&game);
-            if g.finished() || cfg.max_ticks.is_some_and(|m| writer.ticks() >= m) {
+            if !go_on || g.finished() || cfg.max_ticks.is_some_and(|m| writer.ticks() >= m) {
                 break;
             }
             g.turn_order()
         };
         let mut tick_fuel = [0u64; 2];
         for unit in order {
+            if driven[unit as usize] {
+                driver.turn(unit, &mut lock(&game));
+                continue;
+            }
             let Some(vm) = vms.get_mut(unit as usize).and_then(|v| v.as_mut()) else { continue };
             let team = units[unit as usize].team as usize;
             let budget = scale(lock(&game).fuel_budget(unit), mults[team]);
@@ -302,6 +365,7 @@ pub fn run_match(cfg: MatchConfig) -> Result<MatchOutput> {
         if let Some(f) = frames.as_mut() {
             f.push(g.frame_json());
         }
+        go_on = driver.observe(&g);
     }
 
     for (unit, vm) in vms.into_iter().enumerate() {

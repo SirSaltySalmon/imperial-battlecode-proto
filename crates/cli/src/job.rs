@@ -78,10 +78,16 @@ pub fn execute(job: &JobSpec) -> Result<JobResult> {
         max_ticks: job.max_ticks,
         frames: job.frames,
     })?;
+    let (replay_path, summary_path) = write_output(&job.out_dir, &out)?;
+    Ok(JobResult { summary: out.summary, replay_path, summary_path })
+}
 
-    std::fs::create_dir_all(&job.out_dir).with_context(|| format!("creating {}", job.out_dir.display()))?;
-    let replay_path = job.out_dir.join("replay.ibcr");
-    let summary_path = job.out_dir.join("summary.json");
+/// Write `replay.ibcr`, `summary.json`, `team-a.log`, `team-b.log` (and `frames.jsonl`) of a finished run.
+/// Returns the replay and summary paths.
+pub fn write_output(out_dir: &Path, out: &ibc_runner::MatchOutput) -> Result<(PathBuf, PathBuf)> {
+    std::fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
+    let replay_path = out_dir.join("replay.ibcr");
+    let summary_path = out_dir.join("summary.json");
     write(&replay_path, &out.replay.encode())?;
     write(&summary_path, out.summary.to_json().as_bytes())?;
     for (team, file) in ["team-a.log", "team-b.log"].iter().enumerate() {
@@ -93,7 +99,7 @@ pub fn execute(job: &JobSpec) -> Result<JobResult> {
                 log.push(b'\n');
             }
         }
-        write(&job.out_dir.join(file), &log)?;
+        write(&out_dir.join(file), &log)?;
     }
     if let Some(frames) = &out.frames {
         let mut text = String::with_capacity(frames.iter().map(|f| f.len() + 1).sum());
@@ -101,9 +107,9 @@ pub fn execute(job: &JobSpec) -> Result<JobResult> {
             text.push_str(f);
             text.push('\n');
         }
-        write(&job.out_dir.join("frames.jsonl"), text.as_bytes())?;
+        write(&out_dir.join("frames.jsonl"), text.as_bytes())?;
     }
-    Ok(JobResult { summary: out.summary, replay_path, summary_path })
+    Ok((replay_path, summary_path))
 }
 
 /// "A 7-3", "draw 6-6", "unfinished 1-0"

@@ -15,6 +15,7 @@ export default defineConfig({
       input: {
         main: resolve(root, "index.html"),
         lab: resolve(root, "lab.html"),
+        play: resolve(root, "play.html"),
       },
     },
   },

@@ -86,7 +86,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
 }
 
 /// The directory to serve: the first candidate that holds an `index.html`.
-fn find_viewer_dir(flag: Option<&Path>) -> Result<PathBuf> {
+pub(crate) fn find_viewer_dir(flag: Option<&Path>) -> Result<PathBuf> {
     let explicit = flag.map(Path::to_path_buf).or_else(|| std::env::var_os(VIEWER_DIR_ENV).map(PathBuf::from));
     if let Some(dir) = explicit {
         if !dir.join("index.html").is_file() {
@@ -164,7 +164,7 @@ fn handle(stream: TcpStream, site: &Site) -> std::io::Result<()> {
 
 /// A page on another site whose name is re-pointed at 127.0.0.1 (DNS rebinding) could otherwise read the
 /// replay through the browser. Such a request still carries the foreign name in `Host`.
-fn is_local_host(host: &str) -> bool {
+pub(crate) fn is_local_host(host: &str) -> bool {
     let name = match host.strip_prefix('[') {
         Some(v6) => v6.split(']').next().unwrap_or(""),
         None => host.rsplit_once(':').map_or(host, |(name, _port)| name),
@@ -224,7 +224,7 @@ fn respond_library(site: &Site, path: &str) -> Option<Response> {
 }
 
 /// A URL path as a relative file path, or `None` if it tries to leave the directory.
-fn safe_relative(path: &str) -> Option<PathBuf> {
+pub(crate) fn safe_relative(path: &str) -> Option<PathBuf> {
     let mut out = PathBuf::new();
     for part in path.strip_prefix('/')?.split('/') {
         match part {
@@ -237,7 +237,7 @@ fn safe_relative(path: &str) -> Option<PathBuf> {
     Some(out)
 }
 
-fn percent_decode(s: &str) -> Option<String> {
+pub(crate) fn percent_decode(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -254,7 +254,7 @@ fn percent_decode(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-fn content_type(path: &Path) -> &'static str {
+pub(crate) fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
         "html" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",

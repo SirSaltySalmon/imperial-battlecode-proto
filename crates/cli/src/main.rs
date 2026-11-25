@@ -3,6 +3,7 @@
 mod batch;
 mod build;
 mod job;
+mod play;
 mod toolchain;
 mod view;
 mod view_library;
@@ -85,6 +86,11 @@ enum Command {
     },
     /// Serve the replay viewer on localhost: ibc view [replay.ibcr] [--port N] [--viewer-dir DIR]
     View {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Play one unit against a bot in the browser: ibc play OPPONENT [--map M] [--mode realtime|turn] ...
+    Play {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -221,6 +227,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Toolchain { command: ToolchainCommand::Status } => toolchain::status()?,
         Command::View { args } => view::run(args)?,
+        Command::Play { args } => play::run(args)?,
         Command::New { .. } => {
             eprintln!("ibc new: not implemented yet");
             std::process::exit(2);
