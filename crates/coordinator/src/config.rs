@@ -58,6 +58,8 @@ pub struct Config {
     pub worker_live_ms: i64,
     /// Ladder snapshots kept (older ones are pruned; they can be recomputed from the series table).
     pub ladder_snapshots_kept: i64,
+    /// How long a tournament lock pauses ranked matchmaking (unless the organisers resume it sooner).
+    pub tournament_pause_ms: i64,
 }
 
 impl Default for Config {
@@ -87,6 +89,7 @@ impl Default for Config {
             languages: vec![("rust".to_string(), 1.0)],
             worker_live_ms: 90_000,
             ladder_snapshots_kept: 200,
+            tournament_pause_ms: 3_600_000,
         }
     }
 }

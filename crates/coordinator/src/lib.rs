@@ -216,11 +216,15 @@ impl App {
 
     /// One round of the ranked scheduler: `ibc_rating::plan_batch` pairs live teams that have no ranked
     /// series running (under-played teams first, opponents near in rating), at most `budget` series
-    /// (`None`: what `ranked_budget` says the workers can play). Returns the ids of the series created.
+    /// (`None`: what `ranked_budget` says the workers can play). Returns the ids of the series created;
+    /// none while a tournament lock pauses ranked matchmaking.
     pub fn ranked_round(&self, budget: Option<u32>, games: i64) -> ApiResult<Vec<String>> {
         let now = util::now_ms();
         let seed = u64::from_str_radix(&util::random_hex(8), 16).expect("16 hex digits");
         let created = self.db.tx(|tx| {
+            if db::tournaments::ranked_paused(tx, now)?.is_some() {
+                return Ok(Vec::new());
+            }
             let budget = match budget {
                 Some(b) => b,
                 None => self.ranked_budget(tx, games, now)?,

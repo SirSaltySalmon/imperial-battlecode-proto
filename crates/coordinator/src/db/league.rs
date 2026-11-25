@@ -194,6 +194,7 @@ pub fn finalize_ready(
     for id in &ready {
         rated_any |= finalize_one(tx, hook, id, now)?;
     }
+    super::tournaments::on_series_closed(tx, &ready, now)?;
     if rated_any {
         ratings::write_snapshot(tx, hook, now, snapshots_kept)?;
     }
@@ -465,7 +466,9 @@ pub fn list_matches(tx: &Transaction, f: &MatchFilter) -> ApiResult<Vec<Value>> 
         "{MATCH_SQL} WHERE (?1 IS NULL OR s.team_a = ?1 OR s.team_b = ?1) AND (?2 IS NULL OR g.series_id = ?2)
            AND (?3 IS NULL OR (g.created_at, g.series_id, g.idx) <
                                (SELECT c.created_at, c.series_id, c.idx FROM games c WHERE c.id = ?3))
-         ORDER BY g.created_at DESC, g.series_id DESC, g.idx DESC LIMIT ?4"
+           AND {}
+         ORDER BY g.created_at DESC, g.series_id DESC, g.idx DESC LIMIT ?4",
+        super::tournaments::VISIBLE_GAME
     );
     let mut st = tx.prepare_cached(&sql)?;
     let rows = st.query_map(params![f.team, f.series, f.before, f.limit], |r| {
@@ -476,9 +479,14 @@ pub fn list_matches(tx: &Transaction, f: &MatchFilter) -> ApiResult<Vec<Value>> 
 
 pub fn get_match(tx: &Transaction, id: &str) -> ApiResult<Option<Value>> {
     Ok(tx
-        .query_row(&format!("{MATCH_SQL} WHERE g.id = ?1"), [id], |r| {
-            match_view(r, true)
-        })
+        .query_row(
+            &format!(
+                "{MATCH_SQL} WHERE g.id = ?1 AND {}",
+                super::tournaments::VISIBLE_GAME
+            ),
+            [id],
+            |r| match_view(r, true),
+        )
         .optional()?)
 }
 
@@ -486,7 +494,7 @@ pub fn get_match(tx: &Transaction, id: &str) -> ApiResult<Option<Value>> {
 pub fn match_replay(tx: &Transaction, id: &str) -> ApiResult<Option<String>> {
     Ok(tx
         .query_row(
-            "SELECT j.replay_sha256 FROM games g JOIN jobs j ON j.id = g.job_id WHERE g.id = ?1 AND j.state = 'done'",
+            &format!("SELECT j.replay_sha256 FROM games g JOIN jobs j ON j.id = g.job_id WHERE g.id = ?1 AND j.state = 'done' AND {}", super::tournaments::VISIBLE_GAME),
             [id],
             |r| r.get::<_, Option<String>>(0),
         )
@@ -497,10 +505,11 @@ pub fn match_replay(tx: &Transaction, id: &str) -> ApiResult<Option<String>> {
 pub fn series_view(tx: &Transaction, id: &str) -> ApiResult<Option<Value>> {
     let head = tx
         .query_row(
-            "SELECT s.id, s.kind, s.team_a, ta.name, s.team_b, tb.name, s.sub_a, s.sub_b, s.games, s.state, s.rated,
+            &format!("SELECT s.id, s.kind, s.team_a, ta.name, s.team_b, tb.name, s.sub_a, s.sub_b, s.games, s.state, s.rated,
                     s.wins_a, s.wins_b, s.draws, s.note, s.created_at, s.finished_at, sa.sha256, sb.sha256
              FROM series s JOIN teams ta ON ta.id = s.team_a JOIN teams tb ON tb.id = s.team_b
-             JOIN submissions sa ON sa.id = s.sub_a JOIN submissions sb ON sb.id = s.sub_b WHERE s.id = ?1",
+             JOIN submissions sa ON sa.id = s.sub_a JOIN submissions sb ON sb.id = s.sub_b WHERE s.id = ?1 AND {}",
+            super::tournaments::VISIBLE_SERIES),
             [id],
             |r| {
                 // The submissions are the ones that were live when the series was created (pinned).
