@@ -7,6 +7,7 @@ attackers-vs-defenders tactical shooter in which every unit runs its own bot.
 - What bots see and do: [docs/ABI.md](docs/ABI.md)
 - How matches are dispatched to workers: [docs/JOBS.md](docs/JOBS.md)
 - Working conventions (people and agents): [CLAUDE.md](CLAUDE.md)
+- What is left to do: [docs/TODO.md](docs/TODO.md)
 
 ## Quick start
 

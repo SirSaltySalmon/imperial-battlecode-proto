@@ -8,7 +8,7 @@ so never hard-code them. This file describes the mechanics; the TOML files are t
 
 - Continuous 2D. Positions are fixed-point: 1024 units per tile, origin top-left, +x right, +y down.
 - Angles are 0..65535 per full turn. 0 points along +x and angles grow towards +y (clockwise on screen).
-- All distances are Euclidean. There is no grid movement and no Chebyshev shortcut anywhere.
+- All distances are Euclidean. There is no grid movement.
 - The map is a tile grid: floor, wall (blocks movement, sight and bullets), low cover (blocks movement only).
   Units are circles of `unit_radius`. Plant sites are tile regions. The static map is known to everyone.
 - Teams of 3 to 5, set by the map. Unit ids `0..n-1` are team A, `n..2n-1` team B.
