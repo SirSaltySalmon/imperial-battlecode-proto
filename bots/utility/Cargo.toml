@@ -1,0 +1,24 @@
+[package]
+name = "utility"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Demo bot: the rusher with a drafted kit, using every ability."
+
+# Standalone: build with `cargo build --release --target wasm32-wasip1`.
+[workspace]
+
+[dependencies]
+ibc = { path = "../../sdk/rust" }
+rusher = { path = "../rusher" }
+
+# The native test plays this bot against the engine through `ibc::native`.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ibc-engine = { path = "../../crates/engine" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

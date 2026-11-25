@@ -584,6 +584,8 @@ impl World {
     fn step_projectiles(&mut self, s: i32, sub: i32) {
         let radius = self.rules.core.unit_radius;
         let mut hits: Vec<(usize, Projectile)> = Vec::new();
+        // Abilities unit: projectiles stopped by a dynamic effect, with the point they were heading for.
+        let mut blocked: Vec<(Projectile, V2)> = Vec::new();
         let mut keep = Vec::with_capacity(self.projectiles.len());
         let projectiles = std::mem::take(&mut self.projectiles);
         for mut p in projectiles {
@@ -596,7 +598,9 @@ impl World {
             if let Some(hit) = self.map.segment_wall(a, b) {
                 stop = Some(fixed::dist(a, hit) as i64 * fixed::ONE / seg_len as i64);
             }
+            let mut by_effect = false;
             if let Some(t) = abilities::blocks_segment(self, a, b) {
+                by_effect = stop.map_or(true, |s| t < s);
                 stop = Some(stop.map_or(t, |s| s.min(t)));
             }
             let mut victim: Option<(usize, i64)> = None;
@@ -618,6 +622,9 @@ impl World {
                 }
             }
             if stop.is_some() {
+                if by_effect {
+                    blocked.push((p, b));
+                }
                 continue;
             }
             p.pos = b;
@@ -631,6 +638,10 @@ impl World {
         for (j, p) in hits {
             let dmg = combat::bullet_damage(self, &p);
             self.damage(j, dmg, Some(p.owner as usize), p.weapon);
+        }
+        // Abilities unit: tell the effect what it stopped (barriers have hit points).
+        if !blocked.is_empty() {
+            abilities::on_blocked(self, &blocked);
         }
     }
 
