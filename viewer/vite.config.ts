@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 // `base: "./"` keeps every asset URL relative, so the built `dist/` works from any path of any static host
-// and from `ibc view`. The combat lab is a second page (`lab.html`) so it shares this build.
+// and from `ibc view`. The combat lab (`lab.html`) and the map editor (`editor.html`) are more pages of this build.
 const root = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
@@ -15,6 +15,7 @@ export default defineConfig({
       input: {
         main: resolve(root, "index.html"),
         lab: resolve(root, "lab.html"),
+        editor: resolve(root, "editor.html"),
       },
     },
   },

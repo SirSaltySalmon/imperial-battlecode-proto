@@ -28,6 +28,9 @@ ibc view --replays out/replays         # a folder to pick from: menu in the head
 or any static server over `dist/` (`npx vite preview`, `python -m http.server`), opening
 `/?replay=<url of an .ibcr>`. `npm run dev` runs the Vite dev server with hot reload.
 
+`/editor.html` is the map editor: `ibc view --editor [--maps DIR]` serves it with lint and save for a map
+folder (see `docs/maps.md`, "The editor"). From any other host it still opens, edits and exports maps.
+
 `/lab.html` is the combat lab. It uses this viewer's theme, units and map to draw a recording from
 `cargo run -p ibc-combatviz -- --out viewer/public/lab.json`. Drop a `lab.json` on the page if it is not
 served from `public/`.
@@ -57,7 +60,8 @@ A replay only re-simulates on the engine version that recorded it. `scripts/copy
 `public/engine/<engine_version>.wasm`, then rewrites `public/engine/index.json` from the files present.
 Builds already in that directory are kept, so several versions sit side by side: to keep old replays
 viewable, keep (or copy in) the `.wasm` of each released engine before building. Pass a path to add one:
-`node scripts/copy-engine.mjs path/to/ibc_engine_wasm.wasm`.
+`node scripts/copy-engine.mjs path/to/ibc_engine_wasm.wasm`. Without one it reads `IBC_ENGINE_WASM`, then the
+release build under `CARGO_TARGET_DIR` (default `target/`).
 
 On load the viewer reads the replay header with a small JS parser of the container (`src/ibcr.ts`), fetches
 `engine/<engine_version>.wasm`, and reports a clear error if that version is not shipped. Errors from the
@@ -115,6 +119,7 @@ the frame of that tick.
 | `src/render.ts`, `src/draw-*.ts` | canvas drawing |
 | `src/ui.ts`, `src/main.ts` | side panel, feed, banner, controls, input |
 | `src/theme.ts` | colours for both themes |
+| `src/editor/` | the map editor: `doc.ts` (map text), `paint.ts`, `transform.ts` (mirrors, rotations), `history.ts` (undo), `check.ts` (engine validation), `api.ts` (lint and save on `ibc view --editor`), `draw.ts` (through `render.ts`), `input.ts`, `panel.ts`, `main.ts` |
 
 Frames stay inside the engine's memory as JSON strings; the viewer decodes a frame when it is shown and
 keeps at most 48 parsed, so a long match costs little beyond the engine's own copy.

@@ -10,6 +10,9 @@
 //!            checks every state hash, so a replay from another engine version fails here instead of drifting.
 //!   The rules this build simulates with (sizes, timings, weapon names by id) are JSON at
 //!   ibc_rules_ptr() / ibc_rules_len(), available without loading a replay.
+//!   Map editor: copy `.ibcmap` text to p; rc = ibc_map_check(p, n); ibc_free(p, n). The result is UTF-8 at
+//!   ibc_map_ptr() / ibc_map_len(): with rc == 0 a JSON summary of the map as the engine reads it
+//!   (`map_summary`), otherwise the engine's parse error. It does not touch a loaded replay.
 //! Each engine release ships its own build of this module, so old replays stay viewable.
 
 use std::cell::RefCell;
@@ -24,6 +27,7 @@ struct Loaded {
 thread_local! {
     static STATE: RefCell<Loaded> = RefCell::new(Loaded::default());
     static RULES: String = rules();
+    static MAP_CHECK: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// The built-in ruleset as the JSON a viewer reads (`ibc_engine::rules_json`).
@@ -38,6 +42,29 @@ pub fn load(bytes: &[u8]) -> Result<(Vec<String>, String), String> {
     replay.simulate(|m| frames.push(m.frame_json()))?;
     let header = serde_json::to_string(&replay.header).map_err(|e| e.to_string())?;
     Ok((frames, header))
+}
+
+/// Parse map text exactly as a match would (`Map::parse`) and summarise what the engine makes of it: size,
+/// team size, the sites (bounding boxes and the centre bots plant at), the spawn tiles per side and the map
+/// hash that replays record.
+pub fn map_summary(text: &str) -> Result<String, String> {
+    let map = ibc_engine::Map::parse(text)?;
+    let sites: Vec<_> = map
+        .sites
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "id": s.id, "min_tx": s.min_tx, "min_ty": s.min_ty, "max_tx": s.max_tx, "max_ty": s.max_ty,
+                "centre_x": s.centre_x, "centre_y": s.centre_y,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "name": map.name, "width": map.width, "height": map.height, "team_size": map.team_size,
+        "sites": sites, "spawns": [map.spawns[0].len() as u32, map.spawns[1].len() as u32],
+        "hash": format!("{:016x}", map.hash()),
+    })
+    .to_string())
 }
 
 #[no_mangle]
@@ -75,6 +102,35 @@ pub unsafe extern "C" fn ibc_load(ptr: *const u8, len: u32) -> i32 {
             }
         }
     })
+}
+
+/// # Safety
+/// `ptr..ptr+len` must be readable.
+#[no_mangle]
+pub unsafe extern "C" fn ibc_map_check(ptr: *const u8, len: u32) -> i32 {
+    let bytes = std::slice::from_raw_parts(ptr, len as usize);
+    let result = match std::str::from_utf8(bytes) {
+        Ok(text) => map_summary(text),
+        Err(_) => Err("map text is not UTF-8".to_string()),
+    };
+    MAP_CHECK.with(|m| {
+        let (rc, out) = match result {
+            Ok(json) => (0, json),
+            Err(e) => (1, e),
+        };
+        *m.borrow_mut() = out;
+        rc
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn ibc_map_ptr() -> *const u8 {
+    MAP_CHECK.with(|m| m.borrow().as_ptr())
+}
+
+#[no_mangle]
+pub extern "C" fn ibc_map_len() -> u32 {
+    MAP_CHECK.with(|m| m.borrow().len() as u32)
 }
 
 #[no_mangle]

@@ -857,6 +857,7 @@ dependencies = [
  "clap",
  "ibc-abi",
  "ibc-engine",
+ "ibc-maptool",
  "ibc-replay",
  "ibc-runner",
  "serde",
