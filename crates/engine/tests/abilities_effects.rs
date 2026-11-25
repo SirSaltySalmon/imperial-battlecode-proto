@@ -340,7 +340,7 @@ fn dash_moves_instantly_and_stops_at_walls() {
     assert_eq!(m.world.units[0].pos.1, c(7, 5).1);
 
     // A short dash goes exactly to the target point.
-    m.world.units[0].abil = abilities::UnitAbilities { charges: [1, 0], cooldown: [0, 0] };
+    m.world.units[0].abil = abilities::UnitAbilities { charges: [1, 0], cooldown: [0, 0], ..Default::default() };
     place(&mut m, 0, c(2, 3), EAST);
     assert_eq!(use_at(&mut m, 0, 0, (c(2, 3).0 + 1000, c(2, 3).1 + 1000)), OK);
     m.step();
@@ -460,12 +460,16 @@ fn charges_are_validated_bought_and_refilled() {
 #[test]
 fn every_kit_has_two_abilities_and_original_stats() {
     let r = Ruleset::builtin();
-    assert_eq!(r.abilities.len(), 8);
+    assert_eq!(r.abilities.len(), 11);
     let mut effects: Vec<i32> = r.abilities.iter().map(|a| a.effect).collect();
     effects.sort();
-    assert_eq!(effects, vec![1, 2, 3, 4, 5, 6, 7, abilities::EFFECT_DASH]);
+    let all = [1, 2, 3, 4, 5, 6, 7, abilities::EFFECT_DASH, EFFECT_TRAP, EFFECT_SONAR, EFFECT_CONCUSSION];
+    assert_eq!(effects, all);
     assert_eq!(r.kits[0].abilities, [-1, -1], "kit 0 stays the plain kit undrafted bots play");
-    assert!((6..=7).contains(&r.kits.len()));
+    assert!(r.kits.len() >= 10, "nine real kits, so five teammates can all pick different ones");
+    for (i, k) in r.kits.iter().enumerate().skip(1) {
+        assert!(!r.kits[..i].iter().any(|o| o.abilities == k.abilities), "kit {i} repeats another kit");
+    }
     for k in &r.kits[1..] {
         let [free, bought] = k.abilities.map(|a| r.abilities[a as usize]);
         assert_eq!(free.price, 0, "slot 0 is the kit's free ability");

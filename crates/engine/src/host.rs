@@ -70,12 +70,7 @@ fn rows(w: &World, me: usize, table: u32) -> Vec<usize> {
         T_PROJECTILES => (0..w.projectiles.len())
             .filter(|&j| w.projectiles[j].team == my.team || w.can_see_point(me, w.projectiles[j].pos))
             .collect(),
-        T_EFFECTS => (0..w.effects.len())
-            .filter(|&j| {
-                let e = &w.effects[j].info;
-                e.team == my.team || w.can_see_point(me, (e.x, e.y))
-            })
-            .collect(),
+        T_EFFECTS => (0..w.effects.len()).filter(|&j| abilities::effect_visible(w, me, j)).collect(),
         T_DROPS => (0..w.drops.len())
             .filter(|&j| {
                 let d = &w.drops[j];

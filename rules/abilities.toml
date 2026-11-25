@@ -16,6 +16,10 @@
 #   decoy (7)       radius = inside it the decoy is heard as a decoy, duration = ticks it plays,
 #                   power = ticks between fake shots
 #   dash (8)        range = distance
+#   trap (9)        range = how far it is placed, radius = trigger radius, duration = ticks it lies armed,
+#                   power = turns a caught unit stays slowed and revealed
+#   sonar (10)      radius = pulse radius (through walls), power = turns every unit in it stays revealed
+#   concussion (11) radius = pop radius, power = turns a hit unit stays slowed
 # delay = ticks between the use and the effect arming. price 0 = refilled to max_charges every round;
 # otherwise charges are bought (up to max_charges) and kept until used.
 
@@ -115,6 +119,42 @@ duration = 6
 power = 7
 delay = 0
 
+[[ability]]
+name = "trap"
+effect = 9
+price = 0
+max_charges = 1
+cooldown = 0
+range = 3072
+radius = 768
+duration = 300
+power = 4
+delay = 3
+
+[[ability]]
+name = "sonar"
+effect = 10
+price = 0
+max_charges = 1
+cooldown = 0
+range = 8192
+radius = 5120
+duration = 0
+power = 3
+delay = 2
+
+[[ability]]
+name = "concussion"
+effect = 11
+price = 250
+max_charges = 1
+cooldown = 4
+range = 8192
+radius = 2048
+duration = 0
+power = 4
+delay = 1
+
 # [[kit]] name, abilities = [slot 0, slot 1] (ability ids, -1 = none), hp, speed_pct.
 # Kit 0 is what a unit plays if it never drafts. Slot 0 is the kit's free ability, slot 1 the bought one.
 [[kit]]
@@ -157,4 +197,22 @@ speed_pct = 95
 name = "kindler"
 abilities = [5, 2]
 hp = 85
+speed_pct = 105
+
+[[kit]]
+name = "trapper"
+abilities = [8, 10]
+hp = 100
+speed_pct = 95
+
+[[kit]]
+name = "echo"
+abilities = [9, 2]
+hp = 95
+speed_pct = 100
+
+[[kit]]
+name = "breaker"
+abilities = [6, 10]
+hp = 95
 speed_pct = 105

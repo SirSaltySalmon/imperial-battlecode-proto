@@ -6,6 +6,7 @@ import {
   CHARGE_CARRIED,
   CHARGE_DROPPED,
   DROP_CHARGE,
+  EFFECT_TRAP,
   S_HAS_CHARGE,
   type DebugDraw,
   type DropFrame,
@@ -104,6 +105,10 @@ export function viewOf(frame: Frame, p: Perspective, map: GameMap, rules: ViewRu
     };
   }
   const sees = (x: number, y: number) => eyes.some((u) => canSeePoint(map, rules, u, x, y));
+  // An enemy trap shows only to a viewer within `sense_radius` of it (docs/rules/abilities.md).
+  const near = (x: number, y: number) =>
+    eyes.some((u) => (u.x - x) ** 2 + (u.y - y) ** 2 <= rules.sense_radius ** 2 && canSeePoint(map, rules, u, x, y));
+  const effectVisible = (e: EffectFrame) => e.team === team || (e.kind === EFFECT_TRAP ? near : sees)(e.x, e.y);
   const attacking = frame.attackers === team;
   const ids = new Set(eyes.map((u) => u.id));
   let chargeVisible = true;
@@ -116,7 +121,7 @@ export function viewOf(frame: Frame, p: Perspective, map: GameMap, rules: ViewRu
   return {
     unitVisible,
     projectiles: frame.projectiles.filter((q) => q.team === team || sees(q.x, q.y)),
-    effects: frame.effects.filter((e) => e.team === team || sees(e.x, e.y)),
+    effects: frame.effects.filter(effectVisible),
     drops: frame.drops.filter((d) => (d.kind === DROP_CHARGE && attacking) || sees(d.x, d.y)),
     sounds,
     debug: frame.debug.filter((d) => ids.has(d[0])),

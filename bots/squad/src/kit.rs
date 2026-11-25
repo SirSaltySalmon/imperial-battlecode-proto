@@ -2,7 +2,8 @@
 //!
 //! Abilities are used for the objective first: smoke on the line the enemy arrives on (or on the charge,
 //! to defuse inside it), fire on a defuse in progress, a barrier in front of a plant or defuse, recon on
-//! the site before going in. Flash, heal and dash are used as the fight asks.
+//! the site before going in, a trap where the enemy arrives or on our planted charge, sonar on the site, a
+//! concussion on a plant or defuse. Flash, heal and dash are used as the fight asks.
 use ibc::*;
 
 /// Heal a teammate, or raise a barrier, below this share of 100 hit points.
@@ -100,6 +101,11 @@ impl Kit {
     }
 }
 
+/// A living teammate stands within `radius` of `p` (abilities hit our own team too).
+fn ally_near(p: (i32, i32), radius: i32) -> bool {
+    allies().any(|u| u.alive() && dist(u.pos(), p) <= radius)
+}
+
 fn smoked(p: (i32, i32), radius: i32) -> bool {
     effects().any(|e| e.kind == EFFECT_SMOKE && dist((e.x, e.y), p) <= radius)
 }
@@ -159,6 +165,35 @@ fn target(a: &AbilityRules, me: &UnitInfo, s: &Scene) -> Option<(i32, i32)> {
             (quiet && s.opened && speed > 0 && dist(pos, s.objective) > a.range + TILE)
                 .then(|| (me.x + me.vx * a.range / speed, me.y + me.vy * a.range / speed))
                 .filter(|p| p.0 >= 0 && p.1 >= 0 && p.0 <= map.width * TILE && p.1 <= map.height * TILE)
+        }
+        EFFECT_TRAP => {
+            // Defending: on the way in. Attacking with the charge down: on the charge, where a defuser stands.
+            let p = match (s.attacking, s.planted) {
+                (false, false) if near => {
+                    let reach = a.range.min(dist(pos, s.watch));
+                    offset(me.x, me.y, angle_to(s.watch.0 - me.x, s.watch.1 - me.y), reach)
+                }
+                (true, true) if in_range(s.objective) => s.objective,
+                _ => return None,
+            };
+            let clear = dist(pos, p) > a.radius + TILE && !ally_near(p, a.radius + TILE);
+            (quiet && s.opened && clear).then_some(p)
+        }
+        EFFECT_SONAR => {
+            // Before going onto the site, or before retaking it.
+            let ready = (s.attacking && !s.planted) || (!s.attacking && s.planted);
+            let p = s.objective;
+            let clear = dist(pos, p) > a.radius + TILE && !ally_near(p, a.radius + TILE);
+            (ready && quiet && s.opened && in_range(p) && clear).then_some(p)
+        }
+        EFFECT_CONCUSSION => {
+            let clear =
+                |p: (i32, i32)| in_range(p) && dist(pos, p) > a.radius + TILE && !ally_near(p, a.radius + TILE);
+            if s.attacking && s.planted && s.defuse_heard && clear(s.objective) && los(pos, s.objective) {
+                return Some(s.objective);
+            }
+            let e = s.enemy.filter(|e| e.has(S_PLANTING | S_DEFUSING))?;
+            clear(e.pos()).then(|| e.pos())
         }
         EFFECT_HEAL => {
             let hurt = |u: &UnitInfo| u.alive() && u.hp <= HURT_HP && dist(pos, u.pos()) <= a.range;

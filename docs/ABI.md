@@ -35,7 +35,8 @@ clock and random source, empty args and environment. There is no filesystem, net
   only of `i32`, little-endian, no padding. A buffer that is too small gets `ERR_BUFFER_TOO_SMALL`. Records only
   ever grow at the end, so a bot built against an older ABI keeps working: it reads the prefix it knows.
 - **Fog is applied by the host.** `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS` and `T_DROPS` list only what the calling
-  unit can perceive. Enemy rows hide credits, ammo, charges and cooldowns.
+  unit can perceive. Enemy rows hide credits, ammo, charges and cooldowns. An enemy trap (`EFFECT_TRAP`) is listed
+  only within `sense_radius` of the caller (`docs/rules/abilities.md`).
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
   resolves with everyone else's when the tick is stepped. One move, one facing and one primary action per tick.
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;

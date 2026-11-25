@@ -87,7 +87,8 @@ the earlier one.
 ## Kits and abilities
 
 Each unit drafts a kit: base health, speed and two ability slots. Abilities (smoke, flash, incendiary, recon,
-barrier, dash, decoy, heal) are defined in `rules/abilities.toml`. The foundation ships one plain kit.
+barrier, dash, decoy, heal, trap, sonar, concussion) are defined in `rules/abilities.toml`, which ships a plain
+kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
 
 ## Compute and memory
 

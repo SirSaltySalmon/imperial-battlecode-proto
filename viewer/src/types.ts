@@ -43,6 +43,10 @@ export const EFFECT_FLASH = 4;
 export const EFFECT_RECON = 5;
 export const EFFECT_HEAL = 6;
 export const EFFECT_DECOY = 7;
+/** 8 is the dash, which never appears in the world. */
+export const EFFECT_TRAP = 9;
+export const EFFECT_SONAR = 10;
+export const EFFECT_CONCUSSION = 11;
 
 export const DROP_CHARGE = 1;
 export const DROP_WEAPON = 2;

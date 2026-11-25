@@ -153,6 +153,12 @@ pub const EFFECT_HEAL: i32 = 6;
 pub const EFFECT_DECOY: i32 = 7;
 /// Ability effect id only (an instant move); never appears in `T_EFFECTS`.
 pub const EFFECT_DASH: i32 = 8;
+/// A hidden trigger area. Enemies get it in `T_EFFECTS` only within `sense_radius` of it.
+pub const EFFECT_TRAP: i32 = 9;
+/// A pulse that marks every unit around it, friend or foe, through walls.
+pub const EFFECT_SONAR: i32 = 10;
+/// A pop that slows every unit around it and interrupts what it was doing.
+pub const EFFECT_CONCUSSION: i32 = 11;
 
 pub const DROP_CHARGE: i32 = 1;
 pub const DROP_WEAPON: i32 = 2;

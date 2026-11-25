@@ -6,9 +6,10 @@
 //! entry (hashed by the core). `Effect.data` packs the ability id (high bits) with 16 bits of per-effect
 //! state: a barrier's hit points, a heal's target unit.
 //!
-//! An effect lives `delay + linger` ticks, where `linger` is `duration` (one tick for a flash, which only
-//! pops). It is arming while `ticks_left > linger` and active afterwards.
+//! An effect lives `delay + linger` ticks, where `linger` is `duration` (one tick for a flash, a sonar pulse
+//! and a concussion, which only pop). It is arming while `ticks_left > linger` and active afterwards.
 
+mod control;
 mod effects;
 mod geom;
 
@@ -34,11 +35,14 @@ const AUX_MASK: i32 = (1 << AUX_BITS) - 1;
 pub struct UnitAbilities {
     pub charges: [i32; 2],
     pub cooldown: [i32; 2],
+    /// Where the unit was when effects last ticked: the start of the path a trap sweeps.
+    pub last_pos: V2,
 }
 
 impl UnitAbilities {
     pub fn hash(&self, h: &mut Fnv) {
-        for v in [self.charges[0], self.charges[1], self.cooldown[0], self.cooldown[1]] {
+        let (c, d, p) = (self.charges, self.cooldown, self.last_pos);
+        for v in [c[0], c[1], d[0], d[1], p.0, p.1] {
             h.i32(v);
         }
     }
@@ -59,10 +63,9 @@ fn rules_of(w: &World, e: &Effect) -> AbilityRules {
 
 /// Ticks an effect of this ability stays active once armed.
 fn linger(r: &AbilityRules) -> i32 {
-    if r.effect == EFFECT_FLASH {
-        1
-    } else {
-        r.duration.max(0)
+    match r.effect {
+        EFFECT_FLASH | EFFECT_SONAR | EFFECT_CONCUSSION => 1,
+        _ => r.duration.max(0),
     }
 }
 
@@ -101,7 +104,7 @@ fn slot_ability(w: &World, u: usize, slot: i32) -> Result<AbilityRules, i32> {
 
 /// What a use would do, decided from the current state.
 enum Plan {
-    /// A device thrown to a point: smoke, flash, incendiary, recon, decoy.
+    /// A device thrown to a point: smoke, flash, incendiary, recon, decoy, trap, sonar, concussion.
     Device(V2),
     Barrier(V2, V2),
     Dash(V2),
@@ -194,7 +197,8 @@ fn plan(w: &World, u: usize, slot: i32, target: V2) -> Result<(AbilityRules, Pla
         return Err(ERR_BAD_ARG);
     }
     let plan = match rules.effect {
-        EFFECT_SMOKE | EFFECT_FLASH | EFFECT_FIRE | EFFECT_RECON | EFFECT_DECOY => {
+        EFFECT_SMOKE | EFFECT_FLASH | EFFECT_FIRE | EFFECT_RECON | EFFECT_DECOY | EFFECT_TRAP | EFFECT_SONAR
+        | EFFECT_CONCUSSION => {
             Plan::Device(throw_point(w, unit.pos, target, rules.range))
         }
         EFFECT_BARRIER => {
@@ -337,6 +341,23 @@ fn sight_blocked(w: &World, a: V2, b: V2, effects_show: bool) -> bool {
     })
 }
 
+/// SEAM: does unit `me` get effect `i` in `T_EFFECTS`? Its own team's effects always; an enemy effect when
+/// its reference point is in sight. An enemy trap is hidden further away than `sense_radius`, even in plain
+/// view.
+pub fn effect_visible(w: &World, me: usize, i: usize) -> bool {
+    let e = &w.effects[i].info;
+    let unit = &w.units[me];
+    if e.team == unit.team {
+        return true;
+    }
+    let at = (e.x, e.y);
+    let sense = w.rules.core.sense_radius as i64;
+    if e.kind == EFFECT_TRAP && fixed::dist2(unit.pos, at) > sense * sense {
+        return false;
+    }
+    w.can_see_point(me, at)
+}
+
 /// SEAM: does a dynamic effect block a circle at `p`?
 pub fn blocks_move(w: &World, p: V2, r: i32) -> bool {
     let r2 = r as i64 * r as i64;
@@ -387,6 +408,7 @@ pub fn on_blocked(w: &mut World, stopped: &[(Projectile, V2)]) {
 pub fn on_round_start(w: &mut World) {
     for u in 0..w.units.len() {
         w.units[u].abil.cooldown = [0, 0];
+        w.units[u].abil.last_pos = w.units[u].pos;
         for slot in 0..2 {
             match slot_ability(w, u, slot) {
                 Ok(r) if r.price <= 0 => w.units[u].abil.charges[slot as usize] = r.max_charges.max(0),
