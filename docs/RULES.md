@@ -33,9 +33,10 @@ All living units' bots run against the same start-of-tick snapshot and queue int
 
 1. **Intents.** Facing turns towards the requested angle by at most `turn_rate`. Primary actions start
    (fire, reload, plant, defuse, ability, pickup, drop, swap). Velocity is set from `A_MOVE`.
-2. **Weapons.** Timers tick; wind-ups that finish release their bullets.
+2. **Weapons.** Ability uses whose startup ends happen. Timers tick; wind-ups that finish release their bullets.
 3. **Movement and bullets**, in `substeps` slices: units move with collision (they slide along walls), bullets move
    and are swept against walls and unit circles. All hits within a slice are applied together, so units can trade.
+   Thrown ability devices fly on the same step, over units, and land at the first wall or barrier or at their range.
 4. **Effects and statuses** tick.
 5. **Objective.** Plant and defuse channels progress, the fuse burns, round-end conditions are checked.
 6. **Sound and vision** for the next tick are computed.

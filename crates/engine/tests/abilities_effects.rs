@@ -76,6 +76,17 @@ fn use_at(m: &mut Match, unit: u32, slot: i32, at: (i32, i32)) -> i32 {
     m.act(unit, A_ABILITY, slot, at.0, at.1)
 }
 
+/// Steps from a use until the tick a thrown device lands `dist` away is done: the startup, then the flight
+/// (a device thrown at the thrower's feet lands in the tick it is thrown).
+fn until_landed(a: &AbilityRules, dist: i32) -> usize {
+    (a.delay + ((dist + a.speed - 1) / a.speed).max(1)) as usize
+}
+
+/// Steps from a use until the tick an ability that is not thrown happens is done.
+fn until_done(a: &AbilityRules) -> usize {
+    a.delay as usize + 1
+}
+
 #[test]
 fn smoke_blocks_sight_both_ways_but_not_bullets() {
     let mut m = setup("shroud");
@@ -86,7 +97,7 @@ fn smoke_blocks_sight_both_ways_but_not_bullets() {
     assert!(sees(&m, 0, 2) && sees(&m, 2, 0));
 
     assert_eq!(use_at(&mut m, 0, 1, c(7, 3)), OK);
-    m.step();
+    steps(&mut m, until_landed(&ability("smoke"), 5 * TILE));
     assert!(!sees(&m, 0, 2) && !sees(&m, 2, 0), "the cloud is between them");
     assert_eq!(m.count(2, T_EFFECTS), 1, "the enemy can see the cloud itself");
     let e: EffectInfo = row(&m, 2, T_EFFECTS, 0);
@@ -113,7 +124,7 @@ fn smoke_hides_a_unit_standing_on_its_centre() {
     place(&mut m, 2, c(12, 3), WEST);
     m.world.units[0].abil.charges[1] = 1;
     assert_eq!(use_at(&mut m, 0, 1, c(2, 3)), OK);
-    m.step();
+    steps(&mut m, until_landed(&ability("smoke"), 0));
     assert_eq!((m.world.effects[0].info.x, m.world.effects[0].info.y), c(2, 3));
     assert!(!sees(&m, 2, 0) && !sees(&m, 0, 2));
 }
@@ -125,7 +136,7 @@ fn barrier_cut_short_by_a_wall_is_still_visible_to_enemies() {
     place(&mut m, 2, c(9, 6), WEST);
     m.world.units[0].abil.charges[1] = 1;
     assert_eq!(use_at(&mut m, 0, 1, c(5, 6)), OK);
-    m.step();
+    steps(&mut m, until_done(&ability("barrier")));
     let e = m.world.effects[0].info;
     assert_eq!((e.x, e.y, e.y2), (c(5, 6).0, 8 * TILE - 1, 5 * TILE), "one end stops at the bottom wall");
     assert_eq!(m.count(2, T_EFFECTS), 1);
@@ -145,9 +156,19 @@ fn flash_blinds_by_how_directly_it_is_faced_and_spares_units_facing_away() {
     assert!(sees(&m, 2, 0));
 
     assert_eq!(use_at(&mut m, 0, 1, c(8, 3)), OK);
-    m.step();
-    assert!(m.world.units.iter().all(|u| u.blind == 0), "nothing happens before the delay is over");
-    assert_eq!(m.count(2, T_EFFECTS), 1, "the enemy sees it coming");
+    let pop = until_landed(&flash, 6 * TILE);
+    assert!(pop >= 2, "the flash is in the air for at least a tick");
+    for tick in 0..pop - 1 {
+        m.step();
+        assert!(m.world.units.iter().all(|u| u.blind == 0), "nothing happens before it lands");
+        if tick < flash.delay as usize {
+            let thrower: UnitInfo = row(&m, 2, T_ENEMIES, 0);
+            assert!(thrower.state & S_CASTING != 0, "the enemy sees the throw coming");
+        } else {
+            let p: ProjectileInfo = row(&m, 2, T_PROJECTILES, 0);
+            assert_eq!((p.kind, p.weapon), (flash.id + 1, -1), "and the device in the air");
+        }
+    }
     m.step();
     let blind: Vec<i32> = m.world.units.iter().map(|u| u.blind).collect();
     assert_eq!(blind[2], flash.duration, "head-on: the full duration");
@@ -172,9 +193,10 @@ fn flash_behind_smoke_blinds_nobody() {
     m.world.units[2].kit = kit("shroud");
     m.world.units[2].abil.charges[1] = 1;
     assert_eq!(use_at(&mut m, 2, 1, c(11, 3)), OK);
-    steps(&mut m, 2);
+    steps(&mut m, until_landed(&ability("smoke"), 3 * TILE));
     assert_eq!(use_at(&mut m, 0, 1, c(8, 3)), OK);
-    steps(&mut m, 2);
+    steps(&mut m, until_landed(&ability("flash"), 6 * TILE));
+    assert!(m.world.projectiles.is_empty(), "the flash has popped");
     assert_eq!(m.world.units[2].blind, 0, "smoke between the unit and the pop");
 }
 
@@ -189,8 +211,8 @@ fn incendiary_burns_everyone_inside_each_tick() {
     let (hp_enemy, hp_ally) = (m.world.units[2].hp, m.world.units[1].hp);
 
     assert_eq!(use_at(&mut m, 0, 1, c(8, 3)), OK);
-    steps(&mut m, fire.delay as usize);
-    assert_eq!(m.world.units[2].hp, hp_enemy, "arming");
+    steps(&mut m, until_landed(&fire, 6 * TILE) - 1);
+    assert_eq!(m.world.units[2].hp, hp_enemy, "in the air");
     m.step();
     assert_eq!(m.world.units[2].hp, hp_enemy - fire.power);
     steps(&mut m, fire.duration as usize - 1);
@@ -235,7 +257,7 @@ fn behind_barrier() -> Match {
     m.step();
     assert!(sees(&m, 2, 0));
     assert_eq!(use_at(&mut m, 0, 1, c(4, 3)), OK);
-    m.step();
+    steps(&mut m, until_done(&ability("barrier")));
     m
 }
 
@@ -300,17 +322,17 @@ fn barrier_cannot_be_placed_on_a_unit_and_fails_if_one_stands_in_it_when_it_arms
     assert_eq!(use_at(&mut m, 0, 1, c(4, 3)), ERR_NOT_ALLOWED);
     assert_eq!(use_at(&mut m, 0, 1, c(2, 3)), ERR_OUT_OF_RANGE, "no direction");
 
-    // With a delay, a unit that steps into the line before it arms makes it fail.
+    // The use is checked again when its startup ends: a unit that stepped into the line makes it fail.
     let id = ability("barrier").id as usize;
     m.world.rules.abilities[id].delay = 2;
     place(&mut m, 2, c(8, 3), WEST);
     assert_eq!(use_at(&mut m, 0, 1, c(4, 3)), OK);
     m.step();
-    assert_eq!(m.world.effects.len(), 1);
+    assert!(m.world.effects.is_empty() && abilities::casting(&m.world, 0));
     place(&mut m, 2, c(4, 4), WEST);
-    m.step();
-    assert!(m.world.effects.is_empty());
-    assert_eq!(m.world.units[0].abil.charges[1], 0, "the charge is spent all the same");
+    steps(&mut m, 2);
+    assert!(m.world.effects.is_empty() && !abilities::casting(&m.world, 0));
+    assert_eq!(m.world.units[0].abil.charges[1], 1, "nothing happened, so nothing is spent");
 }
 
 #[test]
@@ -340,7 +362,7 @@ fn dash_moves_instantly_and_stops_at_walls() {
     assert_eq!(m.world.units[0].pos.1, c(7, 5).1);
 
     // A short dash goes exactly to the target point.
-    m.world.units[0].abil = abilities::UnitAbilities { charges: [1, 0], cooldown: [0, 0] };
+    m.world.units[0].abil = abilities::UnitAbilities { charges: [1, 0], ..Default::default() };
     place(&mut m, 0, c(2, 3), EAST);
     assert_eq!(use_at(&mut m, 0, 0, (c(2, 3).0 + 1000, c(2, 3).1 + 1000)), OK);
     m.step();
@@ -355,6 +377,8 @@ fn decoy_sounds_real_from_afar_and_fake_up_close() {
     place(&mut m, 2, c(14, 3), WEST); // 4 tiles from the decoy
     place(&mut m, 3, c(11, 3), WEST); // 1 tile from it
     assert_eq!(use_at(&mut m, 0, 0, c(10, 3)), OK);
+    steps(&mut m, decoy.delay as usize);
+    assert!(sounds(&m, 2).is_empty(), "silent during the startup");
     let mut shots = 0;
     for _ in 0..decoy.duration {
         m.step();
@@ -382,8 +406,10 @@ fn heal_restores_an_ally_over_time_up_to_its_maximum() {
 
     m.world.units[1].hp = 40;
     assert_eq!(use_at(&mut m, 0, 0, c(4, 3)), OK);
+    steps(&mut m, heal.delay as usize);
+    assert_eq!(m.world.units[1].hp, 40, "nothing during the startup");
     m.step();
-    assert_eq!(m.world.units[1].hp, 40 + heal.power);
+    assert_eq!(m.world.units[1].hp, 40 + heal.power, "it mends from the tick it happens");
     assert_eq!(m.world.effects[0].info.kind, EFFECT_HEAL);
     steps(&mut m, heal.duration as usize - 1);
     assert_eq!(m.world.units[1].hp, 40 + heal.power * heal.duration);
@@ -406,16 +432,99 @@ fn thrown_devices_land_within_range_and_short_of_walls() {
     m.world.units[0].abil.charges[1] = 2;
     place(&mut m, 0, c(1, 3), EAST);
     assert_eq!(use_at(&mut m, 0, 1, c(18, 3)), OK);
-    m.step();
+    steps(&mut m, until_landed(&smoke, smoke.range));
     assert_eq!((m.world.effects[0].info.x, m.world.effects[0].info.y), (c(1, 3).0 + smoke.range, c(1, 3).1));
 
     // Thrown at a point behind the wall tile at (9,5), it lands just in front of the wall.
     m.world.units[0].abil.cooldown[1] = 0;
     place(&mut m, 0, c(6, 5), EAST);
     assert_eq!(use_at(&mut m, 0, 1, c(11, 5)), OK);
-    m.step();
+    steps(&mut m, until_landed(&smoke, 3 * TILE));
     let x = m.world.effects[1].info.x;
     assert!(x < 9 * TILE && x > 9 * TILE - 200, "landed at x = {x}");
+}
+
+#[test]
+fn thrown_incendiary_shows_in_flight_and_burns_where_a_wall_stops_it() {
+    let mut m = setup("seeker");
+    let fire = ability("incendiary");
+    assert!(fire.speed > 0 && fire.speed < m.world.rules.weapons.iter().map(|w| w.bullet_speed).min().unwrap());
+    place(&mut m, 0, c(3, 5), EAST);
+    place(&mut m, 2, c(8, 4), WEST); // just short of the wall tile at (9,5), watching the thrower
+    m.world.units[0].abil.charges[1] = 1;
+    let hp = m.world.units[2].hp;
+
+    // Aimed 7 tiles east, through the wall tile at (9,5), which is 5.5 tiles away.
+    assert_eq!(use_at(&mut m, 0, 1, c(10, 5)), OK);
+    steps(&mut m, fire.delay as usize);
+    assert!(m.world.projectiles.is_empty() && m.world.effects.is_empty(), "still in its startup");
+    m.step();
+    for (unit, who) in [(0, "the thrower"), (2, "an enemy who sees it")] {
+        assert_eq!(m.count(unit, T_PROJECTILES), 1, "{who} sees the device");
+        let p: ProjectileInfo = row(&m, unit, T_PROJECTILES, 0);
+        assert_eq!((p.kind, p.weapon, p.owner, p.team), (fire.id + 1, -1, 0, TEAM_A));
+        assert_eq!((p.x, p.y, p.vx, p.vy), (c(3, 5).0 + fire.speed, c(3, 5).1, fire.speed, 0), "one tick out");
+    }
+    assert_eq!(m.count(3, T_PROJECTILES), 0, "fogged for an enemy who does not see it");
+    assert!(m.world.effects.is_empty());
+
+    let flight = until_landed(&fire, 9 * TILE - c(3, 5).0) - fire.delay as usize;
+    steps(&mut m, flight - 2);
+    assert_eq!(m.world.units[2].hp, hp, "it flies over units");
+    m.step();
+    assert!(m.world.projectiles.is_empty());
+    let e = m.world.effects[0].info;
+    assert_eq!((e.kind, e.y), (EFFECT_FIRE, c(3, 5).1));
+    assert!((e.x - (9 * TILE - 64)).abs() <= 2, "it lands 64 units short of the wall, not at the target: {}", e.x);
+    assert_eq!(m.world.units[2].hp, hp - fire.power, "it burns from the tick it lands");
+}
+
+#[test]
+fn startup_delays_the_use_and_keeps_the_hands_busy() {
+    let mut m = setup("bulwark");
+    let barrier = ability("barrier");
+    let startup = 3;
+    m.world.rules.abilities[barrier.id as usize].delay = startup;
+    place(&mut m, 0, c(2, 3), EAST);
+    place(&mut m, 2, c(8, 3), WEST);
+    m.world.units[0].abil.charges[1] = 1;
+
+    assert_eq!(use_at(&mut m, 0, 1, c(4, 3)), OK);
+    for _ in 0..startup {
+        m.step();
+        assert!(m.world.effects.is_empty(), "still in its startup");
+        assert!(row::<UnitInfo>(&m, 0, T_SELF, 0).state & S_CASTING != 0);
+        assert!(row::<UnitInfo>(&m, 2, T_ENEMIES, 0).state & S_CASTING != 0, "enemies see it coming");
+        assert_eq!(m.act(0, A_FIRE, EAST, 0, 0), ERR_NOT_READY, "the hands are busy");
+        assert_eq!(m.act(0, A_RELOAD, 0, 0, 0), ERR_NOT_READY);
+        assert_eq!(use_at(&mut m, 0, 0, c(6, 3)), ERR_NOT_READY, "one use at a time");
+        assert_eq!(m.act(0, A_FACE, NORTH, 0, 0), OK, "turning and moving are allowed");
+        assert_eq!(m.world.units[0].abil.charges[1], 1, "nothing spent yet");
+    }
+    m.step();
+    assert_eq!(m.world.effects.len(), 1, "it happens {startup} ticks after the use");
+    assert!(!sees(&m, 2, 0), "and blocks this tick's vision");
+    let me: UnitInfo = row(&m, 0, T_SELF, 0);
+    assert_eq!(me.state & S_CASTING, 0);
+    assert_eq!((me.charges[1], me.cooldown[1]), (0, barrier.cooldown), "the same as a use without startup");
+
+    // A_CANCEL abandons it, and so does death; neither costs a charge.
+    m.world.effects.clear();
+    m.world.units[0].abil.charges[1] = 1;
+    m.world.units[0].abil.cooldown[1] = 0;
+    assert_eq!(use_at(&mut m, 0, 1, c(4, 3)), OK);
+    m.step();
+    assert_eq!(m.act(0, A_CANCEL, 0, 0, 0), OK);
+    steps(&mut m, startup as usize);
+    assert!(m.world.effects.is_empty() && !abilities::casting(&m.world, 0));
+    assert_eq!(m.world.units[0].abil.charges[1], 1);
+
+    assert_eq!(use_at(&mut m, 0, 1, c(4, 3)), OK);
+    m.step();
+    m.world.damage(0, 1000, None, -1);
+    steps(&mut m, startup as usize);
+    assert!(m.world.effects.is_empty() && !abilities::casting(&m.world, 0));
+    assert_eq!(m.world.units[0].abil.charges[1], 1);
 }
 
 #[test]

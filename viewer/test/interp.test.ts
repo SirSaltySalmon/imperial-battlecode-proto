@@ -37,7 +37,12 @@ describe("unit interpolation", () => {
 describe("bullet interpolation", () => {
   it("draws the frame's bullets as they are when paused", () => {
     const shots = interpShots([bullet({ x: 5000, y: 2000, vx: 1000 })], null, 0);
-    expect(shots).toEqual([{ team: 0, x: 5000, y: 2000, tx: 5000 - TRAIL, ty: 2000 }]);
+    expect(shots).toEqual([{ team: 0, kind: 0, x: 5000, y: 2000, tx: 5000 - TRAIL, ty: 2000 }]);
+  });
+
+  it("keeps the kind of a thrown device so it can be drawn as one", () => {
+    const shots = interpShots([bullet({ x: 5000, vx: 2560, kind: 3 })], null, 0);
+    expect(shots.map((s) => s.kind)).toEqual([3]);
   });
 
   it("carries a bullet over to its next position", () => {

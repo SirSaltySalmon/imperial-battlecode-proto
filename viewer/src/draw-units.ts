@@ -7,6 +7,7 @@ import { FONT, type Pen } from "./render";
 import { alpha } from "./theme";
 import {
   S_BLINDED,
+  S_CASTING,
   S_DEFUSING,
   S_PLANTING,
   S_RELOADING,
@@ -141,6 +142,7 @@ export function stateTags(u: UnitFrame): string[] {
   if (u.state & S_BLINDED) tags.push("blind");
   if (u.state & S_SLOWED) tags.push("slowed");
   if (u.state & S_REVEALED) tags.push("revealed");
+  if (u.state & S_CASTING) tags.push("casting");
   return tags;
 }
 

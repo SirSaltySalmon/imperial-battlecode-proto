@@ -23,16 +23,19 @@ of the weapon's `move_pct`.
 
 Distances are in tiles (1024 units), times in ticks.
 
-| id | ability | effect | price | max charges | cooldown | range | radius | duration | power | delay |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 0 | smoke | `EFFECT_SMOKE` (1) | 300 | 2 | 4 | 10 | 1.75 | 14 | 0 | 1 |
-| 1 | flash | `EFFECT_FLASH` (4) | 250 | 2 | 3 | 8 | 12 | 6 | 30 | 1 |
-| 2 | incendiary | `EFFECT_FIRE` (2) | 350 | 1 | 6 | 8 | 1.5 | 8 | 12 | 1 |
-| 3 | recon | `EFFECT_RECON` (5) | 0 | 1 | 0 | 12 | 6 | 5 | 3 | 1 |
-| 4 | barrier | `EFFECT_BARRIER` (3) | 300 | 1 | 8 | 2.5 | 1.5 | 20 | 120 | 0 |
-| 5 | dash | 8 (no constant yet) | 0 | 2 | 5 | 3 | 0 | 0 | 0 | 0 |
-| 6 | decoy | `EFFECT_DECOY` (7) | 0 | 1 | 0 | 10 | 2 | 12 | 3 | 0 |
-| 7 | heal | `EFFECT_HEAL` (6) | 0 | 2 | 6 | 4 | 1 | 6 | 7 | 0 |
+| id | ability | effect | price | max charges | cooldown | range | radius | duration | power | startup (`delay`) | speed |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | smoke | `EFFECT_SMOKE` (1) | 300 | 2 | 4 | 10 | 1.75 | 14 | 0 | 1 | 3 |
+| 1 | flash | `EFFECT_FLASH` (4) | 250 | 2 | 3 | 8 | 12 | 6 | 30 | 1 | 4 |
+| 2 | incendiary | `EFFECT_FIRE` (2) | 350 | 1 | 6 | 8 | 1.5 | 8 | 12 | 1 | 2.5 |
+| 3 | recon | `EFFECT_RECON` (5) | 0 | 1 | 0 | 12 | 6 | 5 | 3 | 1 | 0 |
+| 4 | barrier | `EFFECT_BARRIER` (3) | 300 | 1 | 8 | 2.5 | 1.5 | 20 | 120 | 1 | 0 |
+| 5 | dash | 8 (no constant yet) | 0 | 2 | 5 | 3 | 0 | 0 | 0 | 0 | 0 |
+| 6 | decoy | `EFFECT_DECOY` (7) | 0 | 1 | 0 | 10 | 2 | 12 | 3 | 1 | 0 |
+| 7 | heal | `EFFECT_HEAL` (6) | 0 | 2 | 6 | 4 | 1 | 6 | 7 | 1 | 0 |
+
+`speed` is in tiles per tick; 0 means the device is not thrown but appears where it lands at once. The slowest
+bullet flies 8 tiles per tick.
 
 ## Charges and cooldowns
 
@@ -42,8 +45,8 @@ Distances are in tiles (1024 units), times in ticks.
   `price`, and fails with `ERR_NOT_ALLOWED` at `max_charges`, `ERR_INSUFFICIENT_FUNDS` if the unit cannot pay
   both, `ERR_UNSUPPORTED` if the kit has nothing in that slot. Bought charges are kept until
   used, through deaths and the side swap.
-- After a use the slot cannot be used again for `cooldown` ticks (`UnitInfo.cooldown` counts down to 0).
-  Cooldowns are cleared at the start of a round.
+- After an ability happens the slot cannot be used again for `cooldown` ticks (`UnitInfo.cooldown` counts down
+  to 0). Cooldowns are cleared at the start of a round.
 
 ## Using an ability
 
@@ -55,22 +58,42 @@ a wind-up or a reload already running. `act` validates against the current state
 |---|---|
 | `ERR_BAD_ARG` | slot is not 0 or 1, or the target point is outside the map |
 | `ERR_UNSUPPORTED` | the kit has no ability in that slot |
-| `ERR_NOT_READY` | no charges, or the slot is cooling down |
+| `ERR_NOT_READY` | no charges, the slot is cooling down, or a use is already in its startup |
 | `ERR_OUT_OF_RANGE` / `ERR_NOT_ALLOWED` | see the ability |
 
 Abilities resolve in the intent step of the tick, in unit id order, before weapons and movement. If a use has
 become impossible by then (a dash put a unit where a barrier was going), nothing happens and no charge is spent.
-Every successful use is heard by enemies within `step_sound_radius` of the user as `SOUND_ABILITY`.
 
-**Throwing.** Smoke, flash, incendiary, recon and decoy are devices thrown at the target point. They travel in
-a straight line and land at the target, or `range` away if the target is further, or 64 units short of the
-first wall or barrier in the way. Low cover does not stop them. A barrier's centre is placed by the same rule.
+**Startup.** Most abilities have a startup: `AbilityRules.delay` ticks between the use and the ability
+happening. A use on tick `T` with startup `d` happens on tick `T + d`, after that tick's intents and before
+weapons and movement: exactly where a use queued on `T + d` without a startup would happen. With `d` = 0 it
+happens in the intent step of tick `T`. During the `d` turns in between (ticks `T + 1` to `T + d`):
 
-**Arming.** A device or barrier lies in the world as an effect (`T_EFFECTS`) from the tick it is used. It does
-nothing for `delay` ticks, then it is active for `duration` ticks (a flash: for the one tick it pops).
-`EffectInfo.ticks_left` counts both, so an effect is still arming while `ticks_left` is greater than its
-`duration` (for a flash: greater than 1). With `delay` 1, enemies who can see where it landed get exactly one
-turn to react. All effects are removed when a round starts.
+- the unit has `S_CASTING` in its state, which enemies who see it can read too;
+- it can move and turn, but its hands are busy: `act` refuses every other primary action (fire, reload, swap,
+  plant, defuse, pickup, drop, another ability) with `ERR_NOT_READY`;
+- `A_CANCEL` abandons the use, and so does dying. Nothing is spent;
+- taking damage does not interrupt it.
+
+When the startup ends the use is checked again from where the unit then stands (charges, range, a barrier not
+touching anyone, a heal target still hurt and in reach); if it fails nothing happens and nothing is spent. When it
+happens the charge is spent, the cooldown starts and enemies within `step_sound_radius` of the user hear
+`SOUND_ABILITY`.
+
+**Throwing.** Smoke, flash, incendiary, recon and decoy are devices aimed at the target point: at the target,
+or `range` away if the target is further. A device whose ability has `speed` > 0 (smoke, flash, incendiary) is
+thrown: it leaves the thrower's centre as a projectile and flies `speed` units per tick in a straight line on
+the same sub-stepped step as bullets. It flies over units, friend or foe, and through smoke; low cover does not
+stop it. It lands where its flight ends, or 64 units short of the first wall or barrier it meets, and its effect
+appears there in that sub-step and acts from that tick. In flight it is a row of `T_PROJECTILES` with
+`kind` = ability id + 1 and `weapon` = -1, visible to the thrower's team and to enemies who can see it. A
+device with `speed` 0 (recon, decoy) appears at its landing point at once, which follows the same rule
+measured along the whole line. A barrier's centre is placed by that rule too.
+
+**Effects.** A device or barrier lies in the world as an effect (`T_EFFECTS`) from the moment it lands and is
+active at once for `duration` ticks (a flash: for the one tick it pops, so a thrown flash pops in the tick it
+lands and never shows in `T_EFFECTS`; watch `T_PROJECTILES`). `EffectInfo.ticks_left` counts down the ticks
+it has left. All effects and devices in flight are removed when a round starts.
 
 `T_EFFECTS` lists your team's effects always, and an enemy effect when you can see its position (the cloud's
 centre, a barrier's first end, the unit being healed).
@@ -86,25 +109,26 @@ point of a cloud ignores that cloud, unless a unit stands on that very point).
 *Counters:* shoot through it, since sound still gives positions away; walk around; wait it out.
 
 ### Flash
-Pops `delay` ticks after it is thrown. Every living unit, **friend or foe, the thrower included**, is blinded if
+Pops in the tick it lands. Every living unit, **friend or foe, the thrower included**, is blinded if
 the pop is within `radius`, inside the unit's vision cone (`facing +/- fov_half`), and the line between them is
 clear of walls, smoke and barriers. A unit facing it head-on is blinded for `duration` turns; this falls
 linearly with the angle to `power` percent of that at the edge of the cone (rounded down, at least 1 turn).
 A unit with the pop outside its cone is not affected at all, however close. A blinded unit (`S_BLINDED`,
 `UnitInfo.blind` = turns left) sees only within `sense_radius`. A second flash does not add: the longer of the
 two applies.
-*Counters:* turn away. The device is visible while it arms and `turn_rate` is enough to put it outside the
-cone in one tick; the price is a tick spent not looking at the fight. Smoke or a barrier in between also works.
+*Counters:* turn away. The thrower is visible casting (`S_CASTING`) and the device in flight
+(`T_PROJECTILES`), and `turn_rate` is enough to put it outside the cone in one tick; the price is a tick spent
+not looking at the fight. Smoke or a barrier in between also works.
 
 ### Incendiary
-After `delay` ticks a circle of `radius` burns for `duration` ticks. Each tick, every living unit whose centre
+From the tick it lands a circle of `radius` burns for `duration` ticks. Each tick, every living unit whose centre
 is inside takes `power` damage through the normal damage path (armour absorbs its share), unless a wall or a
 barrier lies between it and the centre. Fire burns **both teams**. Damage to enemies counts for the thrower's
 statistics and kill reward; damage to teammates and to the thrower is not credited to anyone.
 *Counters:* leave, or do not enter; stand behind a wall or barrier.
 
 ### Recon
-A beacon that scans for `duration` ticks after its `delay`. Each tick, every enemy within `radius` that the
+A beacon that scans for `duration` ticks. Each tick, every enemy within `radius` that the
 beacon has a clear line to (no wall, smoke or barrier) is marked `S_REVEALED` for `power` turns. A revealed
 unit appears in `T_ENEMIES` of every unit of the other team, wherever they are and wherever they look.
 *Counters:* break the line to the beacon: walls, smoke, a barrier. The marked unit sees `S_REVEALED` in its own
@@ -119,15 +143,15 @@ both teams. It has `power` hit points: every bullet it stops deals its normal da
 the barrier breaks. Bullets that arrive in the same sub-step as the breaking shot are still stopped.
 Incendiary kills carry weapon id -1 in `EVENT_KILL`.
 It cannot be placed touching any living unit (`ERR_NOT_ALLOWED`) or on the user's own position
-(`ERR_OUT_OF_RANGE`). If the ruleset gives it a `delay`, it fails without effect when a unit is touching the
-line at the moment it would arm.
+(`ERR_OUT_OF_RANGE`); this is checked again when the startup ends, so a unit that steps into the line during
+it makes the use fail (no charge is spent).
 *Counters:* shoot it down, walk around it, wait for it to expire.
 
 ### Dash
 The unit moves instantly in a straight line towards the target point, `range` at most, and stops at the target
 or at the last position where its circle is clear of walls, low cover and barriers. It does not slide. If it
-cannot move at all the use fails with `ERR_OUT_OF_RANGE`. The dash happens before this tick's normal movement,
-so both add up; a wind-up in progress keeps running.
+cannot move at all the use fails with `ERR_OUT_OF_RANGE`. It has no startup: the dash happens before this tick's
+normal movement, so both add up; a wind-up in progress keeps running.
 *Counters:* it is loud (`SOUND_ABILITY` from where it started), and it ends in a straight line from there.
 
 ### Decoy
@@ -141,16 +165,22 @@ device gets it in `T_EFFECTS`. And a real runner's footsteps move from tile to t
 Targets the living teammate nearest to the target point, the user itself included; there must be one within
 `radius` of the point (`ERR_OUT_OF_RANGE` otherwise, also when that unit is further than `range` from the
 user). Fails with `ERR_NOT_ALLOWED` if the target is at full health or a wall or barrier lies between the two.
-The target then regains `power` hit points per tick for `duration` ticks, starting this tick, up to its kit's
-`hp`. The effect follows the target and ends if it dies. Heals stack. Armour is not restored.
+The target then regains `power` hit points per tick for `duration` ticks, starting the tick the heal happens,
+up to its kit's `hp`. The effect follows the target and ends if it dies. Heals stack. Armour is not restored.
 *Counters:* burst damage outpaces it; the heal is audible and is a tick the healer does not shoot.
 
 ## Timing, exactly
 
 Effects tick once per action tick, after movement and bullets and before the objective is checked. For a use
-on tick `T` with delay `d` and duration `n`:
+on tick `T` with startup `d` and duration `n`, an ability that is not thrown happens on tick `T + d` before
+movement, and then:
 
-- smoke and barrier block from the vision computed at the end of tick `T + d - 1` (so: from tick `T + d` as bots
-  see it; a barrier with delay 0 already stops this tick's bullets and movement) for `n` ticks;
+- smoke and barrier block from the vision computed at the end of tick `T + d` (so: from tick `T + d + 1` as bots
+  see it) for `n` ticks; a barrier already stops the bullets and movement of tick `T + d`;
 - fire burns, recon scans, the decoy plays and the heal mends on ticks `T + d` to `T + d + n - 1`;
 - the flash pops on tick `T + d`, after that tick's turning, and units are blind for their next turns.
+
+A thrown device leaves the thrower on tick `T + d` before movement and lands in tick `T + d + k - 1`, where `k`
+is `ceil(distance / speed)` (fewer if a wall or barrier is in the way); read `T + d + k - 1` for `T + d` above.
+The SDK's `tactics::ticks_to_effect` computes this offset. The slot is ready again `cooldown + 1` ticks after the
+tick the ability happens in.

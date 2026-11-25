@@ -1,7 +1,7 @@
 //! What active effects do each tick. Runs once per action tick, after movement and before the core counts the
 //! unit statuses (`blind`, `revealed`) down, so a status meant to last n bot turns is set to n + 1.
 
-use super::{aux_of, clear_line, is_active, linger, max_hp, open_between, rules_of, touches_unit};
+use super::{aux_of, clear_line, is_active, max_hp, open_between, rules_of};
 use crate::fixed::{self, V2};
 use crate::world::{Effect, World};
 use ibc_abi::*;
@@ -15,7 +15,7 @@ pub fn step(w: &mut World) {
     }
     for i in 0..w.effects.len() {
         let e = w.effects[i];
-        if !is_active(w, &e) {
+        if !is_active(&e) {
             continue;
         }
         let r = rules_of(w, &e);
@@ -28,16 +28,8 @@ pub fn step(w: &mut World) {
             _ => {}
         }
     }
-    for i in 0..w.effects.len() {
-        w.effects[i].info.ticks_left -= 1;
-        let e = w.effects[i];
-        // A barrier that finishes arming on top of a unit fails instead of trapping it.
-        if e.info.kind == EFFECT_BARRIER && e.info.ticks_left == linger(&rules_of(w, &e)) {
-            let (a, b) = super::ends(&e);
-            if touches_unit(w, a, b) {
-                w.effects[i].info.ticks_left = 0;
-            }
-        }
+    for e in w.effects.iter_mut() {
+        e.info.ticks_left -= 1;
     }
     w.effects.retain(|e| e.info.ticks_left > 0);
 }

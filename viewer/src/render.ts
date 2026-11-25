@@ -265,6 +265,15 @@ function stopFn(scene: Scene): (p: ProjectileFrame) => Vec2 | null {
     let best = 1;
     const wall = segmentWall(map, a[0], a[1], b[0], b[1]);
     if (wall) best = closestOnSegment(a, b, wall);
+    if (p.kind !== 0) {
+      // A thrown device hits nobody: it ends where its effect appears in the next frame, if one does.
+      for (const e of next?.effects ?? []) {
+        const s = closestOnSegment(a, b, [e.x, e.y]);
+        const d = Math.hypot(a[0] + (b[0] - a[0]) * s - e.x, a[1] + (b[1] - a[1]) * s - e.y);
+        if (e.team === p.team && d <= 128 && s < best) best = s;
+      }
+      return best < 1 ? [a[0] + (b[0] - a[0]) * best, a[1] + (b[1] - a[1]) * best] : null;
+    }
     for (const e of hits) {
       if (e.actor !== p.owner) continue;
       const s = closestOnSegment(a, b, [e.x, e.y]);

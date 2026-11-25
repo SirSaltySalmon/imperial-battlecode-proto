@@ -238,6 +238,16 @@ export function drawShots(pen: Pen, shots: Shot[]): void {
   for (const s of shots) {
     const [x, y, tx, ty] = [s.x * K, s.y * K, s.tx * K, s.ty * K];
     const color = pal.team[s.team] ?? pal.text;
+    if (s.kind !== 0) {
+      // A thrown ability device (placeholder look): a team-coloured ball with a white rim, no trail.
+      circle(ctx, x, y, 5 * px);
+      ctx.fillStyle = alpha(color, 0.9);
+      ctx.fill();
+      ctx.strokeStyle = pal.text;
+      ctx.lineWidth = 1.5 * px;
+      ctx.stroke();
+      continue;
+    }
     if (x !== tx || y !== ty) {
       const g = ctx.createLinearGradient(tx, ty, x, y);
       g.addColorStop(0, alpha(color, 0));

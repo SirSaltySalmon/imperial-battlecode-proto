@@ -30,6 +30,7 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
     flag(u.running, S_RUNNING);
     flag(u.slowed > 0, S_SLOWED);
     flag(u.revealed > 0, S_REVEALED);
+    flag(u.alive && abilities::casting(w, i), S_CASTING);
     flag(u.has_charge, S_HAS_CHARGE);
     flag(u.has_kit && full, S_HAS_KIT);
     let channel = if u.channel_kind != CHANNEL_NONE { u.channel_left } else { u.combat.channel() };
@@ -297,6 +298,9 @@ impl Host for Match {
                     A_RELOAD | A_PICKUP | A_DROP | A_CANCEL => OK,
                     _ => ERR_UNSUPPORTED,
                 };
+                // Abilities unit: hands are busy during an ability's startup; only A_CANCEL gets through.
+                let check =
+                    if check == OK && kind != A_CANCEL && abilities::casting(w, me) { ERR_NOT_READY } else { check };
                 if check == OK {
                     w.units[me].intent.primary = Some((kind, a, b, c));
                 }

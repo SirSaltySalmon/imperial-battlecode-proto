@@ -32,8 +32,9 @@ clock and random source, empty args and environment. There is no filesystem, net
 ## Conventions
 
 - **Tables, not functions.** Everything readable is a row in a table (`T_*`). Rows are `#[repr(C)]` records made
-  only of `i32`, little-endian, no padding. A buffer that is too small gets `ERR_BUFFER_TOO_SMALL`. Records only
-  ever grow at the end, so a bot built against an older ABI keeps working: it reads the prefix it knows.
+  only of `i32`, little-endian, no padding. `get` copies at most `cap` bytes and returns how many it
+  wrote. Records only ever grow at the end, so a bot built against an older ABI keeps working: it reads the
+  prefix it knows. (`ERR_BUFFER_TOO_SMALL` is no longer returned.)
 - **Fog is applied by the host.** `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS` and `T_DROPS` list only what the calling
   unit can perceive. Enemy rows hide credits, ammo, charges and cooldowns.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
@@ -41,6 +42,17 @@ clock and random source, empty args and environment. There is no filesystem, net
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;
   balance patches change them without changing the ABI.
 - **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed.
+
+## Additions
+
+Additive changes since v0, each at the end of its group or record:
+
+- `S_CASTING` (`1 << 11`): the unit is in an ability's startup (`AbilityRules.delay` ticks). Meanwhile `act`
+  refuses every primary action except `A_CANCEL` with `ERR_NOT_READY`; moving and turning still work.
+- `AbilityRules.speed`: units per tick a thrown device flies; 0 = it is not thrown and appears at once.
+  `AbilityRules.delay` keeps its name and is the ability's startup.
+- `ProjectileInfo.kind` (already in v0) is now used: 0 = a bullet, otherwise a thrown ability device with
+  `kind` = ability id + 1 and `weapon` = -1. Devices hit nobody; they land at a wall, a barrier or their range.
 
 ## For engine and SDK authors
 
