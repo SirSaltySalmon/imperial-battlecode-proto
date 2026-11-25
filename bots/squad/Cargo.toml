@@ -1,0 +1,12 @@
+[package]
+name = "squad"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Shared team brain behind the reference bots sapper, retaker, lurker, saver and forcer."
+
+# A library: the bots that use it are the crates next to this one.
+[workspace]
+
+[dependencies]
+ibc = { path = "../../sdk/rust" }

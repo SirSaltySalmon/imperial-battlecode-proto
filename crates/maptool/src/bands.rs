@@ -68,7 +68,7 @@ impl Default for Bands {
             mean_hold_share_pct: [25, 85],
             cover_pct: [8, 40],
             postplant_visible_pct: [3, 35],
-            retake_slack_ticks: [0, 25],
+            retake_slack_ticks: [26, 51],
             hold_radius_tiles: [2, 9],
             hold_lead_ticks: 2,
             cover_radius_tiles: 6,

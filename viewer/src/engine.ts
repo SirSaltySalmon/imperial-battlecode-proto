@@ -6,6 +6,19 @@
 
 import { parseHeaderJson } from "./ibcr";
 import type { Frame, Header } from "./types";
+import type { ViewRules } from "./vision";
+
+/** The numeric fields of the engine's rules export. */
+const RULE_NUMBERS = [
+  "unit_radius",
+  "fov_half",
+  "vision_range",
+  "sense_radius",
+  "max_hp",
+  "plant_ticks",
+  "defuse_ticks",
+  "fuse_ticks",
+] as const;
 
 interface EngineExports {
   memory: WebAssembly.Memory;
@@ -21,6 +34,9 @@ interface EngineExports {
   ibc_error_len(): number;
   ibc_version_ptr(): number;
   ibc_version_len(): number;
+  /** Absent in engine builds older than the rules export. */
+  ibc_rules_ptr?(): number;
+  ibc_rules_len?(): number;
 }
 
 /** Where frame JSON comes from: the engine's memory in the app, plain strings in tests. */
@@ -50,6 +66,29 @@ export class Engine {
 
   version(): string {
     return this.str(this.x.ibc_version_ptr(), this.x.ibc_version_len());
+  }
+
+  /**
+   * The rules this engine build simulates with (sizes, timings, weapon names by id), or `null` for a build
+   * that predates the export. Only fields of the right type are kept.
+   */
+  rules(): Partial<ViewRules> | null {
+    if (!this.x.ibc_rules_ptr || !this.x.ibc_rules_len) return null;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(this.str(this.x.ibc_rules_ptr(), this.x.ibc_rules_len()));
+    } catch {
+      return null;
+    }
+    if (typeof raw !== "object" || raw === null) return null;
+    const fields = raw as Record<string, unknown>;
+    const out: Partial<ViewRules> = {};
+    for (const key of RULE_NUMBERS) {
+      if (typeof fields[key] === "number") out[key] = fields[key];
+    }
+    const names = fields.weapons;
+    if (Array.isArray(names) && names.every((n) => typeof n === "string")) out.weapons = names as string[];
+    return out;
   }
 
   /**

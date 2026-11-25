@@ -21,3 +21,9 @@ ibc = { path = "../../sdk/rust" }
 idle = { path = "../../bots/idle" }
 rusher = { path = "../../bots/rusher" }
 holder = { path = "../../bots/holder" }
+utility = { path = "../../bots/utility" }
+sapper = { path = "../../bots/sapper" }
+retaker = { path = "../../bots/retaker" }
+lurker = { path = "../../bots/lurker" }
+saver = { path = "../../bots/saver" }
+forcer = { path = "../../bots/forcer" }

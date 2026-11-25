@@ -367,6 +367,18 @@ impl Host for Match {
     }
 }
 
+/// What a viewer needs from the ruleset to draw a match and name what is in it. Frames carry ids and raw
+/// state only, so without this a viewer has to keep its own copy of these numbers and names.
+pub fn rules_json(r: &crate::Ruleset) -> String {
+    let c = &r.core;
+    json!({
+        "unit_radius": c.unit_radius, "fov_half": c.fov_half, "vision_range": c.vision_range,
+        "sense_radius": c.sense_radius, "max_hp": c.max_hp, "plant_ticks": c.plant_ticks,
+        "defuse_ticks": c.defuse_ticks, "fuse_ticks": c.fuse_ticks, "weapons": r.weapon_names,
+    })
+    .to_string()
+}
+
 pub fn frame_json(w: &World) -> String {
     let units: Vec<_> = (0..w.units.len())
         .map(|i| {

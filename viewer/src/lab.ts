@@ -78,9 +78,9 @@ function rulesOf(file: LabFile): ViewRules {
     vision_range: file.visionRange,
     sense_radius: file.senseRadius,
     max_hp: file.maxHp,
-    plant_ticks: 4,
-    defuse_ticks: 7,
-    fuse_ticks: 40,
+    plant_ticks: 12,
+    defuse_ticks: 21,
+    fuse_ticks: 80,
     weapons: file.weapons.map((w) => w.name),
   };
 }

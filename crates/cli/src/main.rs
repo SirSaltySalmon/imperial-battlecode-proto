@@ -5,6 +5,7 @@ mod build;
 mod job;
 mod toolchain;
 mod view;
+mod view_library;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};

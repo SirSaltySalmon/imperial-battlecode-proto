@@ -585,6 +585,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "forcer"
+version = "0.1.0"
+dependencies = [
+ "ibc",
+ "squad",
+]
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -950,13 +958,19 @@ dependencies = [
 name = "ibc-sim"
 version = "0.1.0"
 dependencies = [
+ "forcer",
  "holder",
  "ibc",
  "ibc-abi",
  "ibc-engine",
  "idle",
+ "lurker",
+ "retaker",
  "rusher",
+ "sapper",
+ "saver",
  "serde_json",
+ "utility",
 ]
 
 [[package]]
@@ -1169,6 +1183,14 @@ name = "log"
 version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
+
+[[package]]
+name = "lurker"
+version = "0.1.0"
+dependencies = [
+ "ibc",
+ "squad",
+]
 
 [[package]]
 name = "mach2"
@@ -1409,6 +1431,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "retaker"
+version = "0.1.0"
+dependencies = [
+ "ibc",
+ "squad",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1508,6 +1538,22 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
+
+[[package]]
+name = "sapper"
+version = "0.1.0"
+dependencies = [
+ "ibc",
+ "squad",
+]
+
+[[package]]
+name = "saver"
+version = "0.1.0"
+dependencies = [
+ "ibc",
+ "squad",
+]
 
 [[package]]
 name = "semver"
@@ -1644,6 +1690,13 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "squad"
+version = "0.1.0"
+dependencies = [
+ "ibc",
 ]
 
 [[package]]
@@ -1925,6 +1978,14 @@ name = "utf_types"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
+
+[[package]]
+name = "utility"
+version = "0.1.0"
+dependencies = [
+ "ibc",
+ "rusher",
+]
 
 [[package]]
 name = "vcpkg"

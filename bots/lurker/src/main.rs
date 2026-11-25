@@ -1,0 +1,1 @@
+ibc::bot!(lurker::Lurker);

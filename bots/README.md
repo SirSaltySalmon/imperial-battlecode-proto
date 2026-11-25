@@ -1,0 +1,148 @@
+# Reference bots
+
+The pool that balance is measured against (`docs/hillclimb.md`). Every bot here is registered in `ibc-sim`
+(`crates/sim/src/lib.rs`), so `ibc-sim league` and `ibc-bench` can name it, and every Rust bot also builds
+to wasm with `ibc build bots/<name>`.
+
+| Bot | Attack | Defence | Spending | Kits and abilities |
+|---|---|---|---|---|
+| `idle` | Does nothing | Does nothing | Nothing | None |
+| `rusher` | Everyone runs at the site nearest spawn | Runs at sounds and the attacker spawn, then sweeps the sites | Most expensive weapon it can afford | None |
+| `holder` | Walks in silently, site agreed through team memory | Splits over the sites, holds angles, rotates to sightings | Most expensive weapon it can afford | None |
+| `utility` | As `rusher` | As `rusher` | As `rusher`, plus ability charges | Drafts by slot, uses every ability on sight of an enemy |
+| `sapper` | Runs at one site together, plants as soon as the carrier is covered | Holds the sites | Best affordable, a different weapon per slot | Yes |
+| `retaker` | Walks in silently | One anchor per site, the rest stacked; gathers after a plant and retakes | Best affordable, rifles | Yes |
+| `lurker` | Three hit the site, two walk round past another site | Holds the sites | Best affordable, a different weapon per slot | Yes |
+| `saver` | As `sapper` | Holds the sites | Full buy or save | Yes |
+| `forcer` | As `sapper` | Half the team holds the chokes in front of the sites and hunts sounds | SMG or shotgun and light armour every round | Yes |
+
+`sapper`, `retaker`, `lurker`, `saver` and `forcer` are one implementation, `bots/squad`, with a different
+`Style` each. A style names three decisions: how to attack, how to defend, how to spend. Everything else is
+shared: shooting, the plant (the carrier plants under fire when a teammate is within five tiles), the
+defuse (the defender nearest the charge defuses, the rest guard it), the draft and the abilities. To add a
+bot with a new combination, copy one of the five crates (about twenty lines) and change its `STYLE`. To add
+a new way to attack, defend or spend, add a variant in `bots/squad/src/lib.rs`.
+
+What the squad bots do that the first three do not:
+
+- **Vary with the seed.** The site to attack, the site to stack and the kit each slot drafts are a function
+  of the match seed, the round and the team. Teammates agree without talking, and two seeds give two games.
+  `rusher` still ignores the seed.
+- **Play the charge.** Covered plants, post-plant positions with a line onto the charge, running at a
+  defuse that is heard, grouped retakes that stop waiting when the fuse forces them.
+- **Draft and use abilities for the objective.** Smoke on the line the enemy arrives on, or on the charge
+  to defuse inside it; fire on a defuse in progress; a barrier in front of a plant or defuse; recon on the
+  site before going in; flash, heal and dash as the fight asks. Kits are unique within a team.
+- **Buy by what a weapon is,** not by its name: longest range, biggest magazine, most pellets, cheapest.
+  The logic survives a change to `rules/weapons.toml`.
+- **Stay inside the fuel budget.** The expensive questions (where does the enemy come into view of a site,
+  how far is it) are asked one per buy tick, last in the turn, and kept for the match. Measured with the
+  wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` still
+  overruns its first buy tick (it plans the whole round at once).
+
+## Measured
+
+Taken on 2026-11-25, ruleset `47ebd4e1efcddb9b`, native backend. The first table is on the ten maps the pool
+had before it grew, so that the only thing that changed between the two columns is the bots. Intervals are
+95%, computed by `ibc-bench` over distinct games.
+
+```
+ibc-bench balance --bots rusher,holder --maps <ten maps> --seeds 3
+ibc-bench balance --bots rusher,holder,utility,sapper,retaker,lurker,saver,forcer --maps <ten maps> --seeds 3
+```
+
+| | `rusher`, `holder` | All eight (no `idle`) |
+|---|---:|---:|
+| Games (distinct) | 120 (78) | 1,920 (1,800) |
+| Rounds | 1,493 | 20,609 |
+| Charge planted | 48.3% [39.7, 56.9] | 69.3% [68.1, 70.6] |
+| Round ends by elimination | 68.0% [60.9, 75.1] | 59.4% [58.1, 60.8] |
+| Round ends by detonation | 19.8% [14.3, 25.3] | 11.6% [10.8, 12.4] |
+| Round ends by defuse | 10.8% [6.4, 15.1] | 28.0% [26.8, 29.2] |
+| Round ends on the clock | 1.4% [0.3, 2.5] | 1.0% [0.8, 1.2] |
+| Attackers win rounds | 56.9% [48.6, 65.2] | 55.2% [53.7, 56.7] |
+| Matches decided by tie-break | 29.2% [18.9, 39.4] | 7.9% [6.7, 9.2] |
+| Kills with the marksman rifle | 64.8% | 23.2% |
+| Kills by an ability | 0% | 9.2% |
+| Failed `act` calls, worst bot | 1.6% | 0.1% |
+
+League, same ten maps, three seeds, both slots (`ibc-sim league`, 420 games per bot):
+
+| Bot | Match wins | Rounds won when attacking |
+|---|---:|---:|
+| `forcer` | 78.8% | 62.1% |
+| `saver` | 60.5% | 63.5% |
+| `rusher` | 58.3% | 46.1% |
+| `retaker` | 56.9% | 63.6% |
+| `sapper` | 50.5% | 62.5% |
+| `lurker` | 45.0% | 57.4% |
+| `utility` | 28.1% | 31.9% |
+| `holder` | 21.9% | 53.0% |
+
+What the numbers say, and what they do not:
+
+- The objective now decides about four rounds in ten. Before, the two-bot pool mostly bought the marksman
+  rifle and shot it out.
+- `forcer` beats every other bot. It spends the least and defends the furthest forward. That is either a
+  finding about cheap close-range weapons and forward defence, or a weakness of how the other bots hold a
+  site. Read replays before changing a price.
+- `holder` loses 84 to 92% of rounds when it defends against any bot that attacks as a group. It is the
+  weak point of the pool, not evidence about defence in general.
+- Mirror matches are still lopsided (attackers win 26.5% of `rusher` mirrors and 85.4% of `holder` mirrors),
+  so a single bot against itself remains a poor balance test.
+- None of this is a tuning result. It is the baseline the next rules change is measured against.
+
+### After doubling plant and defuse (ruleset `5db90f2ad2ef9f28`)
+
+`plant_ticks` 4 to 8, `defuse_ticks` 7 to 14, `defuse_kit_ticks` 4 to 8, nothing else. Same eight bots, same
+ten maps, same seeds (`ibc-bench balance --compare`). 27 metrics moved beyond the noise; the main ones:
+
+| | Before | After |
+|---|---:|---:|
+| Attackers win rounds | 55.2% [53.7, 56.7] | 68.2% [66.9, 69.5] |
+| Round ends by defuse | 28.0% [26.8, 29.2] | 12.8% [12.1, 13.5] |
+| Round ends by detonation | 11.6% [10.8, 12.4] | 14.5% [13.6, 15.4] |
+| Round ends by elimination | 59.4% [58.1, 60.8] | 71.1% [70.0, 72.3] |
+| Charge planted | 69.3% [68.1, 70.6] | 64.7% [63.3, 66.1] |
+| Matches decided by tie-break | 7.9% [6.7, 9.2] | 9.8% [8.4, 11.2] |
+
+Attackers gained on every map, most on `postern` (37% to 66%) and `agora` (45% to 69%). The fuse is still 40
+ticks, so a 14-tick defuse leaves 26 ticks to reach the charge and clear it, where a 7-tick one left 33.
+The bots were not retuned for the new numbers: they still gather and guard as if a defuse were quick, so
+part of the swing is the bots and part is the rule. The fuse is the obvious next number to move.
+
+### After moving to the vision's timings (ruleset `0304dfc448350cca`)
+
+`plant_ticks` 12, `defuse_ticks` 21, `defuse_kit_ticks` 16, `fuse_ticks` 80, `buy_ticks` 6, and `max_ticks`
+4000 so the longest match (3,745 ticks) still fits. Five numbers moved at once, at the designer's request, so
+the table says what the set did and cannot say which number did it. Same eight bots, ten maps and seeds;
+"before" is the doubled timings above.
+
+| | Before | After |
+|---|---:|---:|
+| Attackers win rounds | 68.2% [66.9, 69.5] | 57.1% [55.5, 58.6] |
+| Round ends by defuse | 12.8% [12.1, 13.5] | 19.6% [18.6, 20.5] |
+| Round ends by detonation | 14.5% [13.6, 15.4] | 1.3% [1.1, 1.6] |
+| Round ends by elimination | 71.1% [70.0, 72.3] | 77.1% [76.1, 78.1] |
+| Round ends on the clock | 1.6% [1.3, 1.8] | 2.0% [1.7, 2.3] |
+| Charge planted | 64.7% [63.3, 66.1] | 58.7% [57.3, 60.1] |
+| Mean round length (ticks) | 84.4 | 96.0 |
+
+The sides are back near even, but the charge almost never goes off: a planted round now ends by detonation
+about one time in forty. Eighty ticks is long enough for the defenders to kill the attackers or defuse nearly
+every time, and the post-plant attackers in `bots/squad` do not play for time (they hold a line onto the
+charge and take every fight). The 12-tile blast that is meant to make a late defuse dangerous is not in the
+engine yet. Before shortening the fuse, read some planted rounds in the viewer.
+
+On all fourteen maps (2,688 games, 29,616 rounds) attackers win 56.1% [54.8, 57.4] of rounds; per map in
+`docs/maps.md`. League there, two seeds: `forcer` 79.3% of matches, `saver` 59.4%, `rusher` 57.9%, `lurker`
+49.5%, `sapper` 45.4%, `retaker` 45.2%, `utility` 36.5%, `holder` 26.8%.
+
+Fuel on the new maps, wasm runner: 6 matches of the squad bots on `bazaar`, `delta`, `fulcrum` and `steppe`
+gave one out-of-fuel turn in total, on `steppe`, the largest map, where one planning step uses the whole buy
+tick. A forward defender used to start a path search for every sound it heard; it now keeps one place to go.
+
+Fuel, wasm runner (measured before the timing change): 40 matches (every pair of the five squad bots on `agora`, `longwatch`, `tunnels` and
+`warrens`, seed 11) had no out-of-fuel turn and no fault; the largest single turn was 297,188 of the
+400,000 a buy tick allows. Native and wasm gave the same final state hash for `sapper` against `retaker`
+on `crossfire`, seed 1, and that replay was produced twice byte-identical and verified.

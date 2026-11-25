@@ -1,7 +1,9 @@
 # Battlecode Vision
+
 This is the developer's informal vision notes for how the platform should function, how the game should play out, with ways to make development and participant experience better.
 
 Principles:
+
 - The platform should be safe and prevent cheating / unfair play as much as possible. This means
   - No decompiling another team's bot to look at their code, or injecting any code
   - No exploiting, like cheating the fuel count, crashing the game in your favor, freezing elo by not having any bots available to fight against, etc.
@@ -26,18 +28,21 @@ Principles:
   - Adding new weapons, abilities, and maps should be extremely easy. Maps especially wants a map editor, map import export, players can make custom maps to test on, as new maps gets introduced often.
   - Moderation terminal exists, where we can see performance loads, flagged accounts, and ban / kick / suspend participants at will.
 - The tournament formula should look like:
-  - Ranked games are queued automatically always during the period, using everyone's active bot. Elo adjusts based on final results, maps won / lost difference, and elo difference.
+  - Expect 200+ teams. Cambridge Battlecode had 800+ teams at the end of the competition.
+  - Ranked games are queued automatically always during the period, using everyone's active bot. Elo adjusts based on maps won / lost difference, and elo difference. Don't adjust elo on per map performance.
   - In each games, full 7 rounds are done on 3-5 randomly picked maps (number not finalized) from the pool.
-  - All uploaded versions gets archvived. User can queue unranked games with any team's bot, including their old version. 
-  - Each elo bracket is given a ranking like Iron, Bronze, Silver, Gold, Platinum, Emerald, Diamond, Immortal, Ascendant, Radiant.
+  - All uploaded versions gets archived. The archive is not public: nobody can see how many versions a team has uploaded (Cambridge Battlecode is the example to follow). User can queue unranked games with their own old versions freely. Against another team, normal queueing only reaches that team's current bot. The one exception: you can re-queue against the exact bot version a team used in a previous match against you.
+  - Each elo bracket is given a ranking like Iron, Bronze, Silver, Gold, Platinum, Diamond, Ascendant, Immortal, Radiant.
   - Tournaments run every week. When tournament runs, game stops for 1 hour, no more matches gets queued, and is maintained. Active bot versions gets recorded and locked for everyone, the tournament runs with that archived version of the bot rather than any new bot teams might upload. Tournamnets get seeded, can be single or double elimination. All teams play against each other on all maps defined for the tournament, which will be hidden before start. Tournament is not expected to finish in that 1 hour, will be continuing the whole time alongside real matches queueing again.
-  - Maps from tournaments gets added to real play after the 1 hour. 
+  - Tournament field is everyone by default. Organisers can also run one for the top N of the ladder, or for a hand-picked list of teams, especially for final rounds. Single and double elimination are both available. Each bracket pairing plays every tournament map. Teams are seeded from the ladder. The map count should be odd. If a pairing still ends level on maps, the team with more total rounds won across those maps advances. If that is also level, the higher seed advances and the result is flagged for organisers to see. Organisers start a tournament by hand; nothing schedules it automatically.
+  - Maps from tournaments gets added to real play after the 1 hour.
 - The gameplay formula should look like:
-  - Draft picking system to pick different kits, made into an agent selection system like Valorant. During this time, compute is given, and can write to a draft memory that won't be editable after draft finishes, but can be read for the rest of the game.
-  - Buy phase memory works similar to draft memory, resetting every round. Smaller size and compute given.
-  - Then each agent act independently. Communicate through shared team memory. Smallest but editable and rewritable at all time in the actual match (so not usable in draft and buy phase)
+  - Draft picking system to pick different kits, made into an agent selection system like Valorant. During this time, compute is given, and can write to a draft memory that won't be editable after draft finishes, but can be read for the rest of the game. Kits are unique within a team: no two teammates on the same kit. One team's pick does not stop the other team from picking the same kit. One unit drafts for the whole team, the same way one unit buys for the team in the buy phase. Draft code and buy code stay separate from each other and from the in-round code.
+  - Buy phase memory works similar to draft memory, resetting every round. Smaller size and compute given. Buy phase lasts around 6 ticks.
+  - Then each agent act independently. Communicate through shared team memory. Smallest but editable and rewritable at all time in the actual match (so not usable in draft and buy phase). Team memory does not persist: it is wiped at the end of every round. VISION IS SHARED, and so are heard sounds, but each agent decides every of their own action.
   - Match results and history is visible at all times.
-  - Free signature ability charge every round, unused ability charges get kept, can buy new ability charges.
+  - Each agent has exactly two abilities: a signature that gets 1 free charge every round, and one that has to be bought.
+  - Free signature ability charge every round, unused ability charges get kept, can buy new ability charges. A unit holds at most 1 charge of each ability, signature and bought alike.
   - Gameplay abilities can look like:
     - Placing tiles of walls (API should reveal it is player-placed to disambiguate from normal walls)
     - Placing traps
@@ -47,14 +52,20 @@ Principles:
     - And outside of those foundational kit, we should have MANY more interesting abilities.
     - Start up for most abilities
   - Wining rules as current: Defenders kill all before plant or defuse charge, Attackers kill all or detonate plant, etc.
-  - Spike plant timing and defuse timing should be decently long, to make it actually risky to do. Spike plant faster than defuse. Rotation to a different site should be a viable strategy
+  - Spike plant timing and defuse timing should be decently long, to make it actually risky to do. Spike plant faster than defuse, including defuse with a kit: the kit shortens defuse but it stays slower than plant. Current plant and defuse times are way too short: plant 4 -> 12, defuse 7 -> 21, kit defuse 4 -> 16. Detonation time doubled (40 -> 80). Longer matches are accepted. Rotation to a different site should be a viable strategy
   - On a round win, stop immediately: No more killing or movement, unlike Valorant where you can still kill after defuse for more credits.
-  - Half and half until won, first to 7. Only one over time game where sides are swapped, rather than two overtime games and keep overtiming until results are clear like in Valorant, to prevent indefinite game running.
+  - Half and half until won, first to 7. Cap at 3 overtime pairs max (a pair is one round on each side), then tiebreak, if truly tied then register as a drawn game. A match that runs out of ticks is also a draw.
   - Shooting and running make noises, and you can hear and detect them, allowing bots to virtually map their estimated positions to self knowledge. Walking to not make noises is an option.
-  - Shooting has random spray when walking, more when running to encourage slowing down. Spray should be large enough to really discourage it. During startup and actual shooting you can move fine, but the bullet spray is determined by your speed when you shoot.
-  - Detonation of charge kills all players within a radius, they will lose their gun if they don't escape it.
+  - Shooting has longer startup when walking, more when running to encourage slowing down. By the end of the start up, you have come to a complete stop. Sideways kick is not useful as it can be completely mitigated, so we will remove that. Movement does not add spread either: moving is paid for in startup time only. To stop bots dodging the penalty by standing still for one tick before shooting, startup length comes from an unsteadiness value that builds up with speed each tick and decays while standing, like recoil.
+  - After start up, you can shoot at a normal fire rate. Stop shooting or move and you must startup again. Reloading and swapping weapon also break it; turning does not. Spread also increase as you keep shooting.
+  - Detonation of charge kills all players within a radius, they will lose their gun if they don't escape it. Radius is 12 tiles for now, measured by plain distance: walls do not block it.
+  - Events follow fog: a team only sees an event if it happened somewhere the team can see. A damage event shows how much damage was dealt, never the resulting HP or armour, so you can guess but not be sure. Kill / death events are the exception: always visible to both teams with who killed and who died, but the position is only revealed if you can see it. Tab shows who is alive on both teams.
+  - Friendly fire is possible with every ability, but not with bullets.
+  - You can see what agent other team selected (and therefore their kit), but not the equipment they held or the ability charges they have. When an enemy is in sight you can see their weapon, but not their HP or armour. You can see their credit counts at the start of round during buy phase, not how it changed when they buy anything. You can see team's equipment, credits, and kit at all times.
+  - Team can buy kit and equipment for each other. So likely, buy phase will want a director agent separate from agent during round too.
 - The participant experience might look like:
   - Can run local tests, with downloaded maps from map pool and custom maps as well
   - Can access API and run automated unranked testing
-  - Match results and data are downloadable and interpretable for them to watch by replay and analyze
+  - Match results and data are downloadable and interpretable for them to watch by replay and analyze. Each replay logs every action and every event that happens in the game, but only the memory, logs, and fuel usage of your team's bot is included in the replay, opponent's memory, logs, and fuel usage is hidden. No reasoning behind any action is included => cannot reverse engineer.
   - Most participants will probably use agents to code their bot, information and errors, especially for API and rate limits, should be accessible.
+

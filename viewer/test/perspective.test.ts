@@ -6,7 +6,7 @@ import { angleDiff, canSeePoint, rulesFor, visionPolygon } from "../src/vision";
 import { bullet, frame, MAP_TEXT, unit } from "./helpers";
 
 const map = parseMap(MAP_TEXT);
-const rules = rulesFor("0.1.0");
+const rules = rulesFor(null);
 
 // Team A = ids 0, 1; team B = ids 2, 3. Unit 0 sees enemy 2; unit 1 sees enemy 3; unit 2 sees unit 0.
 const units = () => [

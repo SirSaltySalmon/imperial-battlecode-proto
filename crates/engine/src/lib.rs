@@ -20,6 +20,12 @@ pub use world::World;
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// What a viewer needs from a ruleset to draw a match and name what is in it (sizes, timings, weapon names
+/// by id), as one JSON object.
+pub fn rules_json(rules: &Ruleset) -> String {
+    host::rules_json(rules)
+}
+
 /// FNV-1a 64. Used for state, map and ruleset hashes.
 pub struct Fnv(u64);
 

@@ -9,7 +9,7 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   ibc-sim run --a <bot> --b <bot> --map <file.ibcmap> [--seed N] [--frames out.jsonl] [--max-ticks N]
   ibc-sim league --maps <dir> [--seeds N] [--bots a,b,c] [--max-ticks N]
-bots: idle, rusher, holder";
+bots: idle, rusher, holder, utility, sapper, retaker, lurker, saver, forcer";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

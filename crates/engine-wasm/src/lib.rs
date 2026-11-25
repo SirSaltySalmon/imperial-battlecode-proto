@@ -8,6 +8,8 @@
 //!            the replay header is JSON at ibc_header_ptr() / ibc_header_len().
 //!   rc != 0: the message is at ibc_error_ptr() / ibc_error_len(). Loading re-simulates the whole match and
 //!            checks every state hash, so a replay from another engine version fails here instead of drifting.
+//!   The rules this build simulates with (sizes, timings, weapon names by id) are JSON at
+//!   ibc_rules_ptr() / ibc_rules_len(), available without loading a replay.
 //! Each engine release ships its own build of this module, so old replays stay viewable.
 
 use std::cell::RefCell;
@@ -19,7 +21,15 @@ struct Loaded {
     error: String,
 }
 
-thread_local! { static STATE: RefCell<Loaded> = RefCell::new(Loaded::default()); }
+thread_local! {
+    static STATE: RefCell<Loaded> = RefCell::new(Loaded::default());
+    static RULES: String = rules();
+}
+
+/// The built-in ruleset as the JSON a viewer reads (`ibc_engine::rules_json`).
+pub fn rules() -> String {
+    ibc_engine::rules_json(&ibc_engine::Ruleset::builtin())
+}
 
 /// Decode and re-simulate a replay. Returns the frames and the header JSON.
 pub fn load(bytes: &[u8]) -> Result<(Vec<String>, String), String> {
@@ -100,6 +110,16 @@ pub extern "C" fn ibc_error_ptr() -> *const u8 {
 #[no_mangle]
 pub extern "C" fn ibc_error_len() -> u32 {
     STATE.with(|s| s.borrow().error.len() as u32)
+}
+
+#[no_mangle]
+pub extern "C" fn ibc_rules_ptr() -> *const u8 {
+    RULES.with(|r| r.as_ptr())
+}
+
+#[no_mangle]
+pub extern "C" fn ibc_rules_len() -> u32 {
+    RULES.with(|r| r.len() as u32)
 }
 
 /// Engine version of this build, as a NUL-free UTF-8 string of `ibc_version_len()` bytes.

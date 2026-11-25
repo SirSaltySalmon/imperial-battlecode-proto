@@ -1,4 +1,4 @@
-use ibc_sim::{make_bot, run, run_custom, SimResult, BOTS, DEFAULT_MAX_TICKS};
+use ibc_sim::{make_bot, run, run_custom, run_with, SimResult, BOTS, DEFAULT_MAX_TICKS};
 
 /// Bots may hit the odd legitimate error (a race for a pickup, a weapon cooldown); more than this
 /// share of failing `act` calls means a bot is spamming something it should have checked first.
@@ -176,14 +176,19 @@ thread_local! {
     static WALKERS: std::cell::Cell<(u32, u32)> = const { std::cell::Cell::new((0, 0)) };
 }
 
-/// How many stops each walker must reach within round 1.
+/// How many stops each walker must reach within round 1, when the round is long enough for both.
 const WALKER_STOPS: usize = 2;
+/// A walker is only asked for a route that fits the round with this much to spare (percent of the round).
+const WALKER_SPARE_PCT: i32 = 20;
 
 /// Test-only bot: runs between the sites and the two spawns, starting at a stop chosen by its id.
 struct Walker {
     nav: ibc::Navigator,
     stops: Vec<(i32, i32)>,
     visited: usize,
+    /// Stops this walker must reach: `WALKER_STOPS`, or one when the second leg cannot fit in the round
+    /// (on a tall map, spawn to spawn and back is longer than a round). Decided on its first step.
+    need: Option<usize>,
 }
 
 impl ibc::Bot for Walker {
@@ -193,19 +198,35 @@ impl ibc::Bot for Walker {
         stops.push((map.enemy_spawn_x, map.enemy_spawn_y));
         stops.push((map.spawn_x, map.spawn_y));
         WALKERS.with(|w| w.set((w.get().0 + 1, w.get().1)));
-        Walker { nav: ibc::Navigator::new(), stops, visited: 0 }
+        Walker { nav: ibc::Navigator::new(), stops, visited: 0, need: None }
     }
 
     fn turn(&mut self) {
         use ibc::UnitExt;
         let (me, info) = (ibc::me(), ibc::match_info());
-        if !me.alive() || info.round != 1 || info.phase != ibc::PHASE_ACTION || self.visited >= WALKER_STOPS {
+        if !me.alive() || info.round != 1 || info.phase != ibc::PHASE_ACTION {
             return;
         }
-        let stop = self.stops[(me.id as usize + self.visited) % self.stops.len()];
+        let stop_at = |k: usize| self.stops[(me.id as usize + k) % self.stops.len()];
+        let need = match self.need {
+            Some(n) => n,
+            None => {
+                let core = ibc::core_rules();
+                let (first, second) = (stop_at(0), stop_at(1));
+                let route = self.nav.path_len(me.pos(), first).unwrap_or(0) + self.nav.path_len(first, second).unwrap_or(0);
+                let budget = core.round_ticks * (100 - WALKER_SPARE_PCT) / 100;
+                let n = if route / core.run_speed.max(1) <= budget { WALKER_STOPS } else { 1 };
+                self.need = Some(n);
+                n
+            }
+        };
+        if self.visited >= need {
+            return;
+        }
+        let stop = stop_at(self.visited);
         if self.nav.go(&me, stop.0, stop.1, 100_000).expect("move") {
             self.visited += 1;
-            if self.visited == WALKER_STOPS {
+            if self.visited == need {
                 WALKERS.with(|w| w.set((w.get().0, w.get().1 + 1)));
             }
         }
@@ -250,5 +271,63 @@ fn reference_defenders_defuse_a_planted_charge() {
         assert_eq!(r.winner, Some(1), "{bot}");
         let s = r.acts[1];
         assert!(s.errors * 100 <= s.calls * MAX_ACT_ERROR_PCT, "{bot}: act errors {:?} of {}", s.errors_by_kind, s.calls);
+    }
+}
+
+/// The bots built on `bots/squad`.
+const SQUAD_BOTS: [&str; 5] = ["sapper", "retaker", "lurker", "saver", "forcer"];
+
+#[test]
+fn squad_bots_beat_idle_on_every_map() {
+    for (name, map) in maps() {
+        for bot in SQUAD_BOTS {
+            let r = play(&map, 1, bot, "idle");
+            assert_eq!(r.winner, Some(0), "{bot} as team A on {name}: score {:?}", r.score);
+            let r = play(&map, 1, "idle", bot);
+            assert_eq!(r.winner, Some(1), "{bot} as team B on {name}: score {:?}", r.score);
+        }
+    }
+}
+
+/// What the pool exists to exercise: every squad bot drafts a kit per unit, puts ability effects into the
+/// world, buys primary weapons, and its rounds are decided by the charge (detonation or defuse) as well
+/// as by elimination.
+#[test]
+fn squad_bots_draft_buy_use_abilities_and_play_the_objective() {
+    let maps = maps();
+    for bot in SQUAD_BOTS {
+        let (mut effects, mut primaries, mut objective) = (0usize, 0usize, 0u32);
+        for (name, map) in &maps {
+            let mut kits: Vec<i32> = Vec::new();
+            let r = run_with(map, 5, bot, "rusher", DEFAULT_MAX_TICKS, |m| {
+                let w = &m.world;
+                effects = effects.max(w.effects.len());
+                primaries = primaries.max(w.units.iter().filter(|u| u.team == 0 && u.weapons[0] >= 0).count());
+                kits = w.units.iter().filter(|u| u.team == 0).map(|u| u.kit).collect();
+            })
+            .unwrap();
+            assert!(r.finished, "{bot} on {name} did not finish");
+            assert!(kits.iter().all(|&k| k >= 1), "{bot} on {name}: a unit did not draft: {kits:?}");
+            let mut distinct = kits.clone();
+            distinct.sort_unstable();
+            distinct.dedup();
+            assert_eq!(distinct.len(), kits.len(), "{bot} on {name}: teammates share a kit: {kits:?}");
+            let (atk, def) = round_reasons(&r.summary_json);
+            objective += atk[ibc::ROUND_WIN_DETONATION as usize] + def[ibc::ROUND_WIN_DEFUSE as usize];
+        }
+        assert!(effects > 0, "{bot}: no ability effect was ever in the world");
+        assert!(primaries >= 3, "{bot}: at most {primaries} units ever held a primary weapon");
+        assert!(objective > 0, "{bot}: no round on any map ended by detonation or defuse");
+    }
+}
+
+#[test]
+fn squad_bots_are_deterministic_and_vary_with_the_seed() {
+    let (name, map) = maps().remove(0);
+    for bot in SQUAD_BOTS {
+        let (x, y) = (play(&map, 7, bot, "holder"), play(&map, 7, bot, "holder"));
+        assert_eq!(x.final_hash, y.final_hash, "{bot} vs holder on {name}: two runs differ");
+        let hashes: std::collections::BTreeSet<u64> = (1..=4).map(|seed| play(&map, seed, bot, bot).final_hash).collect();
+        assert!(hashes.len() > 1, "{bot} mirror on {name}: four seeds gave one game");
     }
 }

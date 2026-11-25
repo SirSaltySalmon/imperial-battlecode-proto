@@ -13,33 +13,36 @@ change did or did not alter simulation.
 Measured with `ibc-bench balance` on the foundation rules and two maps (native, 5 seeds, 390 rounds). Re-run
 it on the current ten-map pool before acting; the numbers below predate the new weapons, abilities and maps.
 
-- [ ] **The objective never decides a round.** 0 of 390 rounds ended by detonation or defuse, 96.9% ended by
-  elimination, and the charge was planted in 26.2% of rounds. The game currently plays as a deathmatch.
-  First find out whether this is the rules or the bots: use `ibc-bench why` on rounds where a plant happened
-  and see why no defuse or detonation followed. Candidates on the rules side: `fuse_ticks` (40) against
-  rotation time on each map (`ibc-maptool analyze` reports it), `plant_ticks`, how fast fights resolve relative
-  to round length. Done: a pool of bots that play the objective produces a healthy mix of round end reasons.
-- [ ] **Mirror matches end 6-6.** Rusher-vs-rusher attackers won 0 of 120 rounds and holder-vs-holder attackers
-  won 108 of 120, so every mirror went to overtime or the tie-break. An average of 50.8% hid two opposite
-  extremes. Done: attacker round win rate per pairing, not just overall, sits in a band we choose (say 40 to
-  60%) for bots of comparable strength.
-- [ ] **Reference bots are too few and too alike.** Three bots, only `holder` reads the seed (so 20 games over
-  10 seeds contained 4 distinct games), none drafts a kit, none uses an ability, none buys anything but the
-  most expensive affordable weapon. Balance cannot be measured with them. Write a pool of at least six
-  deliberately different bots: objective-focused attacker, retake-focused defender, utility user for each kit,
-  eco/force-buy variants, a lurker. `bots/utility` is a start but is not in the sim registry
-  (`crates/sim/src/lib.rs`). Every bot should vary its play with the seed.
-- [ ] **New mechanics have never been played.** The SMG, shotgun, marksman rifle and LMG, all eight abilities,
-  weapon drops and overtime are covered by scripted engine tests only. Once the bot pool exists, run the
-  balance report and tune one thing at a time (`CLAUDE.md`, "Changing the game").
-- [ ] **Three maps are lopsided** with the current bots: `quarry` 78.7% and `postern` 76.5% attacker rounds,
-  `trident` 23.1%. Re-measure with the better bot pool before changing them; the rate mostly tracked how often
-  a `holder` attack wins.
-- [ ] **Native and wasm disagree when a bot runs out of fuel.** 3 of 16 league games diverged, all
-  holder-vs-holder, because the native sim has no fuel limit. Either add fuel metering to `ibc-sim` (an
-  instruction-count proxy is not available natively, so more likely: make the bench default to the wasm backend
-  for anything that is reported, and keep native for quick iteration) or make `holder` cheaper. `ibc-bench`
-  already warns per bot when it happens.
+- [x] **The objective never decides a round.** Was 0 of 390 rounds on the foundation rules. Re-measured on
+  2026-11-25 with the eight-bot pool on ten maps (20,609 rounds): 11.6% end by detonation, 28.0% by defuse,
+  59.4% by elimination, 1.0% on the clock, and the charge is planted in 69.3% of rounds. It was the bots:
+  the old two-bot pool on the same rules and maps gives 19.8% / 10.8% / 68.0%. Table in `bots/README.md`.
+- [ ] **Mirror matches are lopsided.** Re-measured 2026-11-25: attackers win 26.5% of `rusher` mirror
+  rounds, 30.7% of `forcer`, 85.4% of `holder`, and 67 to 74% of the other squad bots' mirrors. Matches decided
+  by the tie-break fell from 29.2% to 7.9% with the larger pool. Done: attacker round win rate per pairing,
+  not just overall, sits in a band we choose (say 40 to 60%) for bots of comparable strength.
+- [x] **Reference bots are too few and too alike.** Eight playing bots now (`bots/README.md`): `rusher`,
+  `holder`, `utility` and five styles of one shared implementation, `bots/squad` (`sapper`, `retaker`,
+  `lurker`, `saver`, `forcer`). All eight are in the sim registry. The squad bots draft unique kits, use
+  abilities for the objective, buy different weapons and vary with the seed (1,800 of 1,920 games distinct).
+  Left over: `rusher` and `utility` still ignore the seed, and `holder` is too weak a defender to be a
+  useful opponent (it loses 84 to 92% of defending rounds to any bot that attacks as a group).
+- [ ] **`forcer` beats the whole pool** (78.8% of matches) with the cheapest loadout and the most forward
+  defence. Find out which of the two it is with `ibc-bench why` and an A/B of `forcer` against a copy with
+  `Buy::Best`, before touching SMG or shotgun prices.
+- [ ] **New mechanics are played but not tuned.** Kills by weapon with the eight-bot pool: rifle 24.8%,
+  marksman 23.2%, pistol 18.7%, SMG 9.7%, abilities 9.2%, shotgun 8.0%, LMG 6.5%. The marksman rifle is
+  carried by about one unit in five and takes almost a quarter of the kills. Tune one thing at a time
+  (`CLAUDE.md`, "Changing the game").
+- [ ] **Three maps are lopsided,** but not the three listed before. With the eight-bot pool attackers win
+  72% of rounds on `crossfire`, 76% on `tunnels` (the two original maps, defenders spawn next to the sites)
+  and 66% on `longwatch`; `postern` is the low one at 38%. `quarry`, `trident`, `agora`, `culvert`,
+  `spillway` and `warrens` sit between 45 and 54%. Per-map table: `docs/maps.md`.
+- [ ] **Native and wasm disagree when a bot runs out of fuel.** The five squad bots no longer do: 40 wasm
+  matches between them had no out-of-fuel turn (largest turn 297,188 of the 400,000 a buy tick allows),
+  because they spread their path searches over the buy ticks and keep the results. `holder` still plans a
+  whole round in its first buy tick and overruns it (7 turns in one match on `quarry`). Give it the same
+  treatment or retire it, and make the bench default to the wasm backend for anything that is reported.
 - [ ] **Pathfinding cost on large maps.** A full distance field on `crossfire` (544 tiles) is roughly one
   100k-fuel tick by estimate, never measured. On 56x40 maps `path_len`/`approach_point` in `sdk/rust/src/nav.rs`
   may exceed even the buy-phase budget. Measure fuel per call with the wasm runner and either budget the search

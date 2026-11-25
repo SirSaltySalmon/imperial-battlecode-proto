@@ -7,6 +7,7 @@ import { parseMap, segmentWall, tileAt } from "../src/map";
 import { buildTimeline, recentEvents, roundIndexAt } from "../src/timeline";
 import { EVENT_KILL, EVENT_PLANT, TILE_LOW, TILE_WALL } from "../src/types";
 import { container, frame, headerJson, MAP_TEXT } from "./helpers";
+import { rulesFor, weaponName } from "../src/vision";
 
 describe(".ibcr container", () => {
   it("rejects a bad magic and an unknown format version", () => {
@@ -179,6 +180,18 @@ describe.skipIf(!existsSync(wasm) || !existsSync(sample))("engine module with fi
     const tl = buildTimeline(store);
     expect(tl.rounds.filter((r) => r.winner !== null)).toHaveLength(header.result.score[0] + header.result.score[1]);
     expect(parseMap(header.map_text).width).toBeGreaterThan(0);
+  });
+
+  it("reports its rules, with a name for every weapon", async () => {
+    const engine = await Engine.instantiate(readFileSync(wasm));
+    const rules = rulesFor(engine.rules());
+    expect(rules.weapons.slice(0, 2)).toEqual(["pistol", "rifle"]);
+    expect(rules.weapons).toContain("marksman");
+    expect(weaponName(rules, rules.weapons.indexOf("lmg"))).toBe("lmg");
+    expect(weaponName(rules, -1)).toBe("unarmed");
+    expect(rules.fuse_ticks).toBeGreaterThan(0);
+    // A build without the export leaves the fallback table in place.
+    expect(rulesFor(null).weapons.length).toBeGreaterThan(0);
   });
 
   it("returns the engine's message for a replay it cannot run", async () => {

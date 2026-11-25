@@ -110,6 +110,78 @@ button.on {
   flex: 1;
 }
 
+.navlink {
+  color: var(--dim);
+  text-decoration: none;
+  padding: 5px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.navlink:hover {
+  color: var(--text);
+}
+
+.navlink:focus-visible {
+  outline: 2px solid var(--team-a);
+  outline-offset: 1px;
+}
+
+#library {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+#library[hidden] {
+  display: none;
+}
+
+#library-select {
+  max-width: 300px;
+  min-width: 110px;
+  flex: 1;
+  text-overflow: ellipsis;
+}
+
+#top button,
+.navlink {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* A narrow window: the header takes a second row rather than overlapping. */
+@media (max-width: 760px) {
+  #top {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+}
+
+#library-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+  max-height: 40vh;
+  overflow-y: auto;
+  text-align: left;
+}
+
+#library-list li {
+  padding: 3px 0;
+}
+
+#library-list a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+#library-list a:hover {
+  text-decoration: underline;
+}
+
 main {
   flex: 1;
   display: flex;

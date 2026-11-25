@@ -4,6 +4,7 @@ import { fitCamera, pan, toTiles, zoomAt, type Camera } from "./camera";
 import { fetchEngine, FrameStore } from "./engine";
 import { interpUnits } from "./interp";
 import { readHeader } from "./ibcr";
+import { currentIndex, entryHref, entryLabel, fetchLibrary, neighbour, type LibraryEntry } from "./library";
 import { parseMap, type GameMap } from "./map";
 import { ALL, formatPerspective, parsePerspective, viewOf, type Perspective } from "./perspective";
 import { render } from "./render";
@@ -57,6 +58,9 @@ let lastTime = 0;
 /** Frame index the page (panel, feed, banner, scrub bar) was last updated for; -1 forces an update. */
 let pageFrame = -1;
 let loadToken = 0;
+/** The replay folder the server offers, and which of its entries is open (-1: none of them). */
+let library: LibraryEntry[] = [];
+let libraryAt = -1;
 
 function invalidate(page = false): void {
   if (page) pageFrame = -1;
@@ -238,7 +242,7 @@ async function openBytes(bytes: Uint8Array, name: string): Promise<void> {
     const { header, frames } = engine.load(bytes);
     const store = new FrameStore(frames);
     const map = parseMap(header.map_text);
-    const rules = rulesFor(header.engine_version);
+    const rules = rulesFor(engine.rules());
     const first = store.get(0);
     const panel = new Panel($("panel"), header, map, first, rules, { setPerspective, toggle: toggleLayer });
     loaded = { header, store, timeline: buildTimeline(store), map, rules, panel, teamSize: first.units.length / 2 };
@@ -406,6 +410,8 @@ function bindKeys(): void {
       f: fit,
       t: toggleTheme,
       o: () => fileInput.click(),
+      "[": () => openNeighbour(-1),
+      "]": () => openNeighbour(1),
       "?": () => ($("help").hidden = !$("help").hidden),
     };
     const action = actions[e.key.length === 1 ? e.key.toLowerCase() : e.key];
@@ -459,6 +465,39 @@ function bindControls(): void {
   });
 }
 
+/** Open the replay `delta` places along the folder (a page load, so the address always names the replay). */
+function openNeighbour(delta: number): void {
+  const e = neighbour(library, libraryAt, delta);
+  if (e) location.search = entryHref(e);
+}
+
+/** Fill the header menu and the list on the empty page from the folder the server offers, if any. */
+async function loadLibrary(replayParam: string | null): Promise<void> {
+  library = await fetchLibrary();
+  if (library.length === 0) return;
+  libraryAt = currentIndex(library, replayParam);
+  const select = $<HTMLSelectElement>("library-select");
+  select.replaceChildren(new Option(`Replays (${library.length})`, "", libraryAt < 0, libraryAt < 0));
+  const list = $("library-list");
+  library.forEach((e, i) => {
+    select.add(new Option(entryLabel(e), String(i), false, i === libraryAt));
+    const link = document.createElement("a");
+    link.href = entryHref(e);
+    link.textContent = entryLabel(e);
+    const item = document.createElement("li");
+    item.append(link);
+    list.append(item);
+  });
+  select.addEventListener("change", () => {
+    const e = library[Number(select.value)];
+    if (select.value !== "" && e) location.search = entryHref(e);
+  });
+  $("btn-prev-replay").addEventListener("click", () => openNeighbour(-1));
+  $("btn-next-replay").addEventListener("click", () => openNeighbour(1));
+  $("library").hidden = false;
+  list.hidden = false;
+}
+
 function storedTheme(): string | null {
   try {
     return localStorage.getItem("ibc-theme");
@@ -481,6 +520,7 @@ async function start(): Promise<void> {
   new ResizeObserver(resize).observe(stage);
   resize();
   const replay = params.get("replay");
+  void loadLibrary(replay);
   if (!replay) return;
   await openUrl(replay);
   if (!loaded) return;

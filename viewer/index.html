@@ -13,6 +13,12 @@
         <div class="brand">IBC<span>replay</span></div>
         <div id="match-title"></div>
         <div class="spacer"></div>
+        <span id="library" hidden>
+          <button id="btn-prev-replay" title="Previous replay in the folder ([)">&lsaquo;</button>
+          <select id="library-select" title="Replays in the folder given to ibc view"></select>
+          <button id="btn-next-replay" title="Next replay in the folder (])">&rsaquo;</button>
+        </span>
+        <a class="navlink" href="./lab.html" title="Weapon fans, time to kill and the other combat recordings">Combat lab</a>
         <button id="btn-open" title="Open a replay file (O)">Open replay</button>
         <button id="btn-theme" title="Switch theme (T)">Light</button>
         <button id="btn-help" title="Keyboard shortcuts (?)">Keys</button>
@@ -30,6 +36,7 @@
               <p>Drag an <code>.ibcr</code> file onto this page, or</p>
               <button id="btn-open-2">Choose a file</button>
               <p id="status" role="status"></p>
+              <ul id="library-list" hidden></ul>
             </div>
           </div>
           <div id="help" hidden>
@@ -46,6 +53,7 @@
               <dt>F</dt><dd>fit the map</dd>
               <dt>T</dt><dd>dark / light</dd>
               <dt>O</dt><dd>open a replay</dd>
+              <dt>[ ]</dt><dd>previous / next replay in the folder</dd>
             </dl>
             <p>Drag to pan, scroll to zoom, double-click to fit. Click a unit to see through its eyes.</p>
           </div>

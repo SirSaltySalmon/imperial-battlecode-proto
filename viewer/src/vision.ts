@@ -1,8 +1,8 @@
 // What a unit can see, for drawing cones and for fogging things that carry no `seen` bit (bullets, effects,
 // drops). Mirrors `World::can_see_point` in the engine, in floats.
 //
-// The frame JSON and the replay header do not carry the core rules yet, so the numbers the viewer needs are
-// kept here per engine version. When the engine exposes them, read them from there instead.
+// The numbers and names the viewer needs come from the engine build that plays the replay (`Engine.rules`).
+// The table below is only the fallback for a build that predates that export.
 
 import { segmentWall, type GameMap } from "./map";
 import { FULL_TURN, S_BLINDED, type UnitFrame, type Vec2 } from "./types";
@@ -26,17 +26,15 @@ const RULES_DEFAULT: ViewRules = {
   vision_range: 24576,
   sense_radius: 1536,
   max_hp: 100,
-  plant_ticks: 4,
-  defuse_ticks: 7,
-  fuse_ticks: 40,
-  weapons: ["pistol", "rifle"],
+  plant_ticks: 12,
+  defuse_ticks: 21,
+  fuse_ticks: 80,
+  weapons: ["pistol", "rifle", "smg", "shotgun", "marksman", "lmg"],
 };
 
-/** Overrides for engine versions whose rules differ from the defaults above. */
-const RULES_BY_ENGINE: Record<string, Partial<ViewRules>> = {};
-
-export function rulesFor(engineVersion: string): ViewRules {
-  return { ...RULES_DEFAULT, ...RULES_BY_ENGINE[engineVersion] };
+/** The rules to draw with: what the engine reports, over the fallback for anything it does not. */
+export function rulesFor(fromEngine: Partial<ViewRules> | null): ViewRules {
+  return { ...RULES_DEFAULT, ...fromEngine };
 }
 
 export function weaponName(rules: ViewRules, id: number): string {

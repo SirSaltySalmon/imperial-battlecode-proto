@@ -94,9 +94,9 @@ At the start of a round every unit is revived at full health with full magazines
   more rounds, then more kills, then more damage dealt, then a coin flip on the match seed.
 - If regulation ends without a level score and without anyone reaching `rounds_to_win` (only possible with a
   non-default `rounds_to_win`), the team ahead wins without overtime.
-- **Tick bound.** A round lasts at most `buy_ticks + round_ticks + fuse_ticks + round_end_ticks` = 165 ticks, so
-  the longest match (12 regulation and 6 overtime rounds, plus the draft tick) is 2971 ticks, inside
-  `max_ticks` = 3000. Raising `overtime_max_pairs` or any phase length needs `max_ticks` raised with it; an
+- **Tick bound.** A round lasts at most `buy_ticks + round_ticks + fuse_ticks + round_end_ticks` = 208 ticks, so
+  the longest match (12 regulation and 6 overtime rounds, plus the draft tick) is 3745 ticks, inside
+  `max_ticks` = 4000. Raising `overtime_max_pairs` or any phase length needs `max_ticks` raised with it; an
   engine test checks this.
 
 ## What this makes you decide

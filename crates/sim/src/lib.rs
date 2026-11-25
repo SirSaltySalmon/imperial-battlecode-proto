@@ -7,7 +7,8 @@ use ibc::Bot;
 use ibc_engine::{Map, Match, Ruleset};
 
 /// Names accepted by `make_bot`.
-pub const BOTS: [&str; 3] = ["idle", "rusher", "holder"];
+pub const BOTS: [&str; 9] =
+    ["idle", "rusher", "holder", "utility", "sapper", "retaker", "lurker", "saver", "forcer"];
 
 /// Default safety cap on ticks; the engine ends matches itself well before this.
 pub const DEFAULT_MAX_TICKS: u32 = 20_000;
@@ -19,6 +20,12 @@ pub fn make_bot(name: &str) -> Option<Box<dyn Bot>> {
         "idle" => Box::new(idle::Idle::new()),
         "rusher" => Box::new(rusher::Rusher::new()),
         "holder" => Box::new(holder::Holder::new()),
+        "utility" => Box::new(utility::Utility::new()),
+        "sapper" => Box::new(sapper::Sapper::new()),
+        "retaker" => Box::new(retaker::Retaker::new()),
+        "lurker" => Box::new(lurker::Lurker::new()),
+        "saver" => Box::new(saver::Saver::new()),
+        "forcer" => Box::new(forcer::Forcer::new()),
         _ => return None,
     })
 }

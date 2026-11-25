@@ -22,6 +22,7 @@ Then either
 ```
 ibc view out/e2e/replay.ibcr            # serves viewer/dist and the replay, prints the URL
 ibc view replay.ibcr --port 8080 --viewer-dir path/to/dist
+ibc view --replays out/replays         # a folder to pick from: menu in the header, [ and ] step through it
 ```
 
 or any static server over `dist/` (`npx vite preview`, `python -m http.server`), opening
@@ -39,6 +40,11 @@ The page must be served over HTTP(S); it does not work from `file://` (browsers 
 `fetch` there).
 
 ## Opening a replay
+
+- With `ibc view --replays DIR` the header has a menu of every `.ibcr` under that folder (up to four levels
+  down), labelled with the bots, the score and the map, and the empty page lists them as links. `[` and `]`
+  open the previous and next one. The folder is read on every page load, so a match you run while the page
+  is open appears after a reload. Each entry is an ordinary `?replay=replays/<path>` link.
 
 - Drag an `.ibcr` file onto the page, or use **Open replay** (key `O`).
 - `?replay=<url>` loads one on start. Optional extras, so a link can point at a moment:

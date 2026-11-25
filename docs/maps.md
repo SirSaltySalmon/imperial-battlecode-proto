@@ -132,7 +132,7 @@ rounds, 40-tick fuse, 7-tick defuse, 24-tile vision, 8-tile footstep radius.
 | `advantage_ticks` | 5..18 | Defenders arrive first and can take a position, but are not so early that every angle is pre-aimed before attackers can contest. Above the band the first contact always happens on the attackers' side of the site |
 | `spawn_to_spawn_ticks` | 14..26 | Half the spawn-to-spawn run. Above it a unit cannot cross the map and return within a round, and a defender push and an attack pass each other out of earshot |
 | `rotation_ticks` | 10..30 | Rotating must cost something, and must still be possible inside the fuse |
-| `retake_slack_ticks` | 0..25 | Fuse ticks left after a rotate-and-defuse from the nearest other site. Negative means a plant on one site is unanswerable from the other |
+| `retake_slack_ticks` | 26..51 | Fuse ticks left after a rotate-and-defuse from the nearest other site. The band was 0..25 under a 40-tick fuse and a 7-tick defuse; it moved by the same 26 ticks when the rules went to fuse 80 and defuse 21, so it still judges maps against each other but has not been re-argued for the new fuse. Negative means a plant on one site is unanswerable from the other |
 | `routes` | 2..5 | One route is a siege; many means defenders cannot hold anything |
 | `cut_width` | 3..14 | Total width of those routes in tiles |
 | `longest_sightline_tiles` | 10..24 | Something to fight over at range, but nothing longer than `vision_range`: length beyond it is dead space that only bullets use |
@@ -182,21 +182,25 @@ outside a band on purpose; say so in its row of the gallery.
 ## Gallery
 
 Times are ticks, one value per site. Renders show the fastest attacker (orange) and defender (blue) route
-to each site and the chokepoint tiles (magenta). League: attacker rounds won, rusher and holder against
-each other on both sides, 10 seeds.
+to each site and the chokepoint tiles (magenta). League attackers: share of rounds the attacking side won, with its 95% interval, over the eight
+reference bots against each other on both sides, 3 seeds (details under "League with the reference bots").
 
 | Map | Size | Attackers to site | Defenders to site | Advantage | Rotation | Routes | Longest sightline (tiles) | Flags | League attackers |
 |---|---|---|---|---|---|---|---|---|---|
-| [`agora`](../maps/agora.ibcmap)<br>![agora](../maps/renders/agora.svg) | 5v5, 32x27, 2 sites | 31 / 31 | 25 / 25 | 6 / 6 | 28 | 3 / 3 | 24.1 | 0 | 95 of 160 rounds (59.4%) |
-| [`crossfire`](../maps/crossfire.ibcmap)<br>![crossfire](../maps/renders/crossfire.svg) | 5v5, 32x17, 2 sites | 40 / 43 | 5 / 12 | 35 / 31 | 18 | 3 / 3 | 30.6 | 6 | 110 of 160 rounds (68.8%) |
-| [`culvert`](../maps/culvert.ibcmap)<br>![culvert](../maps/renders/culvert.svg) | 3v3, 30x21, 2 sites | 30 / 35 | 15 / 19 | 15 / 16 | 24 | 3 / 4 | 22.0 | 0 | 105 of 160 rounds (65.6%) |
-| [`longwatch`](../maps/longwatch.ibcmap)<br>![longwatch](../maps/renders/longwatch.svg) | 5v5, 36x29, 2 sites | 34 / 34 | 24 / 24 | 10 / 10 | 28 | 5 / 5 | 19.9 | 0 | 100 of 155 rounds (64.5%) |
-| [`postern`](../maps/postern.ibcmap)<br>![postern](../maps/renders/postern.svg) | 3v3, 28x19, 2 sites | 27 / 27 | 18 / 18 | 9 / 9 | 18 | 3 / 3 | 22.2 | 0 | 130 of 170 rounds (76.5%) |
-| [`quarry`](../maps/quarry.ibcmap)<br>![quarry](../maps/renders/quarry.svg) | 4v4, 34x23, 2 sites | 32 / 30 | 22 / 23 | 10 / 7 | 24 | 4 / 3 | 24.3 | 0 | 185 of 235 rounds (78.7%) |
-| [`spillway`](../maps/spillway.ibcmap)<br>![spillway](../maps/renders/spillway.svg) | 5v5, 25x40, 2 sites | 42 / 39 | 24 / 21 | 18 / 18 | 22 | 3 / 3 | 22.3 | 0 | 70 of 140 rounds (50.0%) |
-| [`trident`](../maps/trident.ibcmap)<br>![trident](../maps/renders/trident.svg) | 5v5, 33x27, 3 sites | 31 / 27 / 32 | 25 / 21 / 25 | 6 / 6 / 7 | 16 / 30 / 16 | 5 / 5 / 5 | 24.7 | 0 | 40 of 173 rounds (23.1%) |
-| [`tunnels`](../maps/tunnels.ibcmap)<br>![tunnels](../maps/renders/tunnels.svg) | 3v3, 24x13, 2 sites | 30 / 32 | 6 / 7 | 24 / 25 | 14 | 2 / 2 | 20.5 | 6 | 70 of 140 rounds (50.0%) |
-| [`warrens`](../maps/warrens.ibcmap)<br>![warrens](../maps/renders/warrens.svg) | 5v5, 35x25, 2 sites | 39 / 39 | 21 / 21 | 18 / 18 | 28 | 3 / 3 | 22.2 | 0 | 110 of 160 rounds (68.8%) |
+| [`agora`](../maps/agora.ibcmap)<br>![agora](../maps/renders/agora.svg) | 5v5, 32x27, 2 sites | 31 / 31 | 25 / 25 | 6 / 6 | 28 | 3 / 3 | 24.1 | 0 | 47.8% [43.6, 52.0] |
+| [`bazaar`](../maps/bazaar.ibcmap)<br>![bazaar](../maps/renders/bazaar.svg) | 5v5, 36x27, 2 sites | 34 / 35 | 19 / 19 | 15 / 16 | 26 | 5 / 5 | 17.3 | 0 | 61.3% [55.7, 66.9] |
+| [`crossfire`](../maps/crossfire.ibcmap)<br>![crossfire](../maps/renders/crossfire.svg) | 5v5, 32x17, 2 sites | 40 / 43 | 5 / 12 | 35 / 31 | 18 | 3 / 3 | 30.6 | 6 | 68.4% [63.2, 73.5] |
+| [`culvert`](../maps/culvert.ibcmap)<br>![culvert](../maps/renders/culvert.svg) | 3v3, 30x21, 2 sites | 30 / 35 | 15 / 19 | 15 / 16 | 24 | 3 / 4 | 22.0 | 0 | 51.0% [46.0, 56.1] |
+| [`delta`](../maps/delta.ibcmap)<br>![delta](../maps/renders/delta.svg) | 5v5, 37x33, 3 sites | 31 / 34 / 31 | 20 / 17 / 21 | 11 / 17 / 10 | 13 / 25 / 13 | 5 / 5 / 5 | 24.6 | 0 | 51.9% [47.8, 56.1] |
+| [`fulcrum`](../maps/fulcrum.ibcmap)<br>![fulcrum](../maps/renders/fulcrum.svg) | 5v5, 37x31, 2 sites | 33 / 33 | 18 / 19 | 15 / 14 | 28 | 4 / 4 | 22.8 | 0 | 48.5% [43.5, 53.5] |
+| [`longwatch`](../maps/longwatch.ibcmap)<br>![longwatch](../maps/renders/longwatch.svg) | 5v5, 36x29, 2 sites | 34 / 34 | 24 / 24 | 10 / 10 | 28 | 5 / 5 | 19.9 | 0 | 57.0% [52.5, 61.5] |
+| [`postern`](../maps/postern.ibcmap)<br>![postern](../maps/renders/postern.svg) | 3v3, 28x19, 2 sites | 27 / 27 | 18 / 18 | 9 / 9 | 18 | 3 / 3 | 22.2 | 0 | 53.7% [48.0, 59.4] |
+| [`quarry`](../maps/quarry.ibcmap)<br>![quarry](../maps/renders/quarry.svg) | 4v4, 34x23, 2 sites | 32 / 30 | 22 / 23 | 10 / 7 | 24 | 4 / 3 | 24.3 | 0 | 48.8% [44.1, 53.5] |
+| [`spillway`](../maps/spillway.ibcmap)<br>![spillway](../maps/renders/spillway.svg) | 5v5, 25x40, 2 sites | 42 / 39 | 24 / 21 | 18 / 18 | 22 | 3 / 3 | 22.3 | 0 | 61.9% [57.6, 66.2] |
+| [`steppe`](../maps/steppe.ibcmap)<br>![steppe](../maps/renders/steppe.svg) | 5v5, 44x34, 2 sites | 32 / 46 | 15 / 32 | 17 / 14 | 26 | 3 / 4 | 24.5 | 0 | 51.3% [47.6, 55.0] |
+| [`trident`](../maps/trident.ibcmap)<br>![trident](../maps/renders/trident.svg) | 5v5, 33x27, 3 sites | 31 / 27 / 32 | 25 / 21 / 25 | 6 / 6 / 7 | 16 / 30 / 16 | 5 / 5 / 5 | 24.7 | 0 | 60.0% [55.0, 65.0] |
+| [`tunnels`](../maps/tunnels.ibcmap)<br>![tunnels](../maps/renders/tunnels.svg) | 3v3, 24x13, 2 sites | 30 / 32 | 6 / 7 | 24 / 25 | 14 | 2 / 2 | 20.5 | 6 | 72.9% [68.6, 77.2] |
+| [`warrens`](../maps/warrens.ibcmap)<br>![warrens](../maps/renders/warrens.svg) | 5v5, 35x25, 2 sites | 39 / 39 | 21 / 21 | 18 / 18 | 28 | 3 / 3 | 22.2 | 0 | 47.1% [42.4, 51.7] |
 
 | Map | Identity |
 |---|---|
@@ -205,36 +209,79 @@ each other on both sides, 10 seeds.
 | `warrens` | Tight corridors. Rooms and one- and two-tile doors everywhere; three one-tile chokes per site; the only long lines are two cross-map alleys |
 | `spillway` | Vertical split. Portrait map cut in two by a spine wall with a single crossing near the sites; attackers at the bottom, one site per side |
 | `trident` | Three sites: one on the centre axis and one on each wing. Short hops between neighbours, a long rotation wing to wing |
+| `delta` | Three sites, deep hub. Portrait, attackers south. The centre site is the deepest (advantage 17, against 6 on `trident`'s exposed centre) and sits in a walled keep whose two side doors are the only fast way between the wings: 13 ticks wing to keep, 25 wing to wing. Without the side doors it is 23 and 32, through the attackers' courtyard, so whoever holds the keep holds the rotation |
+| `fulcrum` | Contested middle. Portrait, attackers south, sites west and east. Between the sites a ring room round a central pillar that both teams reach at about the same time (contact line across its middle). Rotation through it is 28 ticks; around it, through the defender spawn, 36, a retake today's fuse cannot cover (slack -1) |
+| `steppe` | Large map, far site. 44x34, asymmetric. Site 1 is 15 ticks from the defender spawn; site 2 is 32 (the most in the pool) and 46 from the attackers, past an open field with low cover. A plant on site 2 leaves the defender spawn 2 ticks of slack today. The attack route to site 2 passes 12 tiles from the defenders' push, outside the 8-tile earshot guideline; accepted, since the far site is meant to be the quiet one (site 1, the nearer, passes at 0) |
+| `bazaar` | Close quarters. Four perforated stall walls run the height of the map; each site is a walled court entered through five one-tile doors, with 34 low-cover crates across the map. Longest sightline 17.3 tiles, the shortest in the pool, so most fights are at SMG and shotgun range |
 | `postern` | 3v3. Small and fast: three one-tile entrances per site, 18-tick rotation |
 | `culvert` | 3v3, diagonal. Spawns in opposite corners, sites in the other two, so each site has a different timing |
 | `quarry` | 4v4. A central pit full of low cover that you can shoot across but not run through, sites above and below it |
 | `crossfire`, `tunnels` | The two original maps, unchanged (byte-identical). They predate the bands: defenders start next to the sites (advantage 24 to 35 ticks) and `crossfire` has 30-tile sightlines |
 
+The "without" rotations for `delta` and `fulcrum` were measured on a copy of the map with those doors walled.
+
+### `bazaar`, `delta`, `fulcrum` and `steppe` under the new timings
+
+The timings called "incoming" below are now the rules (`rules/core.toml`: plant 12, defuse 21, kit defuse 16, fuse
+80, buy phase 6), and the retake band moved with them to 26..51. "Now" in this section is the old ruleset. The
+12-tile blast is not in the engine yet.
+
+These four were drawn inside today's bands and checked against the timings the rules are moving to: plant 12,
+defuse 21 (16 with a kit), fuse 80, and a charge that kills every unit within 12 tiles of it, walls or not. Slack
+is fuse minus run minus defuse: "now" is today's 40-tick fuse and 7-tick defuse, "incoming" is `analyze` on a copy
+of `rules/` with the four new numbers. The incoming fuse adds 26 ticks to every slack, so under it every map in the
+pool, old and new, sits above the 0..25 band, which was tuned for today's fuse. Blast escape is the any-angle run
+from the site centre to the nearest standable tile more than 12 tiles away (the `ibc-maptool` path code, not an
+`analyze` field): on every new site a near-straight run gets out, so a defender who gives up a defuse needs 18 to
+19 ticks to clear the blast.
+
+| Map | Site | Blast escape (tiles / ticks) | Slack from nearest other site, now / incoming | Slack from defender spawn, now / incoming |
+|---|---|---|---|---|
+| `bazaar` | 1 | 12.4 / 19 | 8 / 34 | 15 / 41 |
+| `bazaar` | 2 | 12.4 / 19 | 8 / 34 | 15 / 41 |
+| `delta` | 1 | 12.2 / 18 | 22 / 48 | 15 / 41 |
+| `delta` | 2 | 12.2 / 18 | 22 / 48 | 18 / 44 |
+| `delta` | 3 | 12.2 / 18 | 22 / 48 | 14 / 40 |
+| `fulcrum` | 1 | 12.3 / 18 | 7 / 33 | 17 / 43 |
+| `fulcrum` | 2 | 12.3 / 18 | 7 / 33 | 16 / 42 |
+| `steppe` | 1 | 12.0 / 18 | 8 / 34 | 19 / 45 |
+| `steppe` | 2 | 12.1 / 18 | 8 / 34 | 2 / 28 |
+
 ### League with the reference bots
 
-`ibc-sim league --bots rusher,holder --seeds 10`, one map at a time. Each cell is rounds, not games; games
-are deterministic, so the spread across seeds comes only from the holder's site choice.
+Measured 2026-11-25 on ruleset `0304dfc448350cca` (plant 12, defuse 21, kit defuse 16, fuse 80, buy phase 6):
 
-| Map | Attacker rounds won | Attacker % | Rusher attacking | Holder attacking | Mean ticks | Finished |
-|---|---|---|---|---|---|---|
-| `agora` | 95/160 | 59.4% | 100.0% | 23.5% | 642 | yes |
-| `crossfire` | 110/160 | 68.8% | 100.0% | 28.6% | 613 | yes |
-| `culvert` | 105/160 | 65.6% | 100.0% | 26.7% | 685 | yes |
-| `longwatch` | 100/155 | 64.5% | 100.0% | 21.4% | 724 | yes |
-| `postern` | 130/170 | 76.5% | 100.0% | 42.9% | 620 | yes |
-| `quarry` | 185/235 | 78.7% | 82.6% | 75.0% | 1082 | yes |
-| `spillway` | 70/140 | 50.0% | 100.0% | 0.0% | 624 | yes |
-| `trident` | 40/173 | 23.1% | 54.8% | 0.0% | 699 | yes |
-| `tunnels` | 70/140 | 50.0% | 100.0% | 0.0% | 283 | yes |
-| `warrens` | 110/160 | 68.8% | 100.0% | 28.6% | 757 | yes |
+```
+ibc-bench balance --bots rusher,holder,utility,sapper,retaker,lurker,saver,forcer --maps maps --seeds 3
+```
 
-Read these with the bots in mind. Five rushers arriving together at a site held by two or three holders
-win almost every round on every map, the original two included, so the attacker rate is in effect
-50% plus half the holder-attack rate. Outside 25 to 75%:
+2688 games (2525 distinct), 29616 rounds. Every pair of bots plays every map on both
+slots. `n` is the number of games behind the interval. The bots are described in `bots/README.md`.
 
-- `trident` (23%): with three sites the rusher attack commits to the centre site, which is also where
-  rushing defenders arrive first, and the holder attack never wins. A bot that picks a wing does better;
-  the map is defender-sided for these two bots only because of that choice.
-- `quarry` (79%) and `postern` (77%): holders walking in win 75% and 43% of their attacks. On `quarry` the
-  pit's low cover lets a slow, standing attacker out-shoot defenders that run at it; on `postern` the map is
-  small enough that the walk-in still plants early.
+| Map | Attackers win rounds | n |
+|---|---|---:|
+| `agora` | 47.8% [43.6, 52.0] | 192 |
+| `bazaar` | 61.3% [55.7, 66.9] | 192 |
+| `crossfire` | 68.4% [63.2, 73.5] | 192 |
+| `culvert` | 51.0% [46.0, 56.1] | 192 |
+| `delta` | 51.9% [47.8, 56.1] | 192 |
+| `fulcrum` | 48.5% [43.5, 53.5] | 192 |
+| `longwatch` | 57.0% [52.5, 61.5] | 192 |
+| `postern` | 53.7% [48.0, 59.4] | 192 |
+| `quarry` | 48.8% [44.1, 53.5] | 192 |
+| `spillway` | 61.9% [57.6, 66.2] | 192 |
+| `steppe` | 51.3% [47.6, 55.0] | 192 |
+| `trident` | 60.0% [55.0, 65.0] | 192 |
+| `tunnels` | 72.9% [68.6, 77.2] | 192 |
+| `warrens` | 47.1% [42.4, 51.7] | 192 |
+
+Over the whole pool attackers win 56.1% [54.8, 57.4] of rounds.
+
+Read these with the bots in mind: they were written before the timings changed and have not been retuned.
+
+- `crossfire` and `tunnels` stay attacker-sided (68% and 73%). They are the two original maps, where defenders
+  spawn next to the sites, and they are the only two exempt from the bands.
+- The four new maps sit between 48% and 61%. `bazaar` is the high one; its interval reaches 67%, so it is the
+  one to watch.
+- The older figures in this file's history (rusher against holder, 10 seeds) were for a ruleset that no longer
+  exists and a two-bot pool; they are not comparable and were removed.

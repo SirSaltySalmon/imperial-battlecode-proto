@@ -33,16 +33,23 @@ pub struct Shot {
 pub struct Gunner {
     weapon: WeaponRules,
     radius: i32,
+    /// `UnitInfo` does not show the weapon cooldown, so it is counted here: the first tick on which the
+    /// weapon accepts `fire` again after the last shot that left.
+    ready_at: i32,
+    /// A shot that was started: (the `ready_at` it gives if it leaves, magazine when it was started).
+    /// It has left once the magazine is seen to be smaller; a cancelled wind-up never gets there.
+    pending: Option<(i32, i32)>,
 }
 
 impl Gunner {
     pub fn new(core: &CoreRules) -> Gunner {
-        Gunner { weapon: WeaponRules { id: -1, ..Default::default() }, radius: core.unit_radius }
+        Gunner { weapon: WeaponRules { id: -1, ..Default::default() }, radius: core.unit_radius, ready_at: 0, pending: None }
     }
 
     /// Rules of the weapon `me` holds (one host call when it changes).
     pub fn weapon(&mut self, me: &UnitInfo) -> WeaponRules {
         if self.weapon.id != me.weapon {
+            self.pending = None;
             self.weapon = crate::weapon(me.weapon).unwrap_or(WeaponRules { id: me.weapon, ..Default::default() });
         }
         self.weapon
@@ -67,11 +74,29 @@ impl Gunner {
             if me.ammo <= 0 {
                 let _ = reload();
             } else if distance <= w.range && aim_error(&w, 0, recoil) <= half {
-                let _ = fire(aim);
+                self.fire_when_ready(me, &w, aim);
             }
         }
         let hold = aim_error(&w, speed, 0) > half;
         Some(Shot { enemy, aim, distance, hold })
+    }
+
+    /// `fire`, unless the weapon is known to be cooling down (the call would only return an error).
+    fn fire_when_ready(&mut self, me: &UnitInfo, w: &WeaponRules, aim: i32) {
+        if w.cooldown <= 0 {
+            let _ = fire(aim);
+            return;
+        }
+        let tick = crate::match_info().tick;
+        if let Some((ready, magazine)) = self.pending {
+            if me.ammo < magazine {
+                self.ready_at = ready;
+                self.pending = None;
+            }
+        }
+        if tick >= self.ready_at && fire(aim).is_ok() {
+            self.pending = Some((tick + w.windup + 1 + w.cooldown, me.ammo));
+        }
     }
 
     /// Call when no enemy is in sight: reloads once the magazine is at most half full.

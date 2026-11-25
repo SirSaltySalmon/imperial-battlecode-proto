@@ -1,13 +1,15 @@
-//! `ibc view [replay.ibcr] [--port N] [--viewer-dir DIR]`: serve the built replay viewer and one replay on
-//! localhost and print the URL.
+//! `ibc view [replay.ibcr] [--replays DIR] [--port N] [--viewer-dir DIR]`: serve the built replay viewer on
+//! localhost, with one replay to open and optionally a folder of replays to pick from, and print the URL.
 //!
 //! The viewer is a static site built with Node (`viewer/`, `npm run build`). It is deliberately not embedded
 //! in this binary, so building `ibc` never needs Node: the files are served from a directory instead, found
 //! through `--viewer-dir`, `IBC_VIEWER_DIR`, or a `viewer/dist` next to the working directory or the binary.
 //!
 //! The server is std-only, binds to 127.0.0.1, answers GET and HEAD, and serves nothing outside the viewer
-//! directory except the one replay at `/replay.ibcr`.
+//! directory except the one replay at `/replay.ibcr` and the `.ibcr` files of the `--replays` folder
+//! (`view_library`).
 
+use crate::view_library as library;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -24,6 +26,9 @@ const VIEWER_DIR_ENV: &str = "IBC_VIEWER_DIR";
 struct Args {
     /// Replay to open (without one the viewer starts empty: drop a file onto the page)
     replay: Option<PathBuf>,
+    /// Folder of replays to offer in the viewer's menu (searched a few levels deep)
+    #[arg(long)]
+    replays: Option<PathBuf>,
     /// Port to listen on (default: any free port)
     #[arg(long, default_value_t = 0)]
     port: u16,
@@ -36,6 +41,8 @@ struct Site {
     /// Canonical path of the viewer directory.
     root: PathBuf,
     replay: Option<PathBuf>,
+    /// Canonical path of the `--replays` folder.
+    library: Option<PathBuf>,
 }
 
 struct Response {
@@ -45,6 +52,10 @@ struct Response {
 }
 
 impl Response {
+    fn ok(content_type: &'static str, body: Vec<u8>) -> Response {
+        Response { status: "200 OK", content_type, body }
+    }
+
     fn text(status: &'static str, message: &str) -> Response {
         Response { status, content_type: "text/plain; charset=utf-8", body: format!("{message}\n").into_bytes() }
     }
@@ -57,13 +68,20 @@ pub fn run(args: Vec<String>) -> Result<()> {
         let bytes = std::fs::read(replay).with_context(|| format!("reading {}", replay.display()))?;
         ibc_replay::Replay::decode(&bytes).map_err(|e| anyhow!("{}: {e}", replay.display()))?;
     }
+    let library = match &args.replays {
+        Some(dir) => Some(dir.canonicalize().with_context(|| format!("replay folder {}", dir.display()))?),
+        None => None,
+    };
     let listener =
         TcpListener::bind(("127.0.0.1", args.port)).with_context(|| format!("listening on 127.0.0.1:{}", args.port))?;
     let port = listener.local_addr()?.port();
     let query = if args.replay.is_some() { format!("?replay={REPLAY_ROUTE}") } else { String::new() };
     println!("http://127.0.0.1:{port}/{query}");
     eprintln!("serving {} (Ctrl-C to stop)", root.display());
-    serve(listener, Arc::new(Site { root, replay: args.replay }));
+    if let Some(dir) = &library {
+        eprintln!("offering the replays under {}", dir.display());
+    }
+    serve(listener, Arc::new(Site { root, replay: args.replay, library }));
     Ok(())
 }
 
@@ -167,6 +185,9 @@ fn respond(site: &Site, target: &str) -> Response {
             None => Response::text("404 Not Found", "no replay was given to `ibc view`"),
         };
     }
+    if let Some(response) = respond_library(site, &path) {
+        return response;
+    }
     let Some(relative) = safe_relative(&path) else {
         return Response::text("400 Bad Request", "bad path");
     };
@@ -182,6 +203,24 @@ fn respond(site: &Site, target: &str) -> Response {
         },
         _ => Response::text("404 Not Found", "not found"),
     }
+}
+
+/// The `--replays` folder: its listing and its files. `None` for any other path. Read on every request, so
+/// a match run while the page is open shows up on reload.
+fn respond_library(site: &Site, path: &str) -> Option<Response> {
+    let rest = path.strip_prefix(library::FILE_PREFIX)?;
+    let Some(dir) = &site.library else {
+        return Some(Response::text("404 Not Found", "no replay folder was given to `ibc view` (--replays DIR)"));
+    };
+    if path == library::LIST_ROUTE {
+        let body = serde_json::to_vec(&library::list(dir)).unwrap_or_else(|_| b"[]".to_vec());
+        return Some(Response::ok("application/json", body));
+    }
+    let bytes = safe_relative(&format!("/{rest}")).and_then(|relative| library::read(dir, &relative));
+    Some(match bytes {
+        Some(body) => Response::ok("application/octet-stream", body),
+        None => Response::text("404 Not Found", "no such replay"),
+    })
 }
 
 /// A URL path as a relative file path, or `None` if it tries to leave the directory.
@@ -245,7 +284,7 @@ mod tests {
         std::fs::write(base.join("secret.txt"), "secret").unwrap();
         std::fs::write(base.join("match.ibcr"), b"IBCRdata").unwrap();
         let replay = replay.then(|| base.join("match.ibcr"));
-        (base, Site { root: root.canonicalize().unwrap(), replay })
+        (base, Site { root: root.canonicalize().unwrap(), replay, library: None })
     }
 
     #[test]
@@ -305,6 +344,37 @@ mod tests {
         assert!(rebound.starts_with("HTTP/1.1 403 ") && !rebound.contains("IBCRdata"), "{rebound}");
         let local = format!("GET /replay.ibcr HTTP/1.1\r\nHost: localhost:{}\r\n\r\n", addr.port());
         assert!(request(&local).starts_with("HTTP/1.1 200 OK\r\n"));
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn offers_a_replay_folder_and_nothing_else_from_it() {
+        let (base, mut site) = site("library", false);
+        assert_eq!(respond(&site, "/replays/index.json").status, "404 Not Found");
+        let dir = base.join("replays");
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        let sample = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sample.ibcr");
+        std::fs::copy(sample, dir.join("nested").join("good one.ibcr")).unwrap();
+        std::fs::write(dir.join("broken.ibcr"), b"not a replay").unwrap();
+        std::fs::write(dir.join("notes.txt"), "secret").unwrap();
+        site.library = Some(dir.canonicalize().unwrap());
+
+        let listing = respond(&site, "/replays/index.json");
+        assert_eq!((listing.status, listing.content_type), ("200 OK", "application/json"));
+        let entries: serde_json::Value = serde_json::from_slice(&listing.body).unwrap();
+        let entries = entries.as_array().unwrap();
+        assert_eq!(entries.len(), 1, "only the replay that decodes is listed: {entries:?}");
+        assert_eq!(entries[0]["path"], "nested/good one.ibcr");
+        assert!(entries[0]["bots"][0].is_string() && entries[0]["map"].is_string(), "{entries:?}");
+
+        let file = respond(&site, "/replays/nested/good%20one.ibcr");
+        assert_eq!(file.status, "200 OK");
+        assert_eq!(file.body, std::fs::read(sample).unwrap());
+        for target in ["/replays/notes.txt", "/replays/../secret.txt", "/replays/%2e%2e/match.ibcr", "/replays/missing.ibcr"] {
+            let r = respond(&site, target);
+            assert_ne!(r.status, "200 OK", "{target}");
+            assert_ne!(r.body, b"secret", "{target}");
+        }
         std::fs::remove_dir_all(base).unwrap();
     }
 

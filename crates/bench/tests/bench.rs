@@ -348,8 +348,10 @@ fn small_league() -> (Vec<String>, Vec<GameResult>) {
 #[test]
 fn report_json_schemas_match_their_snapshots() {
     let maps = maps();
+    // `holder` loses most games to `rusher`, so `lost_games` has rows whatever the rules of the day are:
+    // an empty list would drop its fields from the shape.
     let (ab_report, results) = ab::run_ab(
-        &bots(["rusher", "holder"]),
+        &bots(["holder", "rusher"]),
         &maps,
         &[1, 2],
         Some(Sprt {
@@ -366,7 +368,7 @@ fn report_json_schemas_match_their_snapshots() {
     assert_snapshot("ab.schema.txt", &shape_of(&ab_report));
     assert_snapshot(
         "noise.schema.txt",
-        &shape_of(&noise::build("rusher", "holder", &results, Vec::new())),
+        &shape_of(&noise::build("holder", "rusher", &results, Vec::new())),
     );
 
     let (labels, games) = small_league();
