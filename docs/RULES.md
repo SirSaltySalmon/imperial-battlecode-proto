@@ -33,9 +33,12 @@ All living units' bots run against the same start-of-tick snapshot and queue int
 
 1. **Intents.** Facing turns towards the requested angle by at most `turn_rate`. Primary actions start
    (fire, reload, plant, defuse, ability, pickup, drop, swap). Velocity is set from `A_MOVE`.
-2. **Weapons.** Timers tick; wind-ups that finish release their bullets.
+2. **Weapons.** A move cancels a startup and breaks the brace; timers tick; startups that finish release their
+   bullets.
 3. **Movement and bullets**, in `substeps` slices: units move with collision (they slide along walls), bullets move
    and are swept against walls and unit circles. All hits within a slice are applied together, so units can trade.
+   Afterwards each unit's velocity is set to the distance it actually covered (what bots read as `vx`/`vy`) and its
+   unsteadiness is updated from it.
 4. **Effects and statuses** tick.
 5. **Objective.** Plant and defuse channels progress, the fuse burns, round-end conditions are checked.
 6. **Sound and vision** for the next tick are computed.
@@ -54,19 +57,28 @@ the earlier one.
 
 ## Shooting
 
-- `A_FIRE(angle)` starts a wind-up of the weapon's `windup` ticks. Enemies who see you get the `S_WINDUP` flag and
-  your aim angle, so they have that long to react. You can only fire within your cone: the shot is clamped to
-  `facing +/- fov_half`. If you queue no facing, firing turns you towards the aim.
-- When the wind-up ends the weapon releases `pellets` bullets fanned `S` apart, where
-  `S = spread + move_spread * speed / 1024 + recoil_spread * recoil`. Movement and recoil also shift the whole fan
-  sideways by `(S - spread) / 2`, alternating left and right each shot. Nothing is random: you can compute exactly
-  where your bullets go, but not where the target will be.
+- `A_FIRE(angle)` starts a startup of `windup + unsteadiness * startup_per_point / 100` ticks (halves round up).
+  Enemies who see you get the `S_WINDUP` flag and your aim angle, so they have that long to react. You can only
+  fire within your cone: the shot is clamped to `facing +/- fov_half`. If you queue no facing, firing turns you
+  towards the aim.
+- **Unsteadiness** (`UnitInfo.unsteadiness`, visible to everyone) is heat like recoil: every tick it drops by the
+  weapon's `unsteady_decay` and rises by `unsteady_gain` per 1024 units/tick you actually moved, up to
+  `unsteady_max`. Walking holds it low, running drives it to the cap, and stopping for one tick before a pull
+  does not erase a run.
+- **Firing roots you.** A move cancels a startup, and a pull on a tick you also move is refused
+  (`ERR_NOT_ALLOWED`). When the startup ends the bullets leave and you are **braced** (`S_BRACED`): while you
+  stand and pull on every tick the weapon is ready, each pull leaves on the tick it is made, one every
+  `1 + cooldown` ticks. A move, a ready tick without `A_FIRE`, a reload, a swap, a cancel, a plant or a defuse
+  breaks the brace; turning does not.
+- The weapon releases `pellets` bullets centred on the aim, `S = spread + recoil_spread * recoil` apart.
+  Movement adds no spread and nothing pushes the fan sideways: a single-pellet weapon is exact, and sustained
+  fire only opens multi-pellet fans. Nothing is random: you can compute exactly where your bullets go, but not
+  where the target will be.
 - Bullets are fast objects, not hitscan: they fly at `bullet_speed` per tick, are stopped by walls, and hit the
   first enemy circle on their path. Damage is full up to `falloff_start` and drops linearly to `falloff_min_pct`
   at `range`. Armour absorbs a share of each hit until it is used up. There is no friendly fire.
-- Spread uses your speed on the tick the bullets leave, so stand still through the wind-up for a tight shot.
-  At long range sustained fire misses: the recoil shift grows past the target's width. Read `UnitInfo.recoil`
-  and pause to let it settle.
+- At long range sustained fire with a multi-pellet weapon loses its outer pellets (an even fan, all of them):
+  read `UnitInfo.recoil` and pause to let it settle, at the price of a fresh startup.
 - Each shot adds `recoil_per_shot`; recoil recovers by `recoil_recovery` on ticks without a shot. Magazines hold
   `magazine` trigger pulls; reloading takes `reload_ticks`. Holding a weapon scales your top speed by `move_pct`.
 

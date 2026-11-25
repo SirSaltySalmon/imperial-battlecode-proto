@@ -58,7 +58,8 @@ Positions are fixed-point (`TILE` = 1024 per tile, +y down). Angles are 0..65535
 increasing towards +y. Read every number from the rules tables; never hard-code them.
 Per tick a unit may queue one move, one facing and one "hands" action (fire, reload, plant, defuse,
 pickup, ability, swap, drop, cancel); a later hands action replaces an earlier one. Moving cancels a
-plant or defuse. Bullets leave along your facing, `windup` ticks after `fire`.
+plant or defuse, a firing startup and the brace. Bullets leave along your facing, `tactics::startup_ticks`
+ticks after `fire` (`windup` plus the unit's unsteadiness), or at once while braced (`S_BRACED`).
 
 ## API
 
@@ -73,7 +74,7 @@ plant or defuse. Bullets leave along your facing, `windup` ticks after `fire`.
 | Team memory | `team_mem_read/write(off, bytes)`, `team_mem_get::<N>(off)` / `team_mem_set(off, [i32; N])`, `mem_read/write(scope, ..)` |
 | Geometry (integer only) | `angle_to(dx, dy)`, `angle_diff(a, b)`, `norm_angle`, `dist`, `dist2`, `len`, `isqrt`, `cos_sin`, `offset(x, y, angle, d)`, `lead(from, target, vel, bullet_speed, windup)` |
 | Navigation | `Pathfinder` (`next_waypoint`, `path_len`; 8-connected, no corner cutting, one cached distance field per goal tile), `Navigator` (`go(&me, x, y, speed)`, `heading`, `path_len`; adds stuck detection) |
-| Tactics (optional) | `tactics::Gunner` (`engage`, `top_up`), `tactics::shop`, `tactics::approach_point`, `tactics::hold_spot`, `target_half_angle`, `aim_error` |
+| Tactics (optional) | `tactics::Gunner` (`engage`, `top_up`), `tactics::shop`, `tactics::approach_point`, `tactics::hold_spot`, `target_half_angle`, `startup_ticks` |
 | Debug | `log(&str)`, `log!(...)`, `debug_line(a, b, 0xRRGGBB)`, `debug_dot(p, color)` |
 | Native only | `native::with_host(&mut host, unit, \|\| ...)`, `native::stats()`, `native::reset_stats()`, `native::set_log(true)` |
 

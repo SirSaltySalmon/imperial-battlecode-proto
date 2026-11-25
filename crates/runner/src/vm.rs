@@ -203,9 +203,8 @@ async fn h_get(mut caller: C<'_>, table: u32, index: u32, out: u32, cap: u32) ->
     if r < 0 {
         return Ok(r);
     }
-    if row.len() > cap as usize {
-        return Ok(-ibc_abi::ERR_BUFFER_TOO_SMALL);
-    }
+    // Records grow at the end: a bot built against an older ABI gets the prefix it knows.
+    row.truncate(cap as usize);
     if !write_bytes(&mut caller, out, &row) {
         return Ok(-ibc_abi::ERR_BAD_PTR);
     }

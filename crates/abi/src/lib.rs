@@ -7,7 +7,7 @@
 //! end_turn()                                            yield until the next tick
 //! fuel_remaining() -> i64                               fuel left in this tick's budget
 //! count(table: u32) -> i32                              rows in a table (>= 0) or -error
-//! get(table: u32, index: u32, out: *mut u8, cap: u32) -> i32   bytes written (>= 0) or -error
+//! get(table: u32, index: u32, out: *mut u8, cap: u32) -> i32   bytes written (>= 0, at most cap) or -error
 //! act(kind: u32, a: i32, b: i32, c: i32) -> i32         0 or error code (positive)
 //! los(x0: i32, y0: i32, x1: i32, y1: i32) -> i32        1 if no wall between the points
 //! raycast(x: i32, y: i32, angle: i32, max: i32) -> i32  distance to the first wall, capped at max
@@ -84,7 +84,9 @@ pub const T_EVENTS: u32 = 17;
 pub const A_MOVE: u32 = 1;
 /// a = desired facing angle (turn rate limited).
 pub const A_FACE: u32 = 2;
-/// a = aim angle. Starts the weapon's wind-up; bullets leave when it ends.
+/// a = aim angle. Starts the weapon's startup (`windup` plus the unit's unsteadiness); bullets leave when it
+/// ends and the unit is then braced: while it keeps firing and stays put, each pull leaves on the tick it is
+/// made. Refused with `ERR_NOT_ALLOWED` on a tick the unit also moves: a move cancels a startup and the brace.
 pub const A_FIRE: u32 = 3;
 pub const A_RELOAD: u32 = 4;
 pub const A_PLANT: u32 = 5;
@@ -136,6 +138,8 @@ pub const S_RUNNING: i32 = 1 << 7;
 pub const S_HAS_KIT: i32 = 1 << 8;
 pub const S_SLOWED: i32 = 1 << 9;
 pub const S_REVEALED: i32 = 1 << 10;
+/// Startup done and still firing: the next pull leaves on the tick it is made.
+pub const S_BRACED: i32 = 1 << 11;
 
 pub const SOUND_STEP: i32 = 1;
 pub const SOUND_SHOT: i32 = 2;
@@ -209,7 +213,7 @@ pub struct UnitInfo {
     pub x: i32,
     pub y: i32,
     pub facing: i32,
-    /// Velocity of the previous tick in units/tick.
+    /// Velocity of the previous tick in units/tick: the distance actually moved, so a move into a wall reads 0.
     pub vx: i32,
     pub vy: i32,
     pub hp: i32,
@@ -227,6 +231,8 @@ pub struct UnitInfo {
     /// Recoil heat, 0 = settled.
     pub recoil: i32,
     pub blind: i32,
+    /// Unsteadiness heat, 0 = steady: builds while moving, decays standing, lengthens the next startup.
+    pub unsteadiness: i32,
 }
 
 #[repr(C)]
@@ -392,14 +398,15 @@ pub struct WeaponRules {
     pub pellets: i32,
     /// Angle between adjacent pellets when standing still and settled.
     pub spread: i32,
-    /// Extra spread per unit of speed (per 1024 units/tick), and per recoil point.
-    pub move_spread: i32,
+    /// Reserved, always 0 (was `move_spread`: movement no longer adds spread).
+    pub _reserved0: i32,
+    /// Extra spread between pellets per recoil point.
     pub recoil_spread: i32,
     pub recoil_per_shot: i32,
     pub recoil_recovery: i32,
-    /// Ticks between `A_FIRE` and the bullets leaving.
+    /// Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced.
     pub windup: i32,
-    /// Ticks after a shot before the next wind-up may start.
+    /// Ticks after a shot before the next pull is accepted.
     pub cooldown: i32,
     pub magazine: i32,
     pub reload_ticks: i32,
@@ -413,6 +420,14 @@ pub struct WeaponRules {
     pub move_pct: i32,
     pub kill_reward: i32,
     pub slot: i32,
+    /// Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered.
+    pub unsteady_gain: i32,
+    /// Unsteadiness lost per tick without moving.
+    pub unsteady_decay: i32,
+    /// Unsteadiness never exceeds this.
+    pub unsteady_max: i32,
+    /// Startup added per point of unsteadiness, in hundredths of a tick (rounded half up).
+    pub startup_per_point: i32,
 }
 
 #[repr(C)]

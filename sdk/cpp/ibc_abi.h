@@ -75,7 +75,9 @@ inline constexpr uint32_t T_EVENTS = 17;
 inline constexpr uint32_t A_MOVE = 1;
 /// a = desired facing angle (turn rate limited).
 inline constexpr uint32_t A_FACE = 2;
-/// a = aim angle. Starts the weapon's wind-up; bullets leave when it ends.
+/// a = aim angle. Starts the weapon's startup (`windup` plus the unit's unsteadiness); bullets leave when it
+/// ends and the unit is then braced: while it keeps firing and stays put, each pull leaves on the tick it is
+/// made. Refused with `ERR_NOT_ALLOWED` on a tick the unit also moves: a move cancels a startup and the brace.
 inline constexpr uint32_t A_FIRE = 3;
 inline constexpr uint32_t A_RELOAD = 4;
 inline constexpr uint32_t A_PLANT = 5;
@@ -127,6 +129,8 @@ inline constexpr int32_t S_RUNNING = 1 << 7;
 inline constexpr int32_t S_HAS_KIT = 1 << 8;
 inline constexpr int32_t S_SLOWED = 1 << 9;
 inline constexpr int32_t S_REVEALED = 1 << 10;
+/// Startup done and still firing: the next pull leaves on the tick it is made.
+inline constexpr int32_t S_BRACED = 1 << 11;
 
 inline constexpr int32_t SOUND_STEP = 1;
 inline constexpr int32_t SOUND_SHOT = 2;
@@ -197,7 +201,7 @@ struct UnitInfo {
     int32_t x;
     int32_t y;
     int32_t facing;
-    /// Velocity of the previous tick in units/tick.
+    /// Velocity of the previous tick in units/tick: the distance actually moved, so a move into a wall reads 0.
     int32_t vx;
     int32_t vy;
     int32_t hp;
@@ -215,8 +219,10 @@ struct UnitInfo {
     /// Recoil heat, 0 = settled.
     int32_t recoil;
     int32_t blind;
+    /// Unsteadiness heat, 0 = steady: builds while moving, decays standing, lengthens the next startup.
+    int32_t unsteadiness;
 };
-static_assert(sizeof(UnitInfo) == 96);
+static_assert(sizeof(UnitInfo) == 100);
 
 struct SoundInfo {
     int32_t kind;
@@ -370,14 +376,15 @@ struct WeaponRules {
     int32_t pellets;
     /// Angle between adjacent pellets when standing still and settled.
     int32_t spread;
-    /// Extra spread per unit of speed (per 1024 units/tick), and per recoil point.
-    int32_t move_spread;
+    /// Reserved, always 0 (was `move_spread`: movement no longer adds spread).
+    int32_t _reserved0;
+    /// Extra spread between pellets per recoil point.
     int32_t recoil_spread;
     int32_t recoil_per_shot;
     int32_t recoil_recovery;
-    /// Ticks between `A_FIRE` and the bullets leaving.
+    /// Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced.
     int32_t windup;
-    /// Ticks after a shot before the next wind-up may start.
+    /// Ticks after a shot before the next pull is accepted.
     int32_t cooldown;
     int32_t magazine;
     int32_t reload_ticks;
@@ -391,8 +398,16 @@ struct WeaponRules {
     int32_t move_pct;
     int32_t kill_reward;
     int32_t slot;
+    /// Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered.
+    int32_t unsteady_gain;
+    /// Unsteadiness lost per tick without moving.
+    int32_t unsteady_decay;
+    /// Unsteadiness never exceeds this.
+    int32_t unsteady_max;
+    /// Startup added per point of unsteadiness, in hundredths of a tick (rounded half up).
+    int32_t startup_per_point;
 };
-static_assert(sizeof(WeaponRules) == 80);
+static_assert(sizeof(WeaponRules) == 96);
 
 struct AbilityRules {
     int32_t id;

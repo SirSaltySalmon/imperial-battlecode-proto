@@ -57,7 +57,7 @@ pub fn build() -> Lab {
     }
 }
 
-fn weapons(rules: &Ruleset, hold: &[Vec<[i32; 3]>]) -> Vec<WeaponOut> {
+fn weapons(rules: &Ruleset, hold: &[Vec<[i32; 2]>]) -> Vec<WeaponOut> {
     rules
         .weapons
         .iter()
@@ -71,7 +71,6 @@ fn weapons(rules: &Ruleset, hold: &[Vec<[i32; 3]>]) -> Vec<WeaponOut> {
             damage: w.damage,
             pellets: w.pellets,
             spread: w.spread,
-            move_spread: w.move_spread,
             recoil_spread: w.recoil_spread,
             recoil_per_shot: w.recoil_per_shot,
             recoil_recovery: w.recoil_recovery,
@@ -85,6 +84,10 @@ fn weapons(rules: &Ruleset, hold: &[Vec<[i32; 3]>]) -> Vec<WeaponOut> {
             falloff_min_pct: w.falloff_min_pct,
             move_pct: w.move_pct,
             kill_reward: w.kill_reward,
+            unsteady_gain: w.unsteady_gain,
+            unsteady_decay: w.unsteady_decay,
+            unsteady_max: w.unsteady_max,
+            startup_per_point: w.startup_per_point,
             top_speed: rules.core.run_speed * w.move_pct / 100,
             hold: hold[i].clone(),
         })
@@ -96,15 +99,8 @@ fn checks(rules: &Ruleset) -> (Vec<FanCheck>, Vec<DamageCheck>) {
     let mut fans = Vec::new();
     let mut damage = Vec::new();
     for w in &rules.weapons {
-        let top = rules.core.run_speed * w.move_pct / 100;
-        for (facing, aim, speed, recoil, shots) in [
-            (0, 0, 0, 0, 0),
-            (0, 0, top, 0, 0),
-            (0, 0, top, 0, 1),
-            (0, 0, 0, 4, 0),
-            (0, 0, top, 3, 2),
-        ] {
-            record_fan(&mut fans, w, fov, (facing, aim, speed, recoil, shots));
+        for (facing, aim, recoil) in [(0, 0, 0), (0, 0, 1), (0, 0, 4), (1000, 1500, 3)] {
+            record_fan(&mut fans, w, fov, (facing, aim, recoil));
         }
         for travelled in [0, w.falloff_start, (w.falloff_start + w.range) / 2, w.range] {
             damage.push(DamageCheck {
@@ -115,8 +111,8 @@ fn checks(rules: &Ruleset) -> (Vec<FanCheck>, Vec<DamageCheck>) {
         }
     }
     let pistol = &rules.weapons[0];
-    record_fan(&mut fans, pistol, fov, (5000, 5000 + fov + 4000, 0, 0, 0));
-    record_fan(&mut fans, pistol, fov, (5000, 5000 - fov - 4000, 0, 0, 0));
+    record_fan(&mut fans, pistol, fov, (5000, 5000 + fov + 4000, 0));
+    record_fan(&mut fans, pistol, fov, (5000, 5000 - fov - 4000, 0));
     (fans, damage)
 }
 
@@ -124,17 +120,15 @@ fn record_fan(
     out: &mut Vec<FanCheck>,
     w: &ibc_engine::abi::WeaponRules,
     fov: i32,
-    sample: (i32, i32, i32, i32, i32),
+    sample: (i32, i32, i32),
 ) {
-    let (facing, aim, speed, recoil, shots) = sample;
-    let f = fan(w, facing, aim, fov, speed, recoil, shots);
+    let (facing, aim, recoil) = sample;
+    let f = fan(w, facing, aim, fov, recoil);
     out.push(FanCheck {
         weapon: w.id,
         facing,
         aim,
-        speed,
         recoil,
-        shots,
         centre: f.centre,
         step: f.step,
     });
@@ -168,8 +162,14 @@ mod tests {
         assert_eq!(ttk.len(), lab.weapons.len() * 3 * 2 * 2);
         for s in ttk {
             let died = s.frames.iter().position(|f| f.u[1][4] == 0);
+            // A running duel records its run-in before the first pull starts the clock.
+            let run_in = if s.ttk.as_ref().unwrap().running {
+                ttk::RUN_IN as usize
+            } else {
+                0
+            };
             let expect = died
-                .map(|i| i.to_string())
+                .map(|i| (i - run_in).to_string())
                 .unwrap_or_else(|| "no kill".to_string());
             assert_eq!(s.outcome, expect, "{}", s.id);
         }

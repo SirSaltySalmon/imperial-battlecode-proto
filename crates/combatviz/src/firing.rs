@@ -1,12 +1,11 @@
-//! Trigger pulls: wind-up, cooldown, the fan, recoil, and the release-tick speed rule.
-//! Scripts follow `combat_firing`.
+//! Trigger pulls: startup, the brace, cooldown, the fan, recoil, and unsteadiness after moving.
+//! Scripts follow `combat_firing` and `combat_brace`.
 
 use crate::record::Catalog;
 use crate::setup::{self, weapon_id};
 use crate::take::{self, Take};
 use ibc_engine::abi::*;
 use ibc_engine::combat::fan;
-use ibc_engine::fixed;
 use ibc_engine::Ruleset;
 
 pub fn add(cat: &mut Catalog) {
@@ -16,19 +15,28 @@ pub fn add(cat: &mut Catalog) {
     let marksman = weapon_id("marksman");
     let pistol = weapon_id("pistol");
 
-    one_pull(cat, marksman, "marksman-windup", "Marksman wind-up",
-        "combat_firing::bullets_leave_after_the_wind_up_along_the_fan. Two ticks of wind-up, then one bullet on the aim line.");
-    hold(cat, shotgun, 3, "shotgun-cycle", "Shotgun pump",
-        "combat_firing::one_pull_takes_windup_plus_one_plus_cooldown_ticks. Wind-up, the release, then two ticks of cooldown before the next pull is accepted.");
-    hold(cat, pistol, 4, "pistol-cycle", "Pistol, no cooldown",
-        "Same clock with cooldown 0: the next pull is accepted the tick after the bullets leave, so a pull is wind-up + 1 ticks.");
+    one_pull(cat, marksman, "marksman-windup", "Marksman startup",
+        "combat_firing::bullets_leave_after_the_startup_along_the_fan. A steady unit starts up for two ticks, then one bullet leaves on the aim line.");
+    hold(cat, shotgun, 3, "shotgun-cycle", "Shotgun pump, braced",
+        "combat_firing::holding_the_trigger_fires_after_the_startup_then_every_one_plus_cooldown_ticks. The startup, the release, then braced: one pull every 1 + cooldown ticks.");
+    hold(cat, pistol, 4, "pistol-cycle", "Pistol, braced",
+        "The same clock with cooldown 1: braced, every second tick's pull leaves on the tick it is made.");
 
-    release_speed(cat, rifle, false, true, "rifle-move-on-release",
-        "Rifle moves on the release tick",
-        "combat_firing::spread_uses_the_speed_on_the_tick_the_bullets_leave. Strafing only as the bullets leave opens the fan.");
-    release_speed(cat, rifle, true, false, "rifle-stop-on-release",
-        "Rifle stops for the release tick",
-        "Moving through the wind-up and stopping for the tick the bullets leave gives the standing fan.");
+    let run = rules.core.run_speed * rules.weapons[rifle as usize].move_pct / 100;
+    startup_after(cat, rifle, 0, 0, "rifle-startup-steady", "Rifle, steady",
+        "combat_brace::running_then_firing_starts_up_slower_than_walking_than_standing. Standing settled: the startup is the wind-up.");
+    startup_after(
+        cat,
+        rifle,
+        rules.core.walk_speed,
+        3,
+        "rifle-startup-walked",
+        "Rifle after walking",
+        "Three ticks of walking leave a little unsteadiness: a slightly longer startup.",
+    );
+    startup_after(cat, rifle, run, 6, "rifle-startup-ran", "Rifle after running",
+        "Six ticks of running reach the cap: the longest startup. Stopping for one tick first would barely shorten it.");
+    move_cancels(cat, marksman);
 
     aim_clamp(cat, pistol);
     recoil_walk(cat, rifle);
@@ -71,35 +79,64 @@ fn hold(cat: &mut Catalog, id: i32, pulls: i32, sid: &str, title: &str, note: &s
     );
 }
 
-fn release_speed(
+/// Move at `speed` for `ticks` ticks (legs of three ticks up and down), then pull and hold the trigger.
+fn startup_after(
     cat: &mut Catalog,
     id: i32,
-    during: bool,
-    at_release: bool,
+    speed: i32,
+    ticks: i32,
     sid: &str,
     title: &str,
     note: &str,
 ) {
     let mut t = Take::begin(setup::range(id));
-    t.act(0, A_FIRE, 0, 0);
-    if during {
-        t.act(0, A_MOVE, 16384, 630);
+    for k in 0..ticks {
+        let angle = if (k / 3) % 2 == 0 { 16384 } else { 49152 };
+        t.act(0, A_MOVE, angle, speed);
+        t.step();
     }
-    t.step();
-    t.act(0, A_FACE, 0, 0);
-    if at_release {
-        t.act(0, A_MOVE, 16384, 630);
+    let heat = t.m.world.units[0].combat.unsteady;
+    let mut startup = 0;
+    while t.shots(0) == 0 && startup < 20 {
+        t.act(0, A_FACE, 0, 0);
+        t.act(0, A_FIRE, 0, 0);
+        t.step();
+        startup += 1;
     }
-    t.step();
     for _ in 0..3 {
         t.step();
     }
-    let wr = t.m.world.rules.weapons[id as usize];
-    let speed = if at_release { 630 } else { 0 };
-    let spread = fan(&wr, 0, 0, t.m.world.rules.core.fov_half, speed, 0, 0).step;
     t.finish(
         cat,
-        take::meta("fans", sid, title, note, &format!("fan step {spread}")),
+        take::meta(
+            "pull",
+            sid,
+            title,
+            note,
+            &format!("unsteadiness {heat}, startup {}", startup - 1),
+        ),
+    );
+}
+
+fn move_cancels(cat: &mut Catalog, id: i32) {
+    let mut t = Take::begin(setup::range(id));
+    t.act(0, A_FIRE, 0, 0);
+    t.step();
+    t.act(0, A_MOVE, 16384, 300);
+    t.step();
+    for _ in 0..4 {
+        t.step();
+    }
+    let shots = t.shots(0);
+    t.finish(
+        cat,
+        take::meta(
+            "pull",
+            "marksman-move-cancels",
+            "A move cancels the startup",
+            "combat_brace::a_move_cancels_a_startup_and_a_pull_on_a_moving_tick_is_refused. The marksman pulls, then steps aside during its startup: no bullet, nothing spent.",
+            &format!("shots {shots}"),
+        ),
     );
 }
 
@@ -135,23 +172,23 @@ fn recoil_walk(cat: &mut Catalog, rifle: i32) {
             "fans",
             "rifle-recoil",
             "Rifle recoil walk",
-            "combat_firing::recoil_builds_per_shot_recovers_on_quiet_ticks_and_widens_the_fan and recoil_shift_alternates_sides. Holding the trigger: each release adds heat, quiet ticks (wind-up and cooldown) recover it, and the leftover shoves the next fan to alternating sides.",
+            "combat_firing::recoil_builds_per_shot_recovers_on_quiet_ticks_and_widens_the_fan and sustained_fire_widens_the_fan_but_never_moves_it_off_the_aim. Holding the trigger braced: each release adds heat, cooldown ticks recover it, and the leftover opens the fan around the aim.",
             &format!("peak heat {peak}"),
         ),
     );
 }
 
 /// Empty the magazine as fast as the weapon allows, then wait until recoil has settled.
-fn measure_hold(id: i32) -> Vec<[i32; 3]> {
+fn measure_hold(id: i32) -> Vec<[i32; 2]> {
     drain(id).1
 }
 
-fn drain(id: i32) -> (Take, Vec<[i32; 3]>) {
+fn drain(id: i32) -> (Take, Vec<[i32; 2]>) {
     let mut t = Take::begin(setup::range(id));
     let wr = t.m.world.rules.weapons[id as usize];
     let fov = t.m.world.rules.core.fov_half;
     let mut samples = Vec::new();
-    let limit = wr.magazine * (wr.windup + 1 + wr.cooldown) + 40;
+    let limit = wr.windup + wr.magazine * (1 + wr.cooldown) + 40;
     for _ in 0..limit {
         let heat = t.m.world.units[0].combat.recoil;
         let before = t.shots(0);
@@ -159,8 +196,7 @@ fn drain(id: i32) -> (Take, Vec<[i32; 3]>) {
         t.act(0, A_FIRE, 0, 0);
         t.step();
         if t.shots(0) > before {
-            let f = fan(&wr, 0, 0, fov, 0, heat, before);
-            samples.push([heat, fixed::angle_diff(0, f.centre), f.step]);
+            samples.push([heat, fan(&wr, 0, 0, fov, heat).step]);
         }
         if samples.len() as i32 == wr.magazine && t.m.world.units[0].combat.recoil == 0 {
             break;

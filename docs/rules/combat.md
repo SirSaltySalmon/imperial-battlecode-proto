@@ -26,46 +26,82 @@ cargo run -p ibc-combatviz -- --out viewer/public/lab.json
 From `viewer/`, `npm run dev` and open `/lab.html`. The page also accepts a dropped `lab.json`. Pass `--out` to
 write the recording somewhere else (the default is `out/combat-lab/lab.json`).
 
-## One trigger pull
+## Startup and the brace
 
-`A_FIRE(angle)` on tick `T` with a weapon of wind-up `w` and cooldown `c`:
+A unit that is not braced pulls with `A_FIRE(angle)` on tick `T`. Its startup is
+
+```
+s = windup + (unsteadiness * startup_per_point + 50) / 100
+```
+
+ticks, with `unsteadiness` the unit's heat on that tick (below). With cooldown `c`:
 
 | Tick | What happens |
 |---|---|
-| `T` | The wind-up starts. Refused with `ERR_NOT_READY` if there is no weapon in hand, the magazine is empty, or a wind-up, reload or cooldown is running. If no facing was queued, the unit turns towards the aim. |
-| `T` .. `T+w-1` | Winding up. Enemies who see the unit get `S_WINDUP` and the aim angle; `UnitInfo.channel` counts down. Recoil recovers on these ticks. |
-| `T+w` | The bullets leave, before anyone moves on that tick. One round is used, recoil rises by `recoil_per_shot`, the shot is heard. |
-| `T+w+1` .. `T+w+c` | Cooldown: a new wind-up cannot start. |
-| `T+w+1+c` | The next `A_FIRE` is accepted. |
+| `T` | The startup begins. Refused with `ERR_NOT_READY` if there is no weapon in hand, the magazine is empty, or a startup, reload or cooldown is running, and with `ERR_NOT_ALLOWED` if the unit also queued a move this tick. If no facing was queued, the unit turns towards the aim. |
+| `T` .. `T+s-1` | Starting up. Enemies who see the unit get `S_WINDUP` and the aim angle; `UnitInfo.channel` counts down. Recoil recovers on these ticks. A move intent on any of them cancels the startup: no round, no recoil, no cooldown. |
+| `T+s` | The bullets leave, before anyone moves on that tick. One round is used, recoil rises by `recoil_per_shot`, the shot is heard. The unit is now **braced** (`S_BRACED`). |
+| `T+s+1` .. `T+s+c` | Cooldown: no pull is accepted. Skipping `A_FIRE` here does not matter. |
+| `T+s+1+c` | The weapon is ready. A braced unit's pull leaves **on this tick**, and the cooldown starts again. |
 
-So one pull takes `windup + 1 + cooldown` ticks, and a target that sees the wind-up start has `windup - 1`
-whole ticks of movement before the bullets leave, plus the flight time.
+So a braced unit fires once every `1 + cooldown` ticks for as long as it stands and keeps pulling. The brace
+breaks on:
+
+- a move intent (any speed above 0), whether or not the unit also pulls, and any tick on which the unit is
+  displaced at all (a dash);
+- a tick on which the weapon is ready and the unit queued no `A_FIRE` (a different primary action counts as
+  not pulling);
+- `A_RELOAD`, `A_SWAP`, `A_CANCEL`, dropping or picking up into the hand, starting a plant or defuse, dying.
+
+Turning does not break it: `turn_rate` is already the limit. A braced unit with an empty magazine stays braced
+(the weapon is not ready) until it reloads, which breaks it. After the brace breaks the next pull starts up
+again.
+
+Startup and braced ticks are therefore always standing ticks: by the time the bullets leave the unit has
+stopped. A target that sees the startup begin has `s - 1` whole ticks of movement before the bullets leave,
+plus the flight time; braced shots give no warning.
+
+## Unsteadiness
+
+Every unit has unsteadiness heat (`UnitInfo.unsteadiness`, visible to everyone). After each tick's movement,
+with `moved` the distance the unit actually covered that tick (what bots then read as `vx`/`vy`; a move into a
+wall covers nothing) and the numbers of the weapon in hand:
+
+```
+settled      = max(unsteadiness - unsteady_decay, 0)
+unsteadiness = min(settled + unsteady_gain * moved / 1024, max(unsteady_max, settled))
+```
+
+- A pace that adds no more than `unsteady_decay` a tick holds the heat at what one tick adds; a faster pace
+  climbs to `unsteady_max`. With the current numbers walking costs at most one tick of startup and a run costs
+  the most.
+- It decays by `unsteady_decay` a tick, so stopping for one tick before a pull removes only a little of a run.
+- It belongs to the unit and uses the numbers of the weapon in hand. `unsteady_max` only caps what moving
+  adds: heat brought from a weapon with a higher cap just decays, so swapping never sheds it. With empty
+  hands it stays as it is. It resets at the start of a round.
+
+Unsteadiness only lengthens the startup. Movement adds no spread and never moves the bullets.
 
 ## Where the bullets go
 
-At the release tick, with `speed` the length of the unit's velocity on that tick (0 when it queued no move),
-`recoil` its recoil heat and `shots` the number of pulls it has released so far this round:
+When the bullets leave, with `recoil` the unit's recoil heat:
 
 ```
-extra  = min(move_spread * speed / 1024 + recoil_spread * recoil, 32768)
+extra  = min(recoil_spread * recoil, 32768)
 S      = spread + extra                          angle between adjacent pellets
-shift  = extra / 2        if shots is even
-       = -(extra / 2)     if shots is odd
-centre = facing + clamp(aim - facing, -fov_half, +fov_half) + shift
+centre = facing + clamp(aim - facing, -fov_half, +fov_half)
 pellet i (0 .. pellets-1) flies along   centre + (2*i - (pellets - 1)) * S / 2
 ```
 
-- The fan is symmetric about `centre`. An odd pellet count puts one bullet on the centre line; an even count
+- The fan is symmetric about the aim. An odd pellet count puts one bullet on the aim line; an even count
   straddles it by `S / 2`. The full fan is `(pellets - 1) * S` wide.
-- For an even pellet count the inner pellet on the side away from the shift stays `spread / 2` off the
-  aim line whatever `extra` is; the rest of the fan swings away from it. An odd fan has no such pellet.
-- A settled, standing shooter has `extra = 0`: the fan is centred exactly on the aim and `spread` apart.
-- Moving and recoil do two things at once: they open the fan and they push all of it off the aim line, to
-  alternating sides. A single-pellet weapon misses by `extra / 2`; it hits a target at distance `d` only
-  while `extra / 2` is less than the angle the target covers, about `unit_radius * 10430 / d`.
+- A settled shooter has `extra = 0`: pellets are `spread` apart.
+- Recoil only opens the fan. A single-pellet weapon (pistol, marksman) is exact at any heat, so those weapons
+  are balanced by startup, cooldown, magazine and falloff. A multi-pellet weapon held on target loses its outer
+  pellets first; an even fan has no pellet on the aim and misses entirely once `S / 2` exceeds the angle the
+  target covers, about `unit_radius * 10430 / d` at distance `d`.
 - `aim - facing` is the signed shortest difference. You can only shoot inside your view cone; the facing used
-  is the one on the release tick, so keep turning during the wind-up.
-- Spread uses the speed of the release tick only. Stopping for that one tick gives the standing fan.
+  is the one on the release tick, so keep turning during the startup.
 
 Each bullet starts on the rim of the shooter's circle (`unit_radius` from its centre along its direction).
 If a wall or a bullet-blocking effect lies between the centre and that point the bullet is spent at once.
@@ -92,10 +128,10 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 
 - Each release adds `recoil_per_shot` to the unit's recoil heat (`UnitInfo.recoil`, visible to everyone).
 - On every tick on which the unit does not release a shot, heat drops by the `recoil_recovery` of the weapon
-  in hand, down to zero. Wind-up, cooldown and reload ticks all count.
+  in hand, down to zero. Startup, cooldown and reload ticks all count.
 - Heat belongs to the unit, not the weapon: swapping does not clear it. It resets at the start of a round.
-- Holding the trigger therefore gains `recoil_per_shot - recoil_recovery * (windup + cooldown)` per pull.
-  Where that is positive, sustained fire walks off the target; pause and it settles.
+- Braced, holding the trigger therefore gains `recoil_per_shot - recoil_recovery * cooldown` per pull. Where
+  that is positive, a multi-pellet fan keeps opening; pause and it settles, at the price of a fresh startup.
 
 ## Magazines, reload, cancel
 
@@ -103,12 +139,12 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 - `A_RELOAD` on tick `T` fills the magazine `reload_ticks` ticks later: the first `A_FIRE` accepted is on
   tick `T + reload_ticks`. It is ignored when the magazine is full or a reload is already running (it does
   not restart). The weapon cannot fire while reloading.
-- `A_RELOAD` during a wind-up abandons the shot (the round stays in the magazine) and starts the reload.
-- `A_CANCEL` stops a wind-up or a reload. A cancelled wind-up costs nothing: no round, no recoil, no
-  cooldown, so it can be used as a feint. A cancelled reload leaves the magazine as it was.
-- Starting a plant or defuse cancels both, as does dying. A unit killed during its wind-up does not fire;
+- `A_RELOAD` during a startup abandons the shot (the round stays in the magazine) and starts the reload.
+- `A_CANCEL` stops a startup or a reload and breaks the brace. A cancelled startup costs nothing: no round,
+  no recoil, no cooldown, so it can be used as a feint. A cancelled reload leaves the magazine as it was.
+- Starting a plant or defuse cancels both, as does dying. A unit killed during its startup does not fire;
   bullets already in the air keep flying.
-- `A_SWAP(slot)` abandons the wind-up or reload of the weapon put away. The swap is the tick's action, so
+- `A_SWAP(slot)` abandons the startup or reload of the weapon put away. The swap is the tick's action, so
   the new weapon can fire from the next tick; a cooldown still running is kept, so swapping never lets you
   shoot sooner. Swapping to the slot already in hand does nothing.
 - Holding a weapon scales top speed by `move_pct`; with empty hands there is no penalty.
@@ -125,7 +161,7 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 - **A weapon on the ground holds no ammunition.** A weapon picked up has an empty magazine and must be
   reloaded. Dropping and picking up is therefore never a faster reload, and handing a teammate a weapon
   costs them one reload.
-- Dropping, or picking up into the slot in hand, cancels wind-up and reload, like a swap.
+- Dropping, or picking up into the slot in hand, cancels startup and reload, like a swap.
 - The displaced weapon lies at your feet, so it is the nearest drop for your next `A_PICKUP`: repeating the
   action swaps back and forth. Step away to reach something else.
 - Weapons are never created during a round, and only a dead unit's default sidearm disappears. The ground is cleared when the next round starts;
@@ -144,12 +180,11 @@ Values, straight from `rules/weapons.toml`:
 | `damage` | 26 | 22 | 17 | 15 | 75 | 16 |
 | `pellets` | 1 | 3 | 2 | 7 | 1 | 5 |
 | `spread` | 0 | 250 | 200 | 260 | 0 | 300 |
-| `move_spread` | 600 | 1200 | 150 | 300 | 2400 | 2000 |
 | `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 |
 | `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |
 | `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |
 | `windup` | 1 | 1 | 1 | 1 | 2 | 2 |
-| `cooldown` | 0 | 0 | 0 | 2 | 2 | 0 |
+| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 |
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
@@ -158,67 +193,73 @@ Values, straight from `rules/weapons.toml`:
 | `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |
+| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 |
+| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 |
+| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 |
+| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 |
 <!-- /generated:weapons -->
 
-What they add up to (fan width in angle units for a settled, standing shooter; top speed in units per tick
-with the standard kit; magazine time is holding the trigger from full):
+What they add up to (startup in ticks for a steady unit, one that has walked long enough to settle, and one
+that has run long enough to reach the cap; fan width in angle units for a settled shooter; top speed in units
+per tick with the standard kit; magazine time is holding the trigger braced from full):
 
 <!-- generated:derived -->
-| weapon | ticks per pull | damage per pull (close / at range) | full fan width | top speed | range (tiles) | bullet (tiles/tick) | ticks to empty + reload |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| pistol | 2 | 26 / 13 | 0 | 700 | 20.0 | 8.0 | 24 + 3 |
-| rifle | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
-| smg | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
-| shotgun | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 20 + 5 |
-| marksman | 5 | 75 / 75 | 0 | 560 | 40.0 | 20.0 | 25 + 5 |
-| lmg | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
+| weapon | startup (steady / walked / ran) | ticks per braced shot | damage per pull (close / at range) | full fan width | top speed | range (tiles) | bullet (tiles/tick) | ticks to empty + reload |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 20.0 | 8.0 | 24 + 3 |
+| rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
+| smg | 1 / 1 / 1 | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
+| shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
+| marksman | 2 / 6 / 6 | 5 | 75 / 75 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
+| lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
 <!-- /generated:derived -->
 
 Roles:
 
-- **pistol**: the free sidearm. Accurate single shots, fine on the move, falls off quickly.
-- **smg**: cheap run-and-gun. Hardly spreads when moving and carries at full speed; short reach.
+- **pistol**: the free sidearm. Exact single shots and a short startup even after running; falls off quickly.
+- **smg**: cheap run-and-gun. Running barely unsteadies it, so it starts as fast off a run as standing, and
+  it carries at full speed; short reach, and its two-pellet fan opens fast under sustained fire.
 - **shotgun**: seven pellets in a wide fan. One pull kills an unarmoured unit inside about three tiles and
   the fan is hard to sidestep; nearly harmless past six tiles. Slow pump, small magazine.
 - **rifle**: the all-rounder. A tight three-bullet burst that kills in two pulls while all three land and
   still reaches across the map, if you stand still and pace your fire.
-- **marksman**: one fast bullet, no falloff, two hits kill anything. Slow to cycle, and a two-tick wind-up
-  that the target can see. Cannot hit while moving.
+- **marksman**: one fast bullet, no falloff, two hits kill anything. Slow to cycle, and a two-tick startup
+  that the target can see, which grows the most of any weapon after moving.
 - **lmg**: heavy and slow. Five bullets a pull, a magazine that lasts sixty ticks and no recoil build-up, for
-  holding a lane; slow to carry, to start and above all to reload.
+  holding a lane; slow to carry, very slow to start after moving, and above all slow to reload.
 
 ## Time to kill
 
 Measured by `crates/engine/tests/combat_ttk.rs` in the engine, not computed: ticks from the first `A_FIRE`
-until a stationary target dies. The shooter fires whenever the weapon is ready and its recoil shift after
-the wind-up is no larger than the angle the target covers, and reloads when empty. "Running" means it also
-strafes across the line of fire at the weapon's top speed (turning round every four ticks) and aims from
-where it will be when the bullets leave. "no kill" means the target was still alive after 100 ticks.
+until a stationary target dies. The shooter stands, pulls whenever the weapon is ready and the pellets nearest
+the aim would still land on the target, and reloads when empty. "After running" means it strafed across the
+line of fire at the weapon's top speed for eight ticks just before the first pull, so that pull starts up
+unsteady. "no kill" means the target was still alive after 100 ticks.
 
 Target with 100 health and no armour:
 
 <!-- generated:ttk -->
-| weapon | 5 tiles standing | 5 tiles running | 10 tiles standing | 10 tiles running | 20 tiles standing | 20 tiles running |
+| weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|
-| pistol | 8 | 8 | 11 | no kill | 23 | no kill |
-| rifle | 4 | no kill | 8 | no kill | 18 | no kill |
-| smg | 6 | 6 | 11 | 16 | no kill | no kill |
-| shotgun | 6 | 10 | no kill | no kill | no kill | no kill |
-| marksman | 8 | no kill | 8 | no kill | 8 | no kill |
-| lmg | 6 | 21 | 9 | no kill | 25 | no kill |
+| pistol | 8 | 9 | 11 | 12 | 18 | 19 |
+| rifle | 6 | 9 | 6 | 9 | 11 | 14 |
+| smg | 6 | 6 | 9 | 9 | no kill | no kill |
+| shotgun | 6 | 8 | no kill | no kill | no kill | no kill |
+| marksman | 8 | 12 | 8 | 12 | 8 | 12 |
+| lmg | 6 | 10 | 9 | 13 | 25 | 29 |
 <!-- /generated:ttk -->
 
 Target with 100 health and the heaviest armour in the shop:
 
 <!-- generated:ttk-armor -->
-| weapon | 5 tiles standing | 5 tiles running | 10 tiles standing | 10 tiles running | 20 tiles standing | 20 tiles running |
+| weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|
-| pistol | 12 | 12 | 16 | no kill | 35 | no kill |
-| rifle | 10 | no kill | 16 | no kill | 30 | no kill |
-| smg | 10 | 10 | 21 | 27 | no kill | no kill |
-| shotgun | 10 | 18 | no kill | no kill | no kill | no kill |
-| marksman | 8 | no kill | 8 | no kill | 8 | no kill |
-| lmg | 6 | 30 | 12 | no kill | 37 | no kill |
+| pistol | 12 | 13 | 15 | 16 | 26 | 27 |
+| rifle | 10 | 13 | 10 | 13 | 17 | 20 |
+| smg | 10 | 10 | 15 | 15 | no kill | no kill |
+| shotgun | 10 | 12 | no kill | no kill | no kill | no kill |
+| marksman | 8 | 12 | 8 | 12 | 8 | 12 |
+| lmg | 6 | 10 | 12 | 16 | 37 | 41 |
 <!-- /generated:ttk-armor -->
 
 These are duels against a target that stands still. A target that strafes at range dodges any single shot

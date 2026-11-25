@@ -12,10 +12,11 @@ pub fn target_half_angle(radius: i32, distance: i32) -> i32 {
     (radius as i64 * UNITS_PER_RADIAN / distance.max(1) as i64) as i32
 }
 
-/// How far the centre of the bullet fan is pushed off the aim line when shooting while moving at `speed`
-/// with `recoil` heat (see `WeaponRules::move_spread` / `recoil_spread`).
-pub fn aim_error(w: &WeaponRules, speed: i32, recoil: i32) -> i32 {
-    ((w.move_spread as i64 * speed as i64 / 1024 + w.recoil_spread as i64 * recoil as i64) / 2) as i32
+/// Ticks from a pull to the bullets leaving for a unit that is not braced, holding `w` with `unsteadiness`
+/// (`UnitInfo::unsteadiness`): `windup + round(unsteadiness * startup_per_point / 100)`, halves rounded up.
+/// A braced unit (`S_BRACED`) fires on the tick it pulls.
+pub fn startup_ticks(w: &WeaponRules, unsteadiness: i32) -> i32 {
+    w.windup + ((unsteadiness.max(0) as i64 * w.startup_per_point as i64 + 50) / 100) as i32
 }
 
 /// The result of `Gunner::engage`.
@@ -25,25 +26,26 @@ pub struct Shot {
     /// Lead-corrected aim angle.
     pub aim: i32,
     pub distance: i32,
-    /// Moving at the asked speed would throw the shot off the target: stand still this tick.
+    /// Shooting: starting up, braced, or pulling this tick. Moving now would cancel the startup or break the
+    /// brace (and a pull made on a tick the unit moves is refused): stand still this tick.
     pub hold: bool,
 }
 
 /// Aims and shoots at what this unit can see. Caches the held weapon's rules.
 pub struct Gunner {
     weapon: WeaponRules,
-    radius: i32,
     /// `UnitInfo` does not show the weapon cooldown, so it is counted here: the first tick on which the
-    /// weapon accepts `fire` again after the last shot that left.
+    /// weapon accepts `fire` again after the last shot that left. A braced unit must pull on exactly this
+    /// tick, or it lets go of the brace.
     ready_at: i32,
-    /// A shot that was started: (the `ready_at` it gives if it leaves, magazine when it was started).
-    /// It has left once the magazine is seen to be smaller; a cancelled wind-up never gets there.
+    /// A pull that was made: (the `ready_at` it gives if its bullets leave, magazine when it was made).
+    /// It has left once the magazine is seen to be smaller; a cancelled startup never gets there.
     pending: Option<(i32, i32)>,
 }
 
 impl Gunner {
-    pub fn new(core: &CoreRules) -> Gunner {
-        Gunner { weapon: WeaponRules { id: -1, ..Default::default() }, radius: core.unit_radius, ready_at: 0, pending: None }
+    pub fn new() -> Gunner {
+        Gunner { weapon: WeaponRules { id: -1, ..Default::default() }, ready_at: 0, pending: None }
     }
 
     /// Rules of the weapon `me` holds (one host call when it changes).
@@ -55,38 +57,34 @@ impl Gunner {
         self.weapon
     }
 
-    /// Face the nearest visible enemy and shoot it if the weapon is ready and settled enough to hit
-    /// (reload if it is empty).
-    /// `speed` is how fast the caller intends to move this tick. Returns `None` when no enemy is visible.
-    pub fn engage(&mut self, me: &UnitInfo, speed: i32) -> Option<Shot> {
+    /// Face the nearest visible enemy and shoot it whenever the weapon is ready and the enemy in range
+    /// (reload if it is empty). Returns `None` when no enemy is visible. Shooting roots the unit: while
+    /// `Shot::hold` is set, do not move.
+    pub fn engage(&mut self, me: &UnitInfo) -> Option<Shot> {
         let from = me.pos();
         let enemy = enemies().filter(|e| e.alive()).min_by_key(|e| dist2(from, e.pos()))?;
         let w = self.weapon(me);
-        let target = lead(from, enemy.pos(), (enemy.vx, enemy.vy), w.bullet_speed, w.windup);
+        let braced = me.has(S_BRACED);
+        let startup = if braced { 0 } else { startup_ticks(&w, me.unsteadiness) };
+        let target = lead(from, enemy.pos(), (enemy.vx, enemy.vy), w.bullet_speed, startup);
         let aim = angle_to(target.0 - me.x, target.1 - me.y);
         let distance = dist(from, enemy.pos());
-        // Bullets leave along the facing (within the view cone), so keep turning while winding up.
+        // Bullets leave along the facing (within the view cone), so keep turning while starting up.
         let _ = face(aim);
-        let half = target_half_angle(self.radius, distance);
+        let mut hold = me.has(S_WINDUP) || braced;
         if !me.has(S_WINDUP | S_RELOADING) {
-            // Recoil settles a little during the wind-up; shoot only if the fan centre will be on target.
-            let recoil = (me.recoil - w.recoil_recovery * w.windup.max(1)).max(0);
             if me.ammo <= 0 {
                 let _ = reload();
-            } else if distance <= w.range && aim_error(&w, 0, recoil) <= half {
-                self.fire_when_ready(me, &w, aim);
+            } else if distance <= w.range {
+                hold |= self.fire_when_ready(me, &w, aim, startup);
             }
         }
-        let hold = aim_error(&w, speed, 0) > half;
         Some(Shot { enemy, aim, distance, hold })
     }
 
-    /// `fire`, unless the weapon is known to be cooling down (the call would only return an error).
-    fn fire_when_ready(&mut self, me: &UnitInfo, w: &WeaponRules, aim: i32) {
-        if w.cooldown <= 0 {
-            let _ = fire(aim);
-            return;
-        }
+    /// `fire`, unless the weapon is known to be cooling down (the call would only return an error). True if
+    /// the pull was accepted.
+    fn fire_when_ready(&mut self, me: &UnitInfo, w: &WeaponRules, aim: i32, startup: i32) -> bool {
         let tick = crate::match_info().tick;
         if let Some((ready, magazine)) = self.pending {
             if me.ammo < magazine {
@@ -94,9 +92,12 @@ impl Gunner {
                 self.pending = None;
             }
         }
-        if tick >= self.ready_at && fire(aim).is_ok() {
-            self.pending = Some((tick + w.windup + 1 + w.cooldown, me.ammo));
+        if tick < self.ready_at || fire(aim).is_err() {
+            return false;
         }
+        // Bullets leave `startup` ticks from now; the weapon then cools down for `cooldown` ticks.
+        self.pending = Some((tick + startup + 1 + w.cooldown.max(0), me.ammo));
+        true
     }
 
     /// Call when no enemy is in sight: reloads once the magazine is at most half full.
@@ -105,6 +106,12 @@ impl Gunner {
         if !me.busy() && me.ammo * 2 <= w.magazine && me.ammo < w.magazine {
             let _ = reload();
         }
+    }
+}
+
+impl Default for Gunner {
+    fn default() -> Gunner {
+        Gunner::new()
     }
 }
 

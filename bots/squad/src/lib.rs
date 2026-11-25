@@ -117,7 +117,7 @@ impl Squad {
             core,
             map: map_info(),
             nav: Navigator::new(),
-            gun: Gunner::new(&core),
+            gun: Gunner::new(),
             sites: sites().collect(),
             kit: kit::Kit::default(),
             plan_for: (-1, -1),

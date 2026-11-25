@@ -75,7 +75,7 @@ impl Ruleset {
                     damage: gi(t, "damage", 10),
                     pellets: gi(t, "pellets", 1).max(1),
                     spread: gi(t, "spread", 0),
-                    move_spread: gi(t, "move_spread", 0),
+                    _reserved0: 0,
                     recoil_spread: gi(t, "recoil_spread", 0),
                     recoil_per_shot: gi(t, "recoil_per_shot", 0),
                     recoil_recovery: gi(t, "recoil_recovery", 1),
@@ -90,6 +90,10 @@ impl Ruleset {
                     move_pct: gi(t, "move_pct", 100),
                     kill_reward: gi(t, "kill_reward", 200),
                     slot: gi(t, "slot", 0).clamp(0, 1),
+                    unsteady_gain: gi(t, "unsteady_gain", 0).max(0),
+                    unsteady_decay: gi(t, "unsteady_decay", 1).max(1),
+                    unsteady_max: gi(t, "unsteady_max", 0).max(0),
+                    startup_per_point: gi(t, "startup_per_point", 0).max(0),
                 }
             })
             .collect();

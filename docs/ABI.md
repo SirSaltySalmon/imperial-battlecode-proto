@@ -18,7 +18,7 @@ Imports come from module `ibc`:
 | `end_turn()` | Yield until this unit's next tick |
 | `fuel_remaining() -> i64` | Fuel left this tick |
 | `count(table) -> i32` | Rows in a table, or a negated error |
-| `get(table, index, out, cap) -> i32` | Copy one row; returns bytes written, or a negated error |
+| `get(table, index, out, cap) -> i32` | Copy one row, or as much of it as fits in `cap`; returns bytes written, or a negated error |
 | `act(kind, a, b, c) -> i32` | Queue an intent; returns 0 or an error code |
 | `los(x0, y0, x1, y1) -> i32` | 1 if no wall lies between the points (static map only) |
 | `raycast(x, y, angle, max) -> i32` | Distance to the first wall, capped at `max` |
@@ -32,14 +32,17 @@ clock and random source, empty args and environment. There is no filesystem, net
 ## Conventions
 
 - **Tables, not functions.** Everything readable is a row in a table (`T_*`). Rows are `#[repr(C)]` records made
-  only of `i32`, little-endian, no padding. A buffer that is too small gets `ERR_BUFFER_TOO_SMALL`. Records only
-  ever grow at the end, so a bot built against an older ABI keeps working: it reads the prefix it knows.
+  only of `i32`, little-endian, no padding. A buffer shorter than the row gets the prefix that fits (the return
+  value says how much). Records only ever grow at the end, so a bot built against an older ABI keeps working: it
+  reads the prefix it knows.
 - **Fog is applied by the host.** `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS` and `T_DROPS` list only what the calling
   unit can perceive. Enemy rows hide credits, ammo, charges and cooldowns.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
   resolves with everyone else's when the tick is stepped. One move, one facing and one primary action per tick.
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;
   balance patches change them without changing the ABI.
+- **Reserved fields.** A field whose meaning is retired keeps its slot, is renamed `_reservedN` and always reads 0,
+  so compiled bots keep their layout. `WeaponRules._reserved0` was `move_spread` (movement no longer adds spread).
 - **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed.
 
 ## For engine and SDK authors

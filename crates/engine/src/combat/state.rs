@@ -1,25 +1,37 @@
-//! Weapon state of one unit and the rules for starting and stopping things: wind-up, cooldown, reload, recoil.
+//! Weapon state of one unit and the rules for starting and stopping things: startup, brace, cooldown, reload,
+//! recoil.
 //!
-//! Timeline of one trigger pull with wind-up `w` and cooldown `c`, `A_FIRE` queued on tick T:
-//!   T .. T+w-1   winding (enemies who see the unit get `S_WINDUP` and the aim angle)
-//!   T+w          bullets leave (before anyone moves on that tick)
-//!   T+w+1 ..     `c` ticks on which a new wind-up cannot start
-//!   T+w+1+c      the next `A_FIRE` is accepted, so one pull takes `w + 1 + c` ticks.
+//! Timeline of a burst with startup `s` (`steady::startup_ticks`) and cooldown `c`, `A_FIRE` queued on tick T
+//! by a unit that is not braced:
+//!   T .. T+s-1   starting up (enemies who see the unit get `S_WINDUP` and the aim angle)
+//!   T+s          bullets leave (before anyone moves on that tick); the unit is now braced
+//!   T+s+1 ..     `c` ticks on which no pull is accepted
+//!   T+s+1+c      the next `A_FIRE` is accepted and, braced, its bullets leave on that same tick.
+//! So a braced unit fires every `1 + c` ticks. The brace breaks on a move intent, on a tick the weapon is
+//! ready and no `A_FIRE` was queued, and on reload, swap, cancel, plant and defuse; turning does not break it.
+//! A move intent also cancels a startup in progress, and a pull queued on a tick the unit moves is refused:
+//! startup and braced ticks are always standing ticks.
 
-use super::firing;
+use super::{firing, steady};
 use crate::world::World;
 use crate::Fnv;
 use ibc_abi::*;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct UnitCombat {
+    /// Starting up (or, braced, releasing this tick).
     pub winding: bool,
+    /// Ticks of startup left.
     pub windup: i32,
     pub aim: i32,
     pub cooldown: i32,
     pub reload: i32,
     pub recoil: i32,
     pub shots: i32,
+    /// Startup done and the trigger still held: the next pull leaves on the tick it is made.
+    pub braced: bool,
+    /// Unsteadiness heat (`steady`).
+    pub unsteady: i32,
 }
 
 impl UnitCombat {
@@ -32,6 +44,8 @@ impl UnitCombat {
             self.reload,
             self.recoil,
             self.shots,
+            self.braced as i32,
+            self.unsteady,
         ] {
             h.i32(v);
         }
@@ -46,34 +60,60 @@ impl UnitCombat {
     }
 }
 
-/// SEAM: could `start_fire` succeed right now? Used by `act` to give bots an early error code.
-pub fn can_fire(w: &World, u: usize) -> i32 {
+/// Has the unit queued a move this tick? A move cancels a startup and breaks the brace.
+fn moving(w: &World, u: usize) -> bool {
+    matches!(w.units[u].intent.mv, Some((_, speed)) if speed > 0)
+}
+
+/// Would a pull be accepted, ignoring this tick's move intent?
+fn ready(w: &World, u: usize) -> bool {
     let unit = &w.units[u];
     let c = &unit.combat;
-    if unit.weapon() < 0 || c.winding || c.reload > 0 || c.cooldown > 0 || unit.ammo[unit.slot] <= 0
-    {
+    unit.weapon() >= 0 && !c.winding && c.reload == 0 && c.cooldown == 0 && unit.ammo[unit.slot] > 0
+}
+
+/// SEAM: could `start_fire` succeed right now? Used by `act` to give bots an early error code (a move queued
+/// after the pull in the same tick still refuses it when the tick resolves).
+pub fn can_fire(w: &World, u: usize) -> i32 {
+    if !ready(w, u) {
         return ERR_NOT_READY;
+    }
+    if moving(w, u) {
+        return ERR_NOT_ALLOWED;
     }
     OK
 }
 
-/// SEAM: begin a wind-up towards `angle`.
+/// SEAM: pull the trigger towards `angle`. Braced, the bullets leave this tick; otherwise a startup of
+/// `steady::startup_ticks` begins.
 pub fn start_fire(w: &mut World, u: usize, angle: i32) -> i32 {
     let r = can_fire(w, u);
     if r != OK {
         return r;
     }
-    let wid = w.units[u].weapon() as usize;
-    let windup = w.rules.weapons[wid].windup;
+    let wr = w.rules.weapons[w.units[u].weapon() as usize];
     let c = &mut w.units[u].combat;
+    c.windup = if c.braced {
+        0
+    } else {
+        steady::startup_ticks(&wr, c.unsteady)
+    };
     c.winding = true;
-    c.windup = windup;
     c.aim = angle & 0xFFFF;
     OK
 }
 
+/// End a startup in progress and the brace. A reload keeps running.
+pub(super) fn unbrace(w: &mut World, u: usize) {
+    let c = &mut w.units[u].combat;
+    c.winding = false;
+    c.windup = 0;
+    c.braced = false;
+}
+
 /// SEAM: start reloading the weapon in hand. Refused when the magazine is full or a reload is already running
-/// (it does not restart). Reloading during a wind-up abandons the shot; the round stays in the magazine.
+/// (it does not restart). Reloading breaks the brace; during a startup it abandons the shot and the round stays
+/// in the magazine.
 pub fn reload(w: &mut World, u: usize) -> i32 {
     let unit = &w.units[u];
     if unit.weapon() < 0 {
@@ -83,14 +123,12 @@ pub fn reload(w: &mut World, u: usize) -> i32 {
     if unit.ammo[unit.slot] >= wr.magazine || unit.combat.reload > 0 {
         return ERR_NOT_READY;
     }
-    let c = &mut w.units[u].combat;
-    c.winding = false;
-    c.windup = 0;
-    c.reload = wr.reload_ticks;
+    unbrace(w, u);
+    w.units[u].combat.reload = wr.reload_ticks;
     OK
 }
 
-/// SEAM: switch weapon slot. Abandons a wind-up or reload of the weapon put away. Swapping to the slot already
+/// SEAM: switch weapon slot. Abandons a startup or reload of the weapon put away and breaks the brace. Swapping to the slot already
 /// in hand does nothing.
 pub fn swap(w: &mut World, u: usize, slot: i32) -> i32 {
     if !(0..2).contains(&slot) || w.units[u].weapons[slot as usize] < 0 {
@@ -104,19 +142,19 @@ pub fn swap(w: &mut World, u: usize, slot: i32) -> i32 {
     OK
 }
 
-/// The weapon in hand changed (swap, drop, pickup): the wind-up or reload of the old one is abandoned.
+/// The weapon in hand changed (swap, drop, pickup): the startup or reload of the old one is abandoned and the
+/// brace breaks.
 /// Recoil and a cooldown still running carry over, so changing weapon never lets a unit shoot sooner.
 /// (Changing weapon is the tick's primary action, so the new weapon cannot fire before the next tick.)
 pub(super) fn changed_hands(w: &mut World, u: usize) {
     cancel(w, u);
 }
 
-/// SEAM: abort wind-up and reload. Costs nothing: no ammunition is used and the magazine keeps what it had.
+/// SEAM: abort startup and reload, and break the brace. Costs nothing: no ammunition is used and the magazine
+/// keeps what it had.
 pub fn cancel(w: &mut World, u: usize) {
-    let c = &mut w.units[u].combat;
-    c.winding = false;
-    c.windup = 0;
-    c.reload = 0;
+    unbrace(w, u);
+    w.units[u].combat.reload = 0;
 }
 
 /// SEAM: called once per action tick after intents, before movement.
@@ -124,6 +162,12 @@ pub fn pre_step(w: &mut World) {
     for u in 0..w.units.len() {
         if !w.units[u].alive {
             continue;
+        }
+        // Before the timers run, so "ready" means what it meant when the unit acted. A ready, braced unit
+        // that pulled is winding by now; one that did not has let go of the trigger.
+        let braced_idle = w.units[u].combat.braced && ready(w, u);
+        if moving(w, u) || braced_idle {
+            unbrace(w, u);
         }
         tick_timers(w, u);
         let mut fired = false;

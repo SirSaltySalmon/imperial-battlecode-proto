@@ -50,7 +50,7 @@ impl Bot for Holder {
             core,
             map: map_info(),
             nav: Navigator::new(),
-            gun: Gunner::new(&core),
+            gun: Gunner::new(),
             sites: sites().collect(),
             plan_for: (-1, -1),
             site: 0,
@@ -124,15 +124,13 @@ impl Holder {
             let _ = if me.has(S_PLANTING) { plant() } else { defuse() };
             return;
         }
-        // Attackers on their way in keep walking while they shoot; everyone else shoots standing still.
+        // Shooting roots a unit. Attackers on their way in walk on past far-off enemies (which must not pin the
+        // attack down until the clock runs out); everyone else stands and fights.
         let advancing = info.my_side == SIDE_ATTACK && info.phase == PHASE_ACTION;
-        let pace = if advancing { self.core.walk_speed } else { 0 };
         let mut fighting = false;
-        if let Some(shot) = self.gun.engage(me, pace) {
+        if let Some(shot) = self.gun.engage(me) {
             let _ = team_mem_set(MEM_SIGHT, [info.tick + 1, shot.enemy.x, shot.enemy.y]);
-            // Stop for the fight once the enemy is in effective range, or if walking would spoil the shot.
-            // (Far-off enemies must not pin the attack down until the clock runs out.)
-            if !advancing || shot.hold || shot.distance <= self.gun.weapon(me).falloff_start {
+            if !advancing || shot.distance <= self.gun.weapon(me).falloff_start {
                 return;
             }
             fighting = true;
