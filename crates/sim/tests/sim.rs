@@ -156,7 +156,17 @@ fn reference_defenders_stop_a_pacifist_planter() {
             let (atk, def) = round_reasons(&r.summary_json);
             eprintln!("{bot} on {name}: attackers {atk:?} defenders {def:?}");
             assert_eq!(r.winner, Some(1), "{bot} on {name}: {}", r.summary_json);
-            assert_eq!(atk[ibc::ROUND_WIN_DETONATION as usize], 0, "{bot} let a charge detonate on {name}");
+            let _ = atk;
+            // Only rounds in which the planter (team 0) attacks count: in the other half the reference bot is
+            // the attacker and is free to plant against a team that never shoots.
+            let s: serde_json::Value = serde_json::from_str(&r.summary_json).unwrap();
+            let let_through = s["rounds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|r| r["attackers"] == 0 && r["reason"] == ibc::ROUND_WIN_DETONATION)
+                .count();
+            assert_eq!(let_through, 0, "{bot} let a charge detonate on {name}");
         }
     }
 }

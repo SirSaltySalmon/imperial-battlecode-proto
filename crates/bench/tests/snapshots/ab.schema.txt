@@ -6,6 +6,11 @@ failed
 games
 losses
 lost_games
+lost_games[].map
+lost_games[].replay
+lost_games[].score
+lost_games[].seed
+lost_games[].slot
 maps
 pairs
 pairs.a_better

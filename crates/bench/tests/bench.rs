@@ -243,10 +243,10 @@ fn sprt_stops_early_and_deterministically() {
     );
     assert_eq!(results.len() % 4, 0, "stops only on a batch boundary");
     assert_eq!(rep.wins, rep.games);
+    // With a small pool the run stops because a batch adds nothing new; with a larger one the SPRT decides.
     assert!(
-        rep.warnings
-            .iter()
-            .any(|w| w.contains("no new distinct pair")),
+        rep.sprt.as_ref().is_some_and(|s| !matches!(s.decision, ibc_bench::stats::SprtDecision::Continue))
+            || rep.warnings.iter().any(|w| w.contains("no new distinct pair")),
         "{:?}",
         rep.warnings
     );

@@ -1,7 +1,7 @@
 {
   "patch": {
     "engine": "0.1.0",
-    "ruleset_hash": "00d2cae8a4f4c61b",
+    "ruleset_hash": "47ebd4e1efcddb9b",
     "wasmtime": "51.0.0",
     "abi": 0
   },
@@ -23,9 +23,9 @@
         7,
         0
       ],
-      "ticks": 557,
-      "final_state_hash": "c792aedc6644a51c",
-      "replay_sha256": "de7cd84b4fd76e6ed08b262a0ce94e7e27c7bdf4c62bab49ed6b5a54b17f0bea"
+      "ticks": 510,
+      "final_state_hash": "732f09ceb024cd7a",
+      "replay_sha256": "c56af92e031f047a272737158d74635621a60447460c56a9601101069e74f663"
     },
     {
       "name": "tunnels-holder-rusher-s2",
@@ -39,9 +39,9 @@
         0,
         7
       ],
-      "ticks": 253,
-      "final_state_hash": "2ca7ca9a7a5f339c",
-      "replay_sha256": "4238352475d9f1e6fcb1f029034acf5f0c2cbdae7b2b73e613d33dce550f1d82"
+      "ticks": 304,
+      "final_state_hash": "34de9781d074d445",
+      "replay_sha256": "e6008e60948e577d829e8e5ba4a07c07ff9954aa684db6c3638f410ec074657c"
     },
     {
       "name": "crossfire-idle-rusher-s5",
@@ -55,9 +55,9 @@
         0,
         7
       ],
-      "ticks": 347,
-      "final_state_hash": "bd50e63e2a6a0cc4",
-      "replay_sha256": "c8428cac2f547c63228e4dc4f0776a98ec4a037eb63934774e8283710c478c3b"
+      "ticks": 382,
+      "final_state_hash": "92851bf8bb66c353",
+      "replay_sha256": "302025265634b6a5ea134c6e55498e087efcba3e51688d4d7e4c2d7b2400327e"
     }
   ]
 }

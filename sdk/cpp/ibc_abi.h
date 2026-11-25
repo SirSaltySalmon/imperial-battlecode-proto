@@ -142,6 +142,7 @@ inline constexpr int32_t EFFECT_FLASH = 4;
 inline constexpr int32_t EFFECT_RECON = 5;
 inline constexpr int32_t EFFECT_HEAL = 6;
 inline constexpr int32_t EFFECT_DECOY = 7;
+inline constexpr int32_t EFFECT_DASH = 8;
 
 inline constexpr int32_t DROP_CHARGE = 1;
 inline constexpr int32_t DROP_WEAPON = 2;

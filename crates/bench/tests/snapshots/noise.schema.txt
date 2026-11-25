@@ -8,6 +8,11 @@ ab.failed
 ab.games
 ab.losses
 ab.lost_games
+ab.lost_games[].map
+ab.lost_games[].replay
+ab.lost_games[].score
+ab.lost_games[].seed
+ab.lost_games[].slot
 ab.maps
 ab.pairs
 ab.pairs.a_better
