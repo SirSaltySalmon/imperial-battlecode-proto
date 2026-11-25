@@ -12,7 +12,11 @@ const outDir = resolve(here, "../public/engine");
 const source = resolve(
   process.argv[2] ??
     process.env.IBC_ENGINE_WASM ??
-    join(here, "../../target/wasm32-unknown-unknown/release/ibc_engine_wasm.wasm"),
+    join(
+      // A relative CARGO_TARGET_DIR is relative to where cargo runs: the repository root.
+      resolve(here, "../..", process.env.CARGO_TARGET_DIR || "target"),
+      "wasm32-unknown-unknown/release/ibc_engine_wasm.wasm",
+    ),
 );
 
 mkdirSync(outDir, { recursive: true });

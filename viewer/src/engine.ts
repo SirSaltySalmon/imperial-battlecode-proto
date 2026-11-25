@@ -69,17 +69,24 @@ export class Engine {
   }
 
   /**
+   * The engine's whole rules export as parsed JSON (the buy menu reads its tables), or `null` for a build
+   * that predates the export.
+   */
+  rawRules(): unknown {
+    if (!this.x.ibc_rules_ptr || !this.x.ibc_rules_len) return null;
+    try {
+      return JSON.parse(this.str(this.x.ibc_rules_ptr(), this.x.ibc_rules_len()));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * The rules this engine build simulates with (sizes, timings, weapon names by id), or `null` for a build
    * that predates the export. Only fields of the right type are kept.
    */
   rules(): Partial<ViewRules> | null {
-    if (!this.x.ibc_rules_ptr || !this.x.ibc_rules_len) return null;
-    let raw: unknown;
-    try {
-      raw = JSON.parse(this.str(this.x.ibc_rules_ptr(), this.x.ibc_rules_len()));
-    } catch {
-      return null;
-    }
+    const raw = this.rawRules();
     if (typeof raw !== "object" || raw === null) return null;
     const fields = raw as Record<string, unknown>;
     const out: Partial<ViewRules> = {};

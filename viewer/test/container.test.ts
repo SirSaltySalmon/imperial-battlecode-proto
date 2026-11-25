@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { Engine, engineFile, FrameStore, type FrameSource } from "../src/engine";
@@ -8,6 +9,7 @@ import { buildTimeline, recentEvents, roundIndexAt } from "../src/timeline";
 import { EVENT_KILL, EVENT_PLANT, TILE_LOW, TILE_WALL } from "../src/types";
 import { container, frame, headerJson, MAP_TEXT } from "./helpers";
 import { rulesFor, weaponName } from "../src/vision";
+import { parseShopRules } from "../src/panels/shared";
 
 describe(".ibcr container", () => {
   it("rejects a bad magic and an unknown format version", () => {
@@ -160,7 +162,12 @@ describe("map", () => {
   });
 });
 
-const wasm = fileURLToPath(new URL("../../target/wasm32-unknown-unknown/release/ibc_engine_wasm.wasm", import.meta.url));
+const wasm =
+  process.env.IBC_ENGINE_WASM ??
+  join(
+    resolve(fileURLToPath(new URL("../..", import.meta.url)), process.env.CARGO_TARGET_DIR || "target"),
+    "wasm32-unknown-unknown/release/ibc_engine_wasm.wasm",
+  );
 const sample = fileURLToPath(new URL("../../fixtures/sample.ibcr", import.meta.url));
 
 // Needs `cargo build -p ibc-engine-wasm --release --target wasm32-unknown-unknown`; skipped without it.
@@ -192,6 +199,19 @@ describe.skipIf(!existsSync(wasm) || !existsSync(sample))("engine module with fi
     expect(rules.fuse_ticks).toBeGreaterThan(0);
     // A build without the export leaves the fallback table in place.
     expect(rulesFor(null).weapons.length).toBeGreaterThan(0);
+  });
+
+  it("exports the tables the buy menu and the per-unit loadouts the team tab read", async () => {
+    const engine = await Engine.instantiate(readFileSync(wasm));
+    const shop = parseShopRules(engine.rawRules())!;
+    expect(shop.weapons.map((w) => w.name)).toEqual(rulesFor(engine.rules()).weapons);
+    expect(shop.abilities.length).toBeGreaterThan(0);
+    expect(shop.kits.length).toBeGreaterThan(0);
+    expect(shop.items.length).toBeGreaterThan(0);
+    expect(shop.economy.start_credits).toBeGreaterThan(0);
+    const store = new FrameStore(engine.load(new Uint8Array(readFileSync(sample))).frames);
+    const f = store.get(store.count - 1);
+    expect(f.loadout?.map((l) => l.id)).toEqual(f.units.map((u) => u.id));
   });
 
   it("returns the engine's message for a replay it cannot run", async () => {

@@ -3,6 +3,7 @@
 import { fitCamera, pan, toTiles, zoomAt, type Camera } from "./camera";
 import { fetchEngine, FrameStore } from "./engine";
 import { interpUnits } from "./interp";
+import { Panels } from "./panels";
 import { readHeader } from "./ibcr";
 import { currentIndex, entryHref, entryLabel, fetchLibrary, neighbour, type LibraryEntry } from "./library";
 import { parseMap, type GameMap } from "./map";
@@ -11,7 +12,7 @@ import { render } from "./render";
 import { applyTheme, type Palette, type ThemeName } from "./theme";
 import { buildTimeline, roundIndexAt, type Timeline } from "./timeline";
 import { TILE, type Frame, type Header } from "./types";
-import { buildMarkers, Panel, updateBanner, updateFeed } from "./ui";
+import { buildMarkers, Panel, updateBanner } from "./ui";
 import { rulesFor, type ViewRules } from "./vision";
 
 /** Ticks per second at 1x. */
@@ -37,6 +38,7 @@ const speedSelect = $<HTMLSelectElement>("speed");
 const roundSelect = $<HTMLSelectElement>("round-select");
 const playButton = $<HTMLButtonElement>("btn-play");
 const fileInput = $<HTMLInputElement>("file");
+const panels = new Panels({ buy: $("buy"), tab: $("tab"), feed: $("feed") });
 
 let loaded: Loaded | null = null;
 /** Playback position in frames; the fraction is the way towards the next frame. */
@@ -104,7 +106,7 @@ function draw(): void {
   if (i !== pageFrame) {
     pageFrame = i;
     loaded.panel.update(frame, perspective, show);
-    updateFeed($("feed"), loaded.timeline, i, loaded.teamSize, rules);
+    panels.update(i, frame);
     updateBanner($("banner"), loaded.timeline, i, frame, loaded.header, map);
     scrub.value = String(i);
     roundSelect.value = String(roundIndexAt(loaded.timeline, i));
@@ -246,6 +248,9 @@ async function openBytes(bytes: Uint8Array, name: string): Promise<void> {
     const first = store.get(0);
     const panel = new Panel($("panel"), header, map, first, rules, { setPerspective, toggle: toggleLayer });
     loaded = { header, store, timeline: buildTimeline(store), map, rules, panel, teamSize: first.units.length / 2 };
+    const strip = document.createElement("div");
+    $("panel").querySelector(".phase")?.after(strip);
+    panels.load({ ...loaded, view: rules, rawRules: engine.rawRules() }, strip);
   } catch (e) {
     if (token !== loadToken) return;
     const message = `Could not open ${name}:\n${(e as Error).message}`;
@@ -258,6 +263,7 @@ async function openBytes(bytes: Uint8Array, name: string): Promise<void> {
     setStatus(message, true);
     $("empty").hidden = false;
     $("panel").replaceChildren();
+    panels.clear();
     $("match-title").textContent = "";
     return;
   }
@@ -517,6 +523,7 @@ async function start(): Promise<void> {
   bindControls();
   bindPointer();
   bindKeys();
+  panels.bindKeys();
   new ResizeObserver(resize).observe(stage);
   resize();
   const replay = params.get("replay");

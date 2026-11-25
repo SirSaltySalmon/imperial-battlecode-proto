@@ -4,15 +4,19 @@
 //! JavaScript usage (all pointers are offsets into the exported `memory`):
 //!   p = ibc_alloc(n); copy the .ibcr bytes to p; rc = ibc_load(p, n); ibc_free(p, n)
 //!   rc == 0: ibc_frame_count() frames (initial state + one per tick); frame i is UTF-8 JSON at
-//!            ibc_frame_ptr(i) / ibc_frame_len(i) (same object as `ibc replay dump` prints per line);
+//!            ibc_frame_ptr(i) / ibc_frame_len(i) (the object `ibc replay dump` prints per line, plus `loadout`);
 //!            the replay header is JSON at ibc_header_ptr() / ibc_header_len().
 //!   rc != 0: the message is at ibc_error_ptr() / ibc_error_len(). Loading re-simulates the whole match and
 //!            checks every state hash, so a replay from another engine version fails here instead of drifting.
-//!   The rules this build simulates with (sizes, timings, weapon names by id) are JSON at
-//!   ibc_rules_ptr() / ibc_rules_len(), available without loading a replay.
+//!   Each frame also carries `loadout` (both weapon slots, ammo, ability charges per unit; see `view.rs`).
+//!   The rules this build simulates with (sizes, timings, weapon names by id, and every weapon, ability, kit,
+//!   shop item and economy number) are JSON at ibc_rules_ptr() / ibc_rules_len(), available without loading
+//!   a replay.
 //! Each engine release ships its own build of this module, so old replays stay viewable.
 
 use std::cell::RefCell;
+
+mod view;
 
 #[derive(Default)]
 struct Loaded {
@@ -26,16 +30,16 @@ thread_local! {
     static RULES: String = rules();
 }
 
-/// The built-in ruleset as the JSON a viewer reads (`ibc_engine::rules_json`).
+/// The built-in ruleset as the JSON a viewer reads (`ibc_engine::rules_json` plus the full tables).
 pub fn rules() -> String {
-    ibc_engine::rules_json(&ibc_engine::Ruleset::builtin())
+    view::rules(&ibc_engine::Ruleset::builtin())
 }
 
 /// Decode and re-simulate a replay. Returns the frames and the header JSON.
 pub fn load(bytes: &[u8]) -> Result<(Vec<String>, String), String> {
     let replay = ibc_replay::Replay::decode(bytes)?;
     let mut frames = Vec::with_capacity(replay.ticks.len() + 1);
-    replay.simulate(|m| frames.push(m.frame_json()))?;
+    replay.simulate(|m| frames.push(view::frame(&m.world, m.frame_json())))?;
     let header = serde_json::to_string(&replay.header).map_err(|e| e.to_string())?;
     Ok((frames, header))
 }
