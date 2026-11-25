@@ -44,13 +44,16 @@ pub(crate) struct Kit {
     retry_at: [i32; 2],
 }
 
-/// Kit 0 is the plain one. Spread the others over the team so no two teammates share a kit while there
-/// are enough to go round; the seed decides who gets which.
+/// Kit 0 is the plain one. Slot 0 drafts for the whole team, spreading the others so no two teammates share
+/// a kit while there are enough to go round (kits are unique within a team); the seed decides who gets which.
 pub(crate) fn draft(info: &MatchInfo) {
     let kits = core_rules().kits;
-    if kits > 1 {
-        let shift = (info.seed_lo.unsigned_abs() % (kits as u32 - 1)) as i32;
-        let _ = ibc::draft(1 + (info.unit_slot.max(0) + shift) % (kits - 1));
+    if kits <= 1 || info.unit_slot != 0 {
+        return;
+    }
+    let shift = (info.seed_lo.unsigned_abs() % (kits as u32 - 1)) as i32;
+    for slot in 0..info.team_size {
+        let _ = ibc::draft_for(1 + (slot + shift) % (kits - 1), slot);
     }
 }
 

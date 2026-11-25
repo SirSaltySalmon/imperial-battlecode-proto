@@ -194,6 +194,14 @@ fn describe_act(m: &Match, kind: u32, a: i32, b: i32, c: i32) -> (String, bool) 
         A_PICKUP => ("PICKUP".into(), false),
         A_DRAFT => (format!("DRAFT {}", named(&rules.kit_names, a)), false),
         A_CANCEL => ("CANCEL".into(), false),
+        A_BUY_FOR => (
+            format!("BUY {} for slot {b}", named(&rules.item_names, a)),
+            false,
+        ),
+        A_DRAFT_FOR => (
+            format!("DRAFT {} for slot {b}", named(&rules.kit_names, a)),
+            false,
+        ),
         other => (format!("action {other}({a}, {b}, {c})"), false),
     }
 }

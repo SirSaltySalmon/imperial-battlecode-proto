@@ -11,6 +11,7 @@ pub mod fixed;
 mod host;
 pub mod map;
 pub mod rules;
+mod teamplay;
 pub mod world;
 
 pub use ibc_abi as abi;

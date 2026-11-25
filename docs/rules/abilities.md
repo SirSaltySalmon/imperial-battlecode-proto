@@ -1,7 +1,10 @@
 # Kits and abilities
 
 Each unit drafts a **kit** on tick 0 (`A_DRAFT`, a = kit id): base hit points, a speed percentage and two ability
-slots. A unit that never drafts plays kit 0, the plain one. Every number here lives in `rules/abilities.toml`;
+slots. A unit that never drafts plays kit 0, the plain one. Kits are unique within a team: drafting a kit a
+teammate already holds is refused with `ERR_NOT_ALLOWED` (kit 0 excepted; the other team's picks do not count).
+A draft applies at once, and teammates run in a fixed order, so one unit can draft for the whole team with
+`A_DRAFT_FOR` (a = kit id, b = the teammate's slot) without collisions. Every number here lives in `rules/abilities.toml`;
 bots read the live values from `T_KIT` and `T_ABILITY` and should not hard-code them.
 
 ## Kits

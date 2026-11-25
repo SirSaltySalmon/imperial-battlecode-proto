@@ -24,6 +24,8 @@ fuel_first_tick_mult = 10
 fuel_buy_mult = 4
 team_mem_bytes = 64
 draft_mem_bytes = 1024
+# Buy-phase team memory (MEM_BUY), cleared every round.
+buy_mem_bytes = 256
 pickup_reach = 900
 interact_reach = 1200
 max_ticks = 4000

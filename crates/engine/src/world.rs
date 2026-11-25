@@ -131,6 +131,9 @@ pub struct World {
     pub charge_pos: V2,
     pub team_mem: [Vec<u8>; 2],
     pub draft_mem: [Vec<u8>; 2],
+    /// `MEM_BUY` per team, and each unit's credits as the buy phase opened (`T_ROSTER`). See `teamplay`.
+    pub buy_mem: [Vec<u8>; 2],
+    pub round_credits: Vec<i32>,
     /// Public events of the tick that was just resolved.
     pub events: Vec<EventInfo>,
     pub econ: [economy::TeamEcon; 2],
@@ -178,6 +181,7 @@ impl World {
         }
         let tm = rules.core.team_mem_bytes.max(0) as usize;
         let dm = rules.core.draft_mem_bytes.max(0) as usize;
+        let bm = rules.core.buy_mem_bytes.max(0) as usize;
         let mut w = World {
             rules,
             map,
@@ -197,6 +201,8 @@ impl World {
             charge_pos: (0, 0),
             team_mem: [vec![0; tm], vec![0; tm]],
             draft_mem: [vec![0; dm], vec![0; dm]],
+            buy_mem: [vec![0; bm], vec![0; bm]],
+            round_credits: Vec::new(),
             events: Vec::new(),
             econ: Default::default(),
             rounds: Vec::new(),
@@ -355,6 +361,7 @@ impl World {
         combat::on_round_start(self);
         abilities::on_round_start(self);
         economy::on_round_start(self, &survived);
+        crate::teamplay::on_round_start(self);
         self.phase = PHASE_BUY;
         self.phase_left = self.rules.core.buy_ticks;
     }
@@ -894,6 +901,7 @@ impl World {
             h.bytes(&self.draft_mem[t]);
             self.econ[t].hash(&mut h);
         }
+        crate::teamplay::hash(self, &mut h);
         h.finish()
     }
 }

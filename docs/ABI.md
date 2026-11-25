@@ -22,7 +22,7 @@ Imports come from module `ibc`:
 | `act(kind, a, b, c) -> i32` | Queue an intent; returns 0 or an error code |
 | `los(x0, y0, x1, y1) -> i32` | 1 if no wall lies between the points (static map only) |
 | `raycast(x, y, angle, max) -> i32` | Distance to the first wall, capped at `max` |
-| `mem_read(scope, off, ptr, len) -> i32`, `mem_write(...)` | Team and draft memory |
+| `mem_read(scope, off, ptr, len) -> i32`, `mem_write(...)` | Team, draft and buy memory (`MEM_*`; each writable in one phase) |
 | `debug_draw(kind, x0, y0, x1, y1, color) -> i32` | Overlay in the replay viewer; free |
 | `log(ptr, len) -> i32` | Append to the unit's log |
 
@@ -32,7 +32,8 @@ clock and random source, empty args and environment. There is no filesystem, net
 ## Conventions
 
 - **Tables, not functions.** Everything readable is a row in a table (`T_*`). Rows are `#[repr(C)]` records made
-  only of `i32`, little-endian, no padding. A buffer that is too small gets `ERR_BUFFER_TOO_SMALL`. Records only
+  only of `i32`, little-endian, no padding. `get` copies at most `cap` bytes of a record and returns the bytes
+  written; a `T_MAP_ROW` buffer shorter than the row gets `ERR_BUFFER_TOO_SMALL`. Records only
   ever grow at the end, so a bot built against an older ABI keeps working: it reads the prefix it knows.
 - **Fog is applied by the host.** `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS` and `T_DROPS` list only what the calling
   unit can perceive. Enemy rows hide credits, ammo, charges and cooldowns.

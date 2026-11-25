@@ -236,10 +236,17 @@ fn max_hp(w: &World, u: usize) -> i32 {
     w.rules.kits.get(w.units[u].kit as usize).map_or(w.rules.core.max_hp, |k| k.hp)
 }
 
-/// SEAM: A_DRAFT in the draft phase. Charges are handed out when the round starts.
+/// SEAM: A_DRAFT and A_DRAFT_FOR in the draft phase: unit `u` gets `kit`, applied at once. Kits are unique
+/// within a team, except kit 0, which every unit that does not draft plays. Charges are handed out when the
+/// round starts.
 pub fn draft(w: &mut World, u: usize, kit: i32) -> i32 {
     if kit < 0 || kit as usize >= w.rules.kits.len() {
         return ERR_BAD_ARG;
+    }
+    let team = w.units[u].team;
+    let taken = w.units.iter().enumerate().any(|(j, x)| j != u && x.team == team && x.kit == kit);
+    if kit != 0 && taken {
+        return ERR_NOT_ALLOWED;
     }
     w.units[u].kit = kit;
     OK

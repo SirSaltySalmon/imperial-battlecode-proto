@@ -69,6 +69,10 @@ inline constexpr uint32_t T_DROPS = 15;
 inline constexpr uint32_t T_KIT = 16;
 /// `EventInfo` per public event of the previous tick (kills, plant, defuse, round end).
 inline constexpr uint32_t T_EVENTS = 17;
+/// `RosterInfo` per unit of both teams, in unit id order. Readable in every phase.
+inline constexpr uint32_t T_ROSTER = 18;
+/// `RoundInfo` per finished round of the match, oldest first.
+inline constexpr uint32_t T_ROUNDS = 19;
 
 // ---- actions for `act(kind, a, b, c)` ----
 /// a = angle, b = speed in units/tick (clamped to the unit's max). Speed above `walk_speed` is a run (noisy).
@@ -94,6 +98,11 @@ inline constexpr uint32_t A_PICKUP = 11;
 inline constexpr uint32_t A_DRAFT = 12;
 /// Cancel the current channel (plant, defuse, reload, wind-up).
 inline constexpr uint32_t A_CANCEL = 13;
+/// a = item id, b = slot of the teammate who gets it (`MatchInfo.unit_slot`; your own slot works too).
+/// Buy phase only. The caller pays.
+inline constexpr uint32_t A_BUY_FOR = 14;
+/// a = kit id, b = slot of the teammate it is drafted for. Draft phase only.
+inline constexpr uint32_t A_DRAFT_FOR = 15;
 
 // ---- enums ----
 inline constexpr int32_t TEAM_A = 0;
@@ -160,10 +169,13 @@ inline constexpr int32_t ROUND_WIN_DEFUSE = 3;
 inline constexpr int32_t ROUND_WIN_TIMEOUT = 4;
 
 // mem scopes
-/// Team scratchpad, read/write all match. Later-running teammates see writes in the same tick.
+/// Team scratchpad, kept all match. Readable always, writable only in the action phases (`PHASE_ACTION`,
+/// `PHASE_PLANTED`). Later-running teammates see writes in the same tick.
 inline constexpr uint32_t MEM_TEAM = 0;
 /// Written in the draft phase, read-only afterwards.
 inline constexpr uint32_t MEM_DRAFT = 1;
+/// Buy-phase team scratchpad: zeroed at every round start, writable only in the buy phase, readable always.
+inline constexpr uint32_t MEM_BUY = 2;
 
 // debug_draw kinds
 /// Line from (x0, y0) to (x1, y1).
@@ -187,7 +199,8 @@ inline constexpr uint64_t FUEL_DEBUG = 0;
 
 // ---- records ----
 
-/// A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `ammo`, `reserve` are 0.
+/// A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `ammo`, `reserve`, `blind`,
+/// `other_weapon` and `fire_cooldown` are 0.
 struct UnitInfo {
     int32_t id;
     int32_t team;
@@ -215,8 +228,12 @@ struct UnitInfo {
     /// Recoil heat, 0 = settled.
     int32_t recoil;
     int32_t blind;
+    /// Weapon id in the slot not in hand, -1 if that slot is empty.
+    int32_t other_weapon;
+    /// Ticks before the weapon in hand may start a new wind-up (0 = ready, unless reloading or empty).
+    int32_t fire_cooldown;
 };
-static_assert(sizeof(UnitInfo) == 96);
+static_assert(sizeof(UnitInfo) == 104);
 
 struct SoundInfo {
     int32_t kind;
@@ -359,8 +376,9 @@ struct CoreRules {
     int32_t items;
     int32_t kits;
     int32_t max_ticks;
+    int32_t buy_mem_bytes;
 };
-static_assert(sizeof(CoreRules) == 128);
+static_assert(sizeof(CoreRules) == 132);
 
 struct WeaponRules {
     int32_t id;
@@ -425,6 +443,35 @@ struct KitRules {
     int32_t speed_pct;
 };
 static_assert(sizeof(KitRules) == 20);
+
+/// One unit in `T_ROSTER`. Public to both teams: kits and round-start credits, not equipment.
+struct RosterInfo {
+    int32_t id;
+    int32_t team;
+    int32_t kit;
+    /// Credits when this round's buy phase began (0 during the draft).
+    int32_t credits;
+    /// 1 if the unit is alive.
+    int32_t alive;
+};
+static_assert(sizeof(RosterInfo) == 20);
+
+/// One finished round in `T_ROUNDS`.
+struct RoundInfo {
+    int32_t round;
+    /// Winning team (`TEAM_A` / `TEAM_B`).
+    int32_t winner;
+    /// How it ended: `ROUND_WIN_*`.
+    int32_t reason;
+    /// Team that attacked in this round.
+    int32_t attackers;
+    /// Ticks from the start of the buy phase to the end of the round.
+    int32_t ticks;
+    /// Score after this round.
+    int32_t score_a;
+    int32_t score_b;
+};
+static_assert(sizeof(RoundInfo) == 28);
 
 }  // namespace ibc
 
