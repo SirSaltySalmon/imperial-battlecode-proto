@@ -3,9 +3,14 @@
 //! size cap and a cap on the declared initial memory. A module that passes here can still be rejected by the
 //! runner's compiler (the worker then fails the job with `retryable: false`); this check exists to turn the
 //! common mistakes into an immediate, readable upload error.
+//!
+//! What a bot may import depends on the patch (`Abi`): the coordinator re-runs this check on every live
+//! submission when the current patch changes (`crate::patch`). `detect_languages` reads what a module says
+//! about the language it was built from.
 
-use std::collections::HashMap;
-use wasmparser::{ExternalKind, Parser, Payload, TypeRef, Validator, WasmFeatures};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeSet, HashMap};
+use wasmparser::{ExternalKind, KnownCustom, Parser, Payload, TypeRef, Validator, WasmFeatures};
 
 /// Module name of the game imports (`ibc_abi::IMPORT_MODULE`).
 pub const IBC_MODULE: &str = "ibc";
@@ -47,6 +52,35 @@ pub const WASI_IMPORTS: &[&str] = &[
 
 const PAGE: u64 = 65_536;
 
+/// The imports a patch offers a bot. The defaults are this build's lists (`IBC_IMPORTS`, `WASI_IMPORTS`); a
+/// patch registered with an `imports` object overrides either list (docs/release.md, "Revalidation").
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Abi {
+    /// Functions of module `ibc`.
+    #[serde(default = "default_ibc")]
+    pub ibc: Vec<String>,
+    /// Functions of module `wasi_snapshot_preview1`.
+    #[serde(default = "default_wasi")]
+    pub wasi: Vec<String>,
+}
+
+fn default_ibc() -> Vec<String> {
+    IBC_IMPORTS.iter().map(|s| s.to_string()).collect()
+}
+
+fn default_wasi() -> Vec<String> {
+    WASI_IMPORTS.iter().map(|s| s.to_string()).collect()
+}
+
+impl Default for Abi {
+    fn default() -> Abi {
+        Abi {
+            ibc: default_ibc(),
+            wasi: default_wasi(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
     pub max_bytes: usize,
@@ -71,8 +105,13 @@ fn invalid(e: wasmparser::BinaryReaderError) -> String {
     )
 }
 
-/// `Ok(())` or a message fit to show to the team that uploaded the module.
+/// `check_against` this build's ABI.
 pub fn check_wasm(wasm: &[u8], limits: &Limits) -> Result<(), String> {
+    check_against(wasm, limits, &Abi::default())
+}
+
+/// `Ok(())` or a message fit to show to the team that uploaded the module.
+pub fn check_against(wasm: &[u8], limits: &Limits, abi: &Abi) -> Result<(), String> {
     if wasm.is_empty() {
         return Err("empty upload".into());
     }
@@ -107,8 +146,8 @@ pub fn check_wasm(wasm: &[u8], limits: &Limits) -> Result<(), String> {
                 for import in reader.into_imports() {
                     let import = import.map_err(bad)?;
                     let known = match import.module {
-                        IBC_MODULE => IBC_IMPORTS.contains(&import.name),
-                        WASI_MODULE => WASI_IMPORTS.contains(&import.name),
+                        IBC_MODULE => abi.ibc.iter().any(|n| n == import.name),
+                        WASI_MODULE => abi.wasi.iter().any(|n| n == import.name),
                         _ => false,
                     };
                     match import.ty {
@@ -173,4 +212,62 @@ pub fn check_wasm(wasm: &[u8], limits: &Limits) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Custom section in which a toolchain names the language of a module, as UTF-8 text (`rust`, `cpp`,
+/// `python`). When present it takes precedence over the `producers` section.
+pub const LANGUAGE_SECTION: &str = "ibc.language";
+
+/// The coordinator's name for a language or compiler named in a `producers` section, if it knows it.
+fn producer_language(field: &str, name: &str) -> Option<&'static str> {
+    let name = name.to_ascii_lowercase();
+    // C and C++ share the C++ toolchain (`ibc build` of a C++ bot): C99, C11, C17, C++14, ...
+    let c_family = name == "c"
+        || name.starts_with("c++")
+        || name.starts_with("c_plus_plus")
+        || (name.len() > 1
+            && name.starts_with('c')
+            && name[1..].bytes().all(|b| b.is_ascii_digit()));
+    match field {
+        "language" if name == "rust" => Some("rust"),
+        "language" if c_family => Some("cpp"),
+        "processed-by" if name == "rustc" => Some("rust"),
+        "processed-by" if name == "clang" => Some("cpp"),
+        _ => None,
+    }
+}
+
+/// The languages a module says it was built from: the `ibc.language` custom section if it has one,
+/// otherwise the languages and compilers of its `producers` section (WebAssembly tool conventions), in the
+/// coordinator's names. Empty when the module says nothing (release builds often strip both). This catches
+/// mistakes; it proves nothing, since a module can be stripped or carry any section.
+pub fn detect_languages(wasm: &[u8]) -> BTreeSet<String> {
+    let mut declared = BTreeSet::new();
+    let mut produced = BTreeSet::new();
+    for payload in Parser::new(0).parse_all(wasm) {
+        let Ok(Payload::CustomSection(section)) = payload else {
+            continue;
+        };
+        if section.name() == LANGUAGE_SECTION {
+            if let Ok(text) = std::str::from_utf8(section.data()) {
+                declared.insert(text.trim().to_ascii_lowercase());
+            }
+            continue;
+        }
+        let KnownCustom::Producers(reader) = section.as_known() else {
+            continue;
+        };
+        for field in reader.into_iter().flatten() {
+            for value in field.values.into_iter().flatten() {
+                if let Some(lang) = producer_language(field.name, value.name) {
+                    produced.insert(lang.to_string());
+                }
+            }
+        }
+    }
+    if declared.is_empty() {
+        produced
+    } else {
+        declared
+    }
 }

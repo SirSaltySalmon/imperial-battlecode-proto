@@ -67,9 +67,18 @@ struct Args {
     /// Largest accepted blob (replay), in bytes
     #[arg(long, env = "IBC_MAX_BLOB_BYTES", default_value_t = 64 << 20)]
     max_blob_bytes: usize,
-    /// Language fuel multipliers, e.g. `--language rust=1.0 --language python=3.0`
+    /// Language fuel multipliers, e.g. `--language rust=1.0 --language python=3.0`. Default: rust=1, cpp=1
     #[arg(long = "language", value_parser = parse_language)]
     languages: Vec<(String, f64)>,
+    /// Seconds a live submission that stopped validating at a patch switch keeps playing ranked games
+    #[arg(long, env = "IBC_INVALID_GRACE_SECS", default_value_t = 86_400)]
+    invalid_grace_secs: u64,
+    /// Seconds after a patch switch before jobs of the old patch still queued are dead-lettered
+    #[arg(long, env = "IBC_PATCH_DRAIN_SECS", default_value_t = 3_600)]
+    patch_drain_secs: u64,
+    /// A balance patch widens every rating's uncertainty by this factor (>= 1)
+    #[arg(long, env = "IBC_BALANCE_SIGMA_FACTOR", default_value_t = 1.5)]
+    balance_sigma_factor: f64,
 }
 
 fn parse_language(s: &str) -> Result<(String, f64), String> {
@@ -82,12 +91,23 @@ fn parse_language(s: &str) -> Result<(String, f64), String> {
     Ok((name.to_string(), mult))
 }
 
+/// Longest grace period or drain window accepted.
+const MAX_WINDOW_SECS: u64 = 366 * 86_400;
+
 fn config(args: &Args) -> anyhow::Result<Config> {
     if args.admin_token.is_empty() {
         anyhow::bail!("--admin-token must not be empty");
     }
     if !(0.0..=1.0).contains(&args.verify_fraction) {
         anyhow::bail!("--verify-fraction must be between 0 and 1");
+    }
+    if !(1.0..=100.0).contains(&args.balance_sigma_factor) {
+        anyhow::bail!("--balance-sigma-factor must be between 1 and 100");
+    }
+    if args.invalid_grace_secs > MAX_WINDOW_SECS || args.patch_drain_secs > MAX_WINDOW_SECS {
+        anyhow::bail!(
+            "--invalid-grace-secs and --patch-drain-secs must be at most {MAX_WINDOW_SECS} (a year)"
+        );
     }
     if args.lease_secs == 0
         || args.max_attempts < 1
@@ -127,6 +147,10 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         } else {
             args.languages.clone()
         },
+        invalid_grace_ms: (args.invalid_grace_secs * 1000) as i64,
+        patch_drain_ms: (args.patch_drain_secs * 1000) as i64,
+        // Both are at most `MAX_WINDOW_SECS` (checked above), so the products fit.
+        balance_sigma_factor: args.balance_sigma_factor,
         ..defaults
     })
 }

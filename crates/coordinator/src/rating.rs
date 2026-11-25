@@ -20,6 +20,8 @@ pub trait RatingHook: Send + Sync {
     fn is_provisional(&self, r: &Rating) -> bool;
     /// The team's live submission changed: keep the estimate, widen the uncertainty.
     fn on_new_submission(&self, r: &Rating) -> Rating;
+    /// A balance patch changed the game: keep the estimate, widen the uncertainty by `factor` (>= 1).
+    fn on_balance_patch(&self, r: &Rating, factor: f64) -> Rating;
     /// The system itself, for `ibc_rating::plan_batch`.
     fn system(&self) -> &dyn RatingSystem;
 }
@@ -42,6 +44,9 @@ impl<S: RatingSystem + Send + Sync> RatingHook for S {
     }
     fn on_new_submission(&self, r: &Rating) -> Rating {
         RatingSystem::on_new_submission(self, r)
+    }
+    fn on_balance_patch(&self, r: &Rating, factor: f64) -> Rating {
+        RatingSystem::on_balance_patch(self, r, factor)
     }
     fn system(&self) -> &dyn RatingSystem {
         self

@@ -5,6 +5,7 @@
 
 pub mod jobs;
 pub mod league;
+pub mod patches;
 pub mod ratings;
 
 use crate::error::{ApiError, ApiResult};
@@ -78,6 +79,15 @@ CREATE TABLE IF NOT EXISTS ranked_batches(
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ladder_snapshots(
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, body TEXT NOT NULL);
+-- patch lifecycle (db/patches.rs)
+CREATE TABLE IF NOT EXISTS patch_meta(
+  patch_id INTEGER PRIMARY KEY REFERENCES patches(id), abi TEXT, superseded_at INTEGER);
+CREATE TABLE IF NOT EXISTS submission_checks(
+  submission_id TEXT NOT NULL REFERENCES submissions(id), patch_id INTEGER NOT NULL REFERENCES patches(id),
+  ok INTEGER NOT NULL, reason TEXT, checked_at INTEGER NOT NULL, PRIMARY KEY(submission_id, patch_id));
+CREATE TABLE IF NOT EXISTS patch_misses(
+  worker_id TEXT NOT NULL, engine TEXT NOT NULL, ruleset_hash TEXT NOT NULL, wasmtime TEXT NOT NULL,
+  until INTEGER NOT NULL, PRIMARY KEY(worker_id, engine, ruleset_hash, wasmtime));
 ";
 
 /// Columns added after the first release: `CREATE TABLE IF NOT EXISTS` does not add them to an existing data
@@ -410,9 +420,8 @@ pub fn list_maps(tx: &Transaction) -> ApiResult<Vec<Value>> {
 
 // ---- patches ----
 
-/// Make `patch` the current one. Jobs still waiting or running on another patch can no longer be run by
-/// an up-to-date fleet, so they are dead-lettered now instead of after three "patch mismatch" attempts.
-/// Returns how many jobs that were.
+/// Make `patch` the current one; returns its row id. Jobs of other patches stay pinned to their patch:
+/// what happens to them is `crate::patch::switch`'s decision (docs/JOBS.md, "Patch boundary").
 ///
 /// `runner_blobs` (`"<os>-<arch>"` -> SHA-256 of an `ibc` binary of this patch), when given, replaces the
 /// runner blobs stored for the patch; they are sent with its jobs (docs/JOBS.md, `runner_blobs`).
@@ -421,7 +430,7 @@ pub fn set_current_patch(
     patch: &Patch,
     runner_blobs: Option<&Value>,
     now: i64,
-) -> ApiResult<usize> {
+) -> ApiResult<i64> {
     tx.execute("UPDATE patches SET current = 0 WHERE current = 1", [])?;
     let blobs = runner_blobs.map(Value::to_string);
     tx.execute(
@@ -430,14 +439,7 @@ pub fn set_current_patch(
            runner_blobs = COALESCE(excluded.runner_blobs, runner_blobs)",
         params![patch.engine, patch.ruleset_hash, patch.wasmtime, now, blobs],
     )?;
-    let superseded = tx.execute(
-        "UPDATE jobs SET state = 'dead', error = 'patch superseded', finished_at = ?4, lease_token = NULL, lease_expires_at = NULL
-         WHERE state IN ('queued', 'leased')
-           AND (json_extract(payload, '$.patch.engine') != ?1 OR json_extract(payload, '$.patch.ruleset_hash') != ?2
-                OR json_extract(payload, '$.patch.wasmtime') != ?3)",
-        params![patch.engine, patch.ruleset_hash, patch.wasmtime, now],
-    )?;
-    Ok(superseded)
+    Ok(tx.query_row("SELECT id FROM patches WHERE current = 1", [], |r| r.get(0))?)
 }
 
 /// The runner blobs of every patch that has some, keyed by patch.

@@ -131,31 +131,46 @@ lint clean-up commit, add `--strict` to the CI step.
 ## Switching the coordinator's current patch
 
 The coordinator stamps every new match job with its **current patch** `{engine, ruleset_hash, wasmtime}`;
-workers only run jobs whose patch equals their own `ibc version --json` and fail others as retryable, so a
-mixed fleet is safe, only slow. Ratings must never mix patches inside one rating period without it being
-a decision, so the switch is explicit:
+workers only run jobs whose patch equals their own `ibc version --json` and release others, so a mixed
+fleet is safe, only slow. The switch is explicit, and what it does to running series, ratings and
+submissions is fixed (docs/JOBS.md, "Patch boundary"):
 
-1. Roll out workers with the new `ibc` next to the old ones. Nothing changes yet because no job asks for the new patch.
-2. Pause ranked scheduling and let the queue of the old patch drain (or cancel what is still queued; jobs
-   are idempotent and can be resubmitted).
-3. Set the coordinator's current patch to the new identity, exactly as printed by `ibc version --json` of
-   the released binary. From here on every new job carries the new patch, and the idempotency key
-   (which includes the patch) makes old results unreachable for new submissions.
-4. Resume. Watch the first hour: dead-letter list, `patch mismatch` failures (a worker left on the old
-   build), spot-verification mismatches (should be zero; a mismatch between two workers on the same patch
-   is a determinism bug and stops the ladder).
-5. Retire old workers when their patch has no queued jobs. Keep the binary (checklist step 7).
+1. Roll out workers with the new `ibc` next to the old ones (or register the new runner as `runner_blobs`).
+   Nothing changes yet because no job asks for the new patch.
+2. Set the coordinator's current patch to the new identity, exactly as printed by `ibc version --json` of
+   the released binary: `POST /v1/admin/patch` with `{"engine", "ruleset_hash", "wasmtime"}`, plus
+   `"balance": true` for a balance patch and `"imports": {"ibc": [...], "wasi": [...]}` if the patch changes
+   what bots may import and the coordinator build does not know it yet. There is no need to pause ranked
+   scheduling or drain the queue first:
+   - series that have started finish on the old patch, and so does every tournament series; series that
+     have not started are re-planned on the new patch. Nothing is voided;
+   - old-patch jobs still queued after `IBC_PATCH_DRAIN_SECS` (default 1 h) are dead-lettered, except
+     tournament jobs, so keep at least one old worker (or the old `runner_blobs`) for that long, and until
+     every tournament on the old patch is over;
+   - a balance patch widens every team's rating uncertainty (`IBC_BALANCE_SIGMA_FACTOR`, default 1.5), so
+     ratings move faster while they settle on the new game. Other patches leave ratings alone;
+   - every live submission is checked against the new patch. The response lists the ones that fail. Their
+     teams keep playing for `IBC_INVALID_GRACE_SECS` (default 24 h, as Cambridge gave), then are left out of
+     ranked pairing until they upload a valid bot. Tell those teams: `GET /v1/team` shows them
+     `live_status: "grace"` and the reason.
+   From here on every new job carries the new patch, and the idempotency key (which includes the patch)
+   makes old results unreachable for new submissions.
+3. Watch the first hour: `GET /v1/patch` (`draining_jobs`, `teams_in_grace`, `teams_invalid`), the
+   dead-letter list, `patch mismatch` releases (a worker left on the old build), spot-verification
+   mismatches (should be zero; a mismatch between two workers on the same patch is a determinism bug and
+   stops the ladder).
+4. Retire old workers when `draining_jobs` is 0. Keep the binary (checklist step 7).
 
-Whether ratings carry over, are soft-reset or restart with a patch is a competition decision and belongs
-in the patch announcement, not in the tooling.
+A full rating reset is a competition decision, belongs in the patch announcement, and is not in the tooling.
 
 ## Rollback
 
 A patch is rolled back by switching the current patch back; nothing is rebuilt.
 
 1. Pause ranked scheduling.
-2. Set the coordinator's current patch back to the previous identity. The old workers or the old binary
-   are still there because builds are kept.
+2. Set the coordinator's current patch back to the previous identity (without `balance`). The old workers
+   or the old binary are still there because builds are kept. The patch boundary applies as for any switch:
+   started series finish on the bad patch, the rest are re-planned on the restored one.
 3. Decide what happens to matches rated on the bad patch: they are identified exactly by the patch in
    their summaries, so they can be excluded from ratings and, if wanted, re-run on the restored patch
    (same bots, maps and seeds).

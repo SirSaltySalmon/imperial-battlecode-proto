@@ -99,7 +99,9 @@ pub async fn maps(State(app): AppState) -> ApiResult<Json<Value>> {
 }
 
 pub async fn patch(State(app): AppState) -> ApiResult<Json<Value>> {
-    Ok(Json(json!({"patch": app.db.tx(db::current_patch)?})))
+    Ok(Json(app.db.tx(|tx| {
+        crate::patch::public_status(&app, tx, now_ms())
+    })?))
 }
 
 pub async fn healthz(State(app): AppState) -> ApiResult<&'static str> {
