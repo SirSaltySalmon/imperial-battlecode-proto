@@ -389,7 +389,13 @@ fn apply_verification(
         return Ok(());
     }
     if original.replay_sha256.as_deref() == Some(v_sha) {
-        tx.execute("UPDATE jobs SET verified = 1 WHERE id = ?1", [original_id])?;
+        // Same replay: keep the trusted worker's result object, not the untrusted one's. The replay hash is
+        // all that was compared, and `outcome`, `winner` and `score` (what ratings are taken from) are
+        // whatever the worker wrote.
+        tx.execute(
+            "UPDATE jobs SET verified = 1, result = ?2 WHERE id = ?1",
+            params![original_id, v_result],
+        )?;
         out.confirmed = true;
     } else if original.verified {
         eprintln!(
@@ -519,7 +525,17 @@ pub fn fail(
         return Err(ApiError::lease_lost());
     }
     let error: String = report.error.chars().take(2000).collect();
-    let timeouts = job.timeouts + i64::from(report.code == Some("timeout"));
+    // A second timeout only says something about the match if another machine reports it: the same slow
+    // worker timing the job out again (it may lease it once the retry grace is over) still costs an attempt,
+    // but is not evidence that the match itself is too slow.
+    let last_failed_on: Option<String> = tx.query_row(
+        "SELECT avoid_worker FROM jobs WHERE id = ?1",
+        [&job.id],
+        |r| r.get(0),
+    )?;
+    let same_worker_again = job.timeouts > 0 && last_failed_on.as_deref() == Some(worker.id.as_str());
+    let timeouts =
+        job.timeouts + i64::from(report.code == Some("timeout") && !same_worker_again);
     if report.retryable && job.attempts < cfg.max_attempts && timeouts < cfg.max_timeouts {
         tx.execute(
             "UPDATE jobs SET state = 'queued', lease_expires_at = NULL, queued_at = ?2, error = ?3, avoid_worker = ?4,

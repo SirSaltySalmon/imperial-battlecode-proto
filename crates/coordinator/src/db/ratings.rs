@@ -143,12 +143,18 @@ pub fn submission_changed(
     team_id: &str,
     now: i64,
 ) -> ApiResult<()> {
+    let mut s = load(tx, hook, team_id)?;
+    let widened = hook.on_new_submission(&s.rating);
+    // Already as uncertain as a change makes it (e.g. switching back and forth): nothing to record, so the
+    // ledger cannot be grown by toggling the live submission.
+    if widened.mu == s.rating.mu && widened.sigma == s.rating.sigma {
+        return Ok(());
+    }
     tx.execute(
         "INSERT INTO rating_events(kind, team_a, created_at) VALUES ('submission', ?1, ?2)",
         params![team_id, now],
     )?;
-    let mut s = load(tx, hook, team_id)?;
-    s.rating = hook.on_new_submission(&s.rating);
+    s.rating = widened;
     save(tx, team_id, &s, now)
 }
 

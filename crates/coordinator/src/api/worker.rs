@@ -158,8 +158,14 @@ fn check_result(result: &Value) -> ApiResult<&str> {
     };
     // `outcome` is optional for workers older than its introduction (the summary has it too), but when it is
     // there it must agree with `winner`: ratings are taken from it.
-    match (result.get("outcome").map(Value::as_str), winner) {
-        (None, _) | (Some(Some("a")), Some(0)) | (Some(Some("b")), Some(1)) => {}
+    // A worker that sends no `outcome` must have it in the summary: a result without either would be taken
+    // for an unfinished game and silently left out of rating.
+    let outcome = result
+        .get("outcome")
+        .or_else(|| result.get("summary")?.get("outcome"))
+        .map(Value::as_str);
+    match (outcome, winner) {
+        (Some(Some("a")), Some(0)) | (Some(Some("b")), Some(1)) => {}
         (Some(Some("draw" | "unfinished")), None) => {}
         _ => {
             return Err(bad(
