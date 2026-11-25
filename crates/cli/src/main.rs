@@ -3,6 +3,7 @@
 mod batch;
 mod build;
 mod job;
+mod remote;
 mod toolchain;
 mod view;
 mod view_library;
@@ -93,6 +94,8 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    #[command(flatten)]
+    Remote(remote::RemoteCommand),
 }
 
 #[derive(Subcommand)]
@@ -118,6 +121,8 @@ enum ReplayCommand {
     Dump { file: PathBuf },
     /// Print the replay header as JSON
     Info { file: PathBuf },
+    /// Download the replay of a platform match
+    Download(remote::ReplayDownload),
 }
 
 fn load_replay(file: &Path) -> Result<Replay> {
@@ -156,6 +161,7 @@ fn replay(command: ReplayCommand) -> Result<()> {
             let r = load_replay(&file)?;
             println!("{}", serde_json::to_string_pretty(&r.header)?);
         }
+        ReplayCommand::Download(args) => remote::replay_download(args)?,
     }
     Ok(())
 }
@@ -225,6 +231,7 @@ fn run(cli: Cli) -> Result<()> {
             eprintln!("ibc new: not implemented yet");
             std::process::exit(2);
         }
+        Command::Remote(command) => remote::run(command)?,
     }
     Ok(())
 }
