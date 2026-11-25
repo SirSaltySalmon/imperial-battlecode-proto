@@ -4,6 +4,7 @@
 //! dispatches; to add a language, add a variant to `Language`, a detection rule, and a module with a
 //! `build(dir, release) -> Result<PathBuf>` function that returns the freshly built wasm.
 
+mod cpp;
 mod rust;
 
 use anyhow::{bail, Context, Result};
@@ -12,19 +13,21 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Language {
     Rust,
+    Cpp,
 }
 
 impl Language {
     pub fn name(self) -> &'static str {
         match self {
             Language::Rust => "rust",
+            Language::Cpp => "cpp",
         }
     }
 
     /// Default fuel multiplier for bots written in this language.
     pub fn fuel_multiplier(self) -> f64 {
         match self {
-            Language::Rust => 1.0,
+            Language::Rust | Language::Cpp => 1.0,
         }
     }
 }
@@ -43,7 +46,10 @@ pub fn detect(bot_dir: &Path) -> Result<Language> {
     if bot_dir.join("Cargo.toml").is_file() {
         return Ok(Language::Rust);
     }
-    bail!("{}: cannot tell the bot's language (expected a Cargo.toml for a Rust bot)", bot_dir.display())
+    if cpp::is_cpp_bot(bot_dir) {
+        return Ok(Language::Cpp);
+    }
+    bail!("{}: cannot tell the bot's language (expected a Cargo.toml for a Rust bot or src/*.cpp for a C++ bot)", bot_dir.display())
 }
 
 /// Build the bot in `bot_dir` and install the module at `<bot_dir>/.ibc/bot.wasm`.
@@ -52,6 +58,7 @@ pub fn build_bot(bot_dir: &Path, release: bool) -> Result<BuiltBot> {
     // ---- language dispatch ----
     let artifact = match language {
         Language::Rust => rust::build(bot_dir, release)?,
+        Language::Cpp => cpp::build(bot_dir, release)?,
     };
     let wasm = std::fs::read(&artifact).with_context(|| format!("reading {}", artifact.display()))?;
     ibc_runner::check_wasm(&wasm).with_context(|| format!("{} is not a usable bot", artifact.display()))?;

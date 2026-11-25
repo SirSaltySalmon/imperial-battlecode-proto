@@ -3,6 +3,7 @@
 mod batch;
 mod build;
 mod job;
+mod toolchain;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -75,6 +76,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Manage the compilers bots are built with (wasi-sdk for C++ bots)
+    Toolchain {
+        #[command(subcommand)]
+        command: ToolchainCommand,
+    },
     /// Open the replay viewer (not implemented yet)
     View {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -85,6 +91,21 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum ToolchainCommand {
+    /// Download the pinned wasi-sdk release, verify its sha256 and unpack it into the per-user cache
+    Install {
+        /// Reinstall even if it is already there
+        #[arg(long)]
+        force: bool,
+        /// Use this already downloaded release archive instead of downloading (still verified)
+        #[arg(long)]
+        archive: Option<PathBuf>,
+    },
+    /// Show which wasi-sdk `ibc build` would use
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -193,6 +214,10 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Replay { command } => replay(command)?,
         Command::Version { json } => version(json),
+        Command::Toolchain { command: ToolchainCommand::Install { force, archive } } => {
+            toolchain::install(force, archive.as_deref())?
+        }
+        Command::Toolchain { command: ToolchainCommand::Status } => toolchain::status()?,
         Command::View { .. } => {
             eprintln!("ibc view: not implemented yet");
             std::process::exit(2);
