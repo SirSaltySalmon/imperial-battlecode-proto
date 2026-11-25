@@ -52,6 +52,14 @@ impl Harness {
         }
     }
 
+    /// Close the app and open the same data directory again with a changed configuration.
+    pub fn reopen(&mut self, tune: impl FnOnce(&mut Config)) {
+        let mut cfg = self.app.cfg.clone();
+        tune(&mut cfg);
+        self.app = App::open(cfg, &self.dir).expect("reopen data dir");
+        self.router = ibc_coordinator::api::router(self.app.clone());
+    }
+
     pub async fn raw(
         &self,
         method: &str,
@@ -179,6 +187,18 @@ impl Harness {
         teams
     }
 
+    /// The ladder's row for a team, by name.
+    pub async fn standing(&self, name: &str) -> Value {
+        let ladder = self.ok("GET", "/v1/ladder", None, Value::Null).await;
+        ladder["teams"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is not on the ladder: {ladder}"))
+            .clone()
+    }
+
     pub async fn metric(&self, name: &str) -> f64 {
         let (_, body) = self.raw("GET", "/metrics", None, Vec::new()).await;
         let text = String::from_utf8(body).unwrap();
@@ -222,8 +242,9 @@ pub fn fake_result(job: &Value, cheat: bool) -> (Vec<u8>, Value) {
     }
     let sha = sha256_hex(&replay);
     let score = if winner == 0 { [7, 3] } else { [3, 7] };
-    let result = json!({"winner": winner, "score": score, "ticks": 100, "replay_sha256": sha,
-                        "summary": {"outcome": if winner == 0 { "a" } else { "b" }, "replay_sha256": sha}});
+    let outcome = if winner == 0 { "a" } else { "b" };
+    let result = json!({"winner": winner, "outcome": outcome, "score": score, "ticks": 100, "replay_sha256": sha,
+                        "wall_ms": 40, "summary": {"outcome": outcome, "replay_sha256": sha}});
     (replay, result)
 }
 
@@ -308,6 +329,22 @@ impl MockWorker {
             json!({"error": "mock failure", "retryable": retryable}),
         )
         .await
+    }
+
+    /// `fail` as a worker whose match ran past its wall-clock limit.
+    pub async fn time_out(&self, h: &Harness, job: &Value) -> (StatusCode, Value) {
+        self.job_call(
+            h,
+            job,
+            "fail",
+            json!({"error": "timeout: match exceeded 300.0 s of wall clock", "retryable": true, "code": "timeout"}),
+        )
+        .await
+    }
+
+    pub async fn release(&self, h: &Harness, job: &Value, reason: &str) -> (StatusCode, Value) {
+        self.job_call(h, job, "release", json!({"reason": reason}))
+            .await
     }
 
     /// Lease and complete until the queue has nothing for this worker; returns how many jobs it played.

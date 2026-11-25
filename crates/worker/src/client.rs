@@ -186,14 +186,14 @@ impl Client {
         }
     }
 
-    pub fn heartbeat(&self, job_id: &str, lease_token: &str) -> Result<(), ApiError> {
+    /// Returns the response (`lease_expires_at`, and `lease_secs` from a coordinator that sends it).
+    pub fn heartbeat(&self, job_id: &str, lease_token: &str) -> Result<Value, ApiError> {
         let path = format!("/v1/jobs/{}/heartbeat", segment(job_id));
         self.post(
             &path,
             &json!({"lease_token": lease_token}).to_string(),
             self.timeout.min(Duration::from_secs(10)),
         )
-        .map(drop)
     }
 
     pub fn complete(&self, job_id: &str, body: &CompleteBody<'_>) -> Result<(), ApiError> {
@@ -207,16 +207,32 @@ impl Client {
         .map(drop)
     }
 
+    /// `code`: `Some("timeout")` when the match ran past the wall-clock limit (docs/JOBS.md).
     pub fn fail(
         &self,
         job_id: &str,
         lease_token: &str,
         error: &str,
         retryable: bool,
+        code: Option<&str>,
     ) -> Result<(), ApiError> {
-        let body = json!({"lease_token": lease_token, "error": error, "retryable": retryable});
+        let mut body = json!({"lease_token": lease_token, "error": error, "retryable": retryable});
+        if let Some(code) = code {
+            body["code"] = json!(code);
+        }
         self.post(
             &format!("/v1/jobs/{}/fail", segment(job_id)),
+            &body.to_string(),
+            self.timeout,
+        )
+        .map(drop)
+    }
+
+    /// Give a job back without spending one of its attempts ("not for me").
+    pub fn release(&self, job_id: &str, lease_token: &str, reason: &str) -> Result<(), ApiError> {
+        let body = json!({"lease_token": lease_token, "reason": reason});
+        self.post(
+            &format!("/v1/jobs/{}/release", segment(job_id)),
             &body.to_string(),
             self.timeout,
         )

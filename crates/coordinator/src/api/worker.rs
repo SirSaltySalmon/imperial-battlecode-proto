@@ -126,17 +126,13 @@ pub async fn heartbeat(
 ) -> ApiResult<Json<Value>> {
     let worker = auth_worker(&app, &headers)?;
     let req: HeartbeatReq = parse(&body)?;
-    let expires = app.db.tx(|tx| {
-        jobs::heartbeat(
-            tx,
-            &job_id,
-            &req.lease_token,
-            &worker,
-            now_ms(),
-            &app.queue_cfg(),
-        )
-    })?;
-    Ok(Json(json!({"lease_expires_at": rfc3339(expires)})))
+    let cfg = app.queue_cfg();
+    let expires = app
+        .db
+        .tx(|tx| jobs::heartbeat(tx, &job_id, &req.lease_token, &worker, now_ms(), &cfg))?;
+    Ok(Json(
+        json!({"lease_expires_at": rfc3339(expires), "lease_secs": jobs::lease_secs(&cfg)}),
+    ))
 }
 
 /// Largest accepted `complete` body.
@@ -148,17 +144,31 @@ struct CompleteReq {
     result: Value,
 }
 
-/// `Result` of docs/JOBS.md: `winner` 0 | 1 | null, `score` two integers, `ticks`, `replay_sha256`, `summary`.
-/// Returns the replay hash.
+/// `Result` of docs/JOBS.md: `winner` 0 | 1 | null, `outcome` consistent with it, `score` two integers,
+/// `ticks`, `replay_sha256`, `summary`, optional `wall_ms`. Returns the replay hash.
 fn check_result(result: &Value) -> ApiResult<&str> {
     let bad = |what: &str| ApiError::bad_request(format!("result.{what}"));
     if !result.is_object() {
         return Err(ApiError::bad_request("result must be an object"));
     }
-    match result.get("winner") {
-        None | Some(Value::Null) => {}
-        Some(w) if matches!(w.as_i64(), Some(0 | 1)) => {}
+    let winner = match result.get("winner") {
+        None | Some(Value::Null) => None,
+        Some(w) if matches!(w.as_i64(), Some(0 | 1)) => w.as_i64(),
         Some(_) => return Err(bad("winner must be 0, 1 or null")),
+    };
+    // `outcome` is optional for workers older than its introduction (the summary has it too), but when it is
+    // there it must agree with `winner`: ratings are taken from it.
+    match (result.get("outcome").map(Value::as_str), winner) {
+        (None, _) | (Some(Some("a")), Some(0)) | (Some(Some("b")), Some(1)) => {}
+        (Some(Some("draw" | "unfinished")), None) => {}
+        _ => {
+            return Err(bad(
+                "outcome must be \"a\" | \"b\" | \"draw\" | \"unfinished\" and agree with winner",
+            ))
+        }
+    }
+    if result.get("wall_ms").is_some_and(|v| !v.is_u64()) {
+        return Err(bad("wall_ms must be a non-negative integer"));
     }
     let score_ok = result
         .get("score")
@@ -219,6 +229,7 @@ pub async fn complete(
             &sample,
         )?;
         if !done.noop {
+            app.after_quarantine(tx, &done.quarantined, now)?;
             db::league::finalize_ready(
                 tx,
                 app.rating.as_ref(),
@@ -234,7 +245,11 @@ pub async fn complete(
     bump(&c.verify_mismatch, usize::from(done.mismatch));
     bump(&c.verify_conflict, usize::from(done.conflict));
     if done.mismatch {
-        eprintln!("spot verification mismatch on job {job_id}: a worker was quarantined, {} results requeued", done.requeued);
+        let q = &done.quarantined;
+        eprintln!(
+            "spot verification mismatch on job {job_id}: a worker was quarantined, {} results requeued, {} closed series reopened",
+            q.requeued, q.reopened
+        );
     }
     if done.verify_enqueued || done.mismatch {
         app.queue_changed.notify_waiters();
@@ -248,6 +263,9 @@ struct FailReq {
     #[serde(default)]
     error: String,
     retryable: bool,
+    /// `"timeout"`: the match ran past the worker's wall-clock limit. Other values are ignored.
+    #[serde(default)]
+    code: Option<String>,
 }
 
 pub async fn fail(
@@ -259,13 +277,17 @@ pub async fn fail(
     let worker = auth_worker(&app, &headers)?;
     let req: FailReq = parse(&body)?;
     let now = now_ms();
+    let report = jobs::FailReport {
+        error: &req.error,
+        retryable: req.retryable,
+        code: req.code.as_deref(),
+    };
     let outcome = app.db.tx(|tx| {
         let outcome = jobs::fail(
             tx,
             &job_id,
             &req.lease_token,
-            &req.error,
-            req.retryable,
+            &report,
             &worker,
             now,
             &app.queue_cfg(),
@@ -291,6 +313,39 @@ pub async fn fail(
             eprintln!("job {job_id} dead-lettered: {}", req.error);
         }
         jobs::Failed::Noop => {}
+    }
+    Ok(Json(json!({})))
+}
+
+#[derive(Deserialize)]
+struct ReleaseReq {
+    lease_token: String,
+    #[serde(default)]
+    reason: String,
+}
+
+/// "Not for me": the worker gives the job back without spending an attempt (wrong patch, unknown kind,
+/// shutting down). The job is not offered to this worker again for the retry grace period.
+pub async fn release(
+    State(app): AppState,
+    Path(job_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<Json<Value>> {
+    let worker = auth_worker(&app, &headers)?;
+    let req: ReleaseReq = parse(&body)?;
+    let released = app.db.tx(|tx| {
+        jobs::release(
+            tx,
+            &job_id,
+            &req.lease_token,
+            &req.reason,
+            &worker,
+            now_ms(),
+        )
+    })?;
+    if released {
+        app.queue_changed.notify_waiters();
     }
     Ok(Json(json!({})))
 }

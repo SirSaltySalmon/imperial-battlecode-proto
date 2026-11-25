@@ -34,6 +34,13 @@ pub struct State {
     pub completed: Vec<(String, Value)>,
     /// (job_id, error, retryable)
     pub failed: Vec<(String, String, bool)>,
+    /// job_id -> `code` of its `fail`, when one was sent.
+    pub fail_codes: HashMap<String, String>,
+    /// (job_id, reason) of `release` calls. A released job is not queued again (the scripts here do not
+    /// need it; a real coordinator re-queues it and keeps it from this worker for a while).
+    pub released: Vec<(String, String)>,
+    /// Answer `release` with 404, as a coordinator that predates it does.
+    pub no_release: bool,
     pub first_lease: Option<Instant>,
     pub last_report: Option<Instant>,
     seq: u64,
@@ -276,6 +283,7 @@ fn lease(shared: &Shared, max: usize, wait_ms: u64) -> Reply {
         job["lease_expires_at"] = json!(ibc_worker::log::rfc3339(
             ibc_worker::log::unix_now() + lease_secs
         ));
+        job["lease_secs"] = json!(lease_secs);
         let id = job["job_id"]
             .as_str()
             .expect("scripted job has a job_id")
@@ -298,7 +306,8 @@ fn job_action(st: &mut State, job_id: &str, action: &str, body: &Value) -> Reply
         return err(400, "malformed");
     };
     let done = st.completed.iter().any(|(id, _)| id == job_id)
-        || st.failed.iter().any(|(id, _, _)| id == job_id);
+        || st.failed.iter().any(|(id, _, _)| id == job_id)
+        || st.released.iter().any(|(id, _)| id == job_id);
     let holds = st
         .leased
         .get(job_id)
@@ -313,14 +322,24 @@ fn job_action(st: &mut State, job_id: &str, action: &str, body: &Value) -> Reply
             st.leased.get_mut(job_id).expect("held").1 =
                 Instant::now() + Duration::from_secs(lease_secs);
             ok(
-                json!({"lease_expires_at": ibc_worker::log::rfc3339(ibc_worker::log::unix_now() + lease_secs)}),
+                json!({"lease_expires_at": ibc_worker::log::rfc3339(ibc_worker::log::unix_now() + lease_secs),
+                       "lease_secs": lease_secs}),
             )
         }
+        "release" if st.no_release => err(404, "no_such_endpoint"),
         // Idempotent for the same lease token.
-        "complete" | "fail" if done && st.leased.get(job_id).is_some_and(|(t, _)| t == token) => {
+        "complete" | "fail" | "release"
+            if done && st.leased.get(job_id).is_some_and(|(t, _)| t == token) =>
+        {
             ok(json!({}))
         }
-        "complete" | "fail" if !holds => err(409, "lease_lost"),
+        "complete" | "fail" | "release" if !holds => err(409, "lease_lost"),
+        "release" => {
+            let reason = body["reason"].as_str().unwrap_or_default().to_string();
+            st.released.push((job_id.to_string(), reason));
+            st.last_report = Some(Instant::now());
+            ok(json!({}))
+        }
         "complete" => {
             if st.fail_completes > 0 {
                 st.fail_completes -= 1;
@@ -335,7 +354,8 @@ fn job_action(st: &mut State, job_id: &str, action: &str, body: &Value) -> Reply
             }
             if !(result["summary"].is_object()
                 && result["score"].is_array()
-                && result["ticks"].is_u64())
+                && result["ticks"].is_u64()
+                && result["outcome"].is_string())
             {
                 return err(400, "malformed");
             }
@@ -351,6 +371,9 @@ fn job_action(st: &mut State, job_id: &str, action: &str, body: &Value) -> Reply
             };
             st.failed
                 .push((job_id.to_string(), error.to_string(), retryable));
+            if let Some(code) = body["code"].as_str() {
+                st.fail_codes.insert(job_id.to_string(), code.to_string());
+            }
             st.last_report = Some(Instant::now());
             ok(json!({}))
         }

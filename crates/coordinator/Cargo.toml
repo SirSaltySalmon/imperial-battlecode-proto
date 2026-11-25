@@ -13,6 +13,7 @@ name = "ibc-coordinator"
 path = "src/main.rs"
 
 [dependencies]
+ibc-rating = { path = "../rating" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

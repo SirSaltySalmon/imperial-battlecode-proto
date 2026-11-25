@@ -15,8 +15,10 @@ use std::time::{Duration, Instant};
 /// A match that ran: everything `complete` needs. `replay_sha256` is always our own hash of `replay`.
 struct Finished {
     winner: Value,
+    outcome: Value,
     score: Value,
     ticks: Value,
+    wall_ms: Value,
     replay_sha256: String,
     replay: Vec<u8>,
     summary: Box<RawValue>,
@@ -27,7 +29,12 @@ enum Stop {
     Fail {
         error: String,
         retryable: bool,
+        /// `Some("timeout")`: the match itself ran past the wall-clock limit.
+        code: Option<&'static str>,
     },
+    /// Not this worker's job (another patch, an unknown kind) or the worker is shutting down: give it
+    /// back without spending one of its attempts.
+    Release(String),
     /// Nothing to tell the coordinator: the lease is gone or about to be.
     Dropped(&'static str),
 }
@@ -36,6 +43,7 @@ fn fail(error: impl Into<String>, retryable: bool) -> Stop {
     Stop::Fail {
         error: error.into(),
         retryable,
+        code: None,
     }
 }
 
@@ -45,7 +53,7 @@ fn check(ctx: &Ctx, active: &Active) -> Result<(), Stop> {
         return Err(Stop::Dropped("lease lost"));
     }
     if ctx.shutdown.is_aborting() {
-        return Err(fail("worker shutting down", true));
+        return Err(Stop::Release("worker shutting down".into()));
     }
     if Instant::now() >= active.deadline() {
         return Err(Stop::Dropped("lease expired"));
@@ -58,7 +66,12 @@ pub(crate) fn handle(ctx: &Ctx, active: &Active, lease: &Lease, raw: &Value, seq
     let started = Instant::now();
     match process(ctx, active, lease, raw, &dir, seq) {
         Ok(done) => report_complete(ctx, active, &done, started),
-        Err(Stop::Fail { error, retryable }) => report_fail(ctx, active, &error, retryable),
+        Err(Stop::Fail {
+            error,
+            retryable,
+            code,
+        }) => report_fail(ctx, active, &error, retryable, code),
+        Err(Stop::Release(reason)) => report_release(ctx, active, &reason),
         Err(Stop::Dropped(why)) => dropped(ctx, active, why),
     }
     // Per-job scratch space never outlives the job.
@@ -74,7 +87,7 @@ fn process(
     seq: u64,
 ) -> Result<Finished, Stop> {
     if lease.kind != "match" {
-        return Err(fail(format!("unknown job kind {:?}", lease.kind), true));
+        return Err(Stop::Release(format!("unknown job kind {:?}", lease.kind)));
     }
     // A match job this worker cannot parse may be a newer dialect: let another worker try.
     let spec: MatchSpec = serde_json::from_value(raw.clone())
@@ -89,8 +102,8 @@ fn process(
     }
     // Artifacts get the same wall-clock budget as the match: a job never sits in download forever.
     let until = Instant::now() + ctx.cfg.job_timeout;
-    let runner =
-        resolve_runner(ctx, active, &spec, until)?.ok_or_else(|| fail("patch mismatch", true))?;
+    let runner = resolve_runner(ctx, active, &spec, until)?
+        .ok_or_else(|| Stop::Release("patch mismatch".into()))?;
     let bot_a = fetch(ctx, active, &spec.bot_a.sha256, until)?;
     let bot_b = fetch(ctx, active, &spec.bot_b.sha256, until)?;
     let map = fetch(ctx, active, &spec.map.sha256, until)?;
@@ -138,18 +151,21 @@ fn resolve_runner(
         .map_err(|e| fail(format!("installing runner: {e}"), true))
 }
 
-/// A verified blob from the cache, downloading it if needed. Transient trouble is retried while the lease lasts.
+/// A verified blob from the cache, downloading it if needed. Transient trouble is retried until `until`
+/// (a blob already in the cache is always served).
 fn fetch(ctx: &Ctx, active: &Active, sha: &str, until: Instant) -> Result<Pinned, Stop> {
     let mut backoff = Backoff::new(ctx.cfg.backoff_min, ctx.cfg.backoff_max);
     let mut mismatches = 0;
+    let mut first = true;
     loop {
         check(ctx, active)?;
-        if Instant::now() >= until {
+        if !first && Instant::now() >= until {
             return Err(fail(
                 format!("timeout: blob {sha} could not be downloaded in time"),
                 true,
             ));
         }
+        first = false;
         let wait = match ctx.cache.get(sha, |tmp| {
             ctx.client.get_blob(sha, tmp, ctx.cfg.max_blob_bytes)
         }) {
@@ -207,13 +223,16 @@ fn run(ctx: &Ctx, active: &Active, runner: &Path, job: &Value, seq: u64) -> Resu
         check(ctx, active)?;
         let left = limit.saturating_sub(started.elapsed());
         if left.is_zero() {
-            return Err(fail(
-                format!(
+            // Retryable (this machine may just be overloaded), but marked: a match is deterministic, so the
+            // coordinator gives up on a job that times out again instead of spending every attempt on it.
+            return Err(Stop::Fail {
+                error: format!(
                     "timeout: match exceeded {:.1} s of wall clock",
                     limit.as_secs_f64()
                 ),
-                true,
-            ));
+                retryable: true,
+                code: Some("timeout"),
+            });
         }
         let event = match proc_.recv(left.min(Duration::from_millis(50))) {
             Recv::Timeout => continue,
@@ -282,8 +301,10 @@ fn collect(dir: &Path, event: &Value) -> Result<Finished, Stop> {
         .map_err(|e| fail(format!("summary.json: {e}"), true))?;
     Ok(Finished {
         winner: event["winner"].clone(),
+        outcome: event["outcome"].clone(),
         score: event["score"].clone(),
         ticks: event["ticks"].clone(),
+        wall_ms: event["wall_ms"].clone(),
         replay_sha256,
         replay,
         summary,
@@ -372,7 +393,13 @@ fn report_complete(ctx: &Ctx, active: &Active, done: &Finished, started: Instant
     }) {
         Ok(()) => {}
         Err(GiveUp::Api(e)) => {
-            return report_fail(ctx, active, &format!("replay upload refused: {e}"), true)
+            return report_fail(
+                ctx,
+                active,
+                &format!("replay upload refused: {e}"),
+                true,
+                None,
+            )
         }
         Err(g) => return give_up(ctx, active, "put replay", g),
     }
@@ -380,10 +407,12 @@ fn report_complete(ctx: &Ctx, active: &Active, done: &Finished, started: Instant
         lease_token: &active.lease_token,
         result: MatchResult {
             winner: &done.winner,
+            outcome: &done.outcome,
             score: &done.score,
             ticks: &done.ticks,
             replay_sha256: &done.replay_sha256,
             summary: &done.summary,
+            wall_ms: &done.wall_ms,
         },
     };
     match retry(ctx, active, "complete", || {
@@ -400,27 +429,51 @@ fn report_complete(ctx: &Ctx, active: &Active, done: &Finished, started: Instant
                 total_ms = started.elapsed().as_millis() as u64
             );
         }
-        Err(GiveUp::Api(e)) => report_fail(ctx, active, &format!("complete refused: {e}"), true),
+        Err(GiveUp::Api(e)) => {
+            report_fail(ctx, active, &format!("complete refused: {e}"), true, None)
+        }
         Err(g) => give_up(ctx, active, "complete", g),
     }
 }
 
-fn report_fail(ctx: &Ctx, active: &Active, error: &str, retryable: bool) {
+fn report_fail(
+    ctx: &Ctx,
+    active: &Active,
+    error: &str,
+    retryable: bool,
+    code: Option<&'static str>,
+) {
     crate::log!(
         "warn",
         "job failed",
         job = active.job_id,
         error = error,
-        retryable = retryable
+        retryable = retryable,
+        code = code
     );
     match retry(ctx, active, "fail", || {
         ctx.client
-            .fail(&active.job_id, &active.lease_token, error, retryable)
+            .fail(&active.job_id, &active.lease_token, error, retryable, code)
     }) {
         Ok(()) => {
             ctx.counters.failed.fetch_add(1, Ordering::Relaxed);
         }
         Err(g) => give_up(ctx, active, "fail", g),
+    }
+}
+
+/// `release` the job. A coordinator that predates `release` answers 404: fall back to a retryable `fail`.
+fn report_release(ctx: &Ctx, active: &Active, reason: &str) {
+    crate::log!("info", "job released", job = active.job_id, reason = reason);
+    match retry(ctx, active, "release", || {
+        ctx.client
+            .release(&active.job_id, &active.lease_token, reason)
+    }) {
+        Ok(()) => {
+            ctx.counters.released.fetch_add(1, Ordering::Relaxed);
+        }
+        Err(GiveUp::Api(ApiError::NotFound)) => report_fail(ctx, active, reason, true, None),
+        Err(g) => give_up(ctx, active, "release", g),
     }
 }
 

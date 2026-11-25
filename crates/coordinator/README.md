@@ -13,7 +13,7 @@ redeployed when the game changes: the patch is three strings set through the API
 cargo build --release -p ibc-coordinator
 target/release/ibc-coordinator --data /var/lib/ibc --listen 127.0.0.1:8080 \
     --admin-token "$ADMIN" --registration-token "$WORKER_SECRET" --trusted-registration-token "$TRUSTED_SECRET" \
-    --ranked-interval-secs 600
+    --ranked-interval-secs 600 --rating-system weng-lin
 ```
 
 It speaks plain HTTP; put a TLS-terminating reverse proxy (Caddy, nginx) in front and allow request bodies
@@ -26,19 +26,24 @@ Bring a league up (all with `Authorization: Bearer $ADMIN`):
 POST /v1/admin/patch            {"engine": "0.1.0", "ruleset_hash": "<16 hex>", "wasmtime": "51.0.0"}   # = `ibc version --json`
 PUT  /v1/admin/maps/tunnels     <bytes of maps/tunnels.ibcmap>          (?in_pool=false keeps it out of rotation)
 POST /v1/admin/teams            {"name": "alpha"}                       -> {"team_id", "token"}  (token shown once)
-POST /v1/submissions            <wasm bytes>, with the team's token     (?language=rust; admin: ?team=alpha)
-POST /v1/admin/ranked-batch     {"pairings": [["alpha", "beta"]], "games": 2}     # or {} to pair by rating
+POST /v1/submissions            <wasm bytes>, with the team's token     (?language=rust; ?live=false; admin: ?team=alpha)
+POST /v1/admin/ranked-batch     {"pairings": [["alpha", "beta"]], "games": 2}     # or {} for the matchmaker
 ```
+
+The patch may also name runner binaries for workers started with `--allow-runner-fetch` (upload the `ibc`
+binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "runner_blobs":
+{"linux-x86_64": "<sha256>"}}`. They are sent with the patch's jobs (`docs/JOBS.md`, "Runner blobs").
 
 ### API
 
 | | auth | |
 |---|---|---|
-| `POST /v1/workers/register`, `POST /v1/jobs/lease`, `POST /v1/jobs/{id}/heartbeat\|complete\|fail`, `GET\|PUT /v1/blobs/{sha256}` | worker (blobs: also admin) | protocol v1, see `docs/JOBS.md` |
-| `GET /v1/team`, `POST /v1/submissions`, `GET /v1/submissions` | team | upload makes the module live if it validates |
+| `POST /v1/workers/register`, `POST /v1/jobs/lease`, `POST /v1/jobs/{id}/heartbeat\|complete\|fail\|release`, `GET\|PUT /v1/blobs/{sha256}` | worker (blobs: also admin) | protocol v1.1, see `docs/JOBS.md` |
+| `GET /v1/team`, `POST /v1/submissions`, `GET /v1/submissions` | team | upload makes the module live if it validates, unless `?live=false` |
+| `POST /v1/submissions/{id}/live` | team (its own), or admin | make a validated submission the live one |
 | `POST /v1/series` | team: `{opponent, games}`; admin: `{team_a, team_b, games, kind: unranked\|tournament}` | unranked series, per-team daily quota (429 `quota_exceeded`) |
 | `POST /v1/admin/teams`, `GET /v1/admin/teams`, `PUT /v1/admin/maps/{name}`, `POST /v1/admin/patch` | admin | |
-| `POST /v1/admin/ranked-batch` | admin | explicit `pairings` or automatic (`budget`) |
+| `POST /v1/admin/ranked-batch` | admin | explicit `pairings` or the matchmaker (`budget`, default `--ranked-series-budget`) |
 | `POST /v1/admin/jobs` | admin | one stand-alone match (`class`, `bot_a`, `bot_b`, `map`, `seed`, `max_ticks`); answers `"cached": true` with the result if it already ran |
 | `GET /v1/admin/jobs/{id}`, `GET /v1/admin/dead`, `POST /v1/admin/jobs/{id}/requeue` | admin | the dead-letter list |
 | `GET /v1/admin/workers`, `POST /v1/admin/workers/{id}/trust`, `.../quarantine` | admin | |
@@ -50,41 +55,76 @@ POST /v1/admin/ranked-batch     {"pairings": [["alpha", "beta"]], "games": 2}   
 - **Queue.** `lease` serves the lowest class first, oldest first; a job is promoted one class per
   `--aging-secs` waited, but never into the tournament class: tournament jobs always go first, and ranked,
   unranked and bench cannot starve one another. A lease lasts `--lease-secs` from grant and from each
-  heartbeat; a sweeper requeues expired ones. Three leases without a result, or one `retryable: false`,
-  and the job is on the dead-letter list until a human requeues it. A job that failed retryably is not
-  handed back to the same worker for `--retry-grace-secs` (a worker on an old patch would otherwise burn
-  all three attempts in milliseconds).
+  heartbeat (jobs and heartbeat answers say so in `lease_secs`, and workers pace their heartbeats by it); a
+  sweeper requeues expired ones. Three leases without a result, `--max-timeouts` (2) timeouts, or one
+  `retryable: false`, and the job is on the dead-letter list until a human requeues it. A `release` gives the
+  lease back without counting it. A job that was failed retryably or released is not handed back to the same
+  worker for `--retry-grace-secs`.
 - **Idempotency.** A match is identified by the SHA-256 key of `docs/JOBS.md`. Enqueueing a key that exists
   returns that job; if it is done, that is a cache hit and no work is created.
 - **Trust.** Workers registering with the trusted secret (or marked by an admin) get the `trusted` label; a
   self-declared `trusted` label is dropped. Results of untrusted workers are provisional: `--verify-fraction`
   of them (all `tournament` ones) are re-run as a `verify` job only trusted workers can lease. Equal replay
   hash: confirmed. Different: the trusted result replaces it, the worker is quarantined (no more jobs, leases
-  revoked) and all its unconfirmed results are discarded and queued again. **Run at least one trusted worker
-  whenever `--verify-fraction` is above 0**, or verifications pile up (`ibc_verify_pending`) and the series
-  waiting on them stay open.
-- **Series.** N games between the two teams' live submissions at creation: maps rotate through the pool,
-  seeds come from the series id and game index, sides alternate. A series closes when none of its games and
-  none of their verifications is outstanding. A ranked series is then rated game by game and a ladder
-  snapshot is written; if either submission was superseded meanwhile the series is kept but not rated; a
-  dead game voids the series. Setting a new patch dead-letters the jobs of the old one.
-  Known limit: if a quarantine invalidates a result whose series was already rated, the match shows the
-  re-run result but the rating change is not rolled back.
-- **Scheduler.** Every `--ranked-interval-secs` (0 = off): live teams sorted by rating, neighbours paired
-  (the offset alternates each round), at most `--ranked-series-budget` series, skipping teams that still
-  have a ranked series running, which also bounds the backlog when workers are scarce.
+  revoked) and all its unconfirmed results are discarded and queued again. A closed series that had counted
+  one of them is reopened, its rating events are dropped and every rating is recomputed from the ledger;
+  the re-runs then rate it again (see Ratings). **Run at least one trusted worker whenever
+  `--verify-fraction` is above 0**, or verifications pile up (`ibc_verify_pending`) and the series waiting on
+  them stay open.
+- **Submissions and series.** A team may upload any number of modules (`?live=false` keeps the live one) and
+  choose which one is live at any time (`POST /v1/submissions/{id}/live`); re-uploading the live module
+  changes nothing. A series is created between the submissions live at that moment, and they are pinned:
+  the series records them, its jobs name their hashes, and every game of it is played with them whatever is
+  uploaded or selected later. A ranked series is always rated. Games: `ibc_rating::plan_series` picks the
+  least-used maps of the pool (no repeat within a series), alternates the engine slots from a coin flip and
+  derives the seeds from the series id. A series closes when none of its games and none of their
+  verifications is outstanding; a ranked one is then rated game by game, in game order, and a ladder snapshot
+  is written. A game that could not be run (dead-lettered) or ended `unfinished` is left out (the note says
+  so); a series where no game finished is void. Setting a new patch dead-letters the jobs of the old one.
+- **Scheduler.** Every `--ranked-interval-secs` (0 = off) the matchmaker of `ibc-rating` (`plan_batch`,
+  Halite III's scheme) pairs the live teams that have no ranked series running: under-played and idle teams
+  are seeded first, opponents are drawn near in rating with a heavy tail, a pair meets at most twice a day.
+  The round size comes from `series_per_batch`: the cores of the live workers, the mean `wall_ms` of the
+  last hour's matches (its prior until there are some), 70 % utilisation, capped by
+  `--ranked-series-budget`. No live workers, no series. Each round's seed is kept in `ranked_batches`.
 - **Upload validation** is a light parser (`wasmparser`), not the runner: WebAssembly 2.0 only, size cap,
   initial-memory cap, imports only from `ibc` and the WASI functions the runner provides, exports `_start`
   and `memory`. The lists in `src/wasmcheck.rs` mirror `ibc_runner::{IBC_IMPORTS, WASI_IMPORTS}`; keep them
   in sync when the ABI grows. Maps are stored, not parsed: check them with `ibc` first.
 
-### Ratings: where `ibc-rating` plugs in
+### Ratings
 
-`src/rating.rs` defines `RatingHook` (`initial()`, `update(a, b, outcome) -> (a', b')`, `display()`) with a
-built-in Elo so the ladder works on its own. The `ratings` table already stores `mu` and `sigma`. To use
-`ibc-rating`: implement `RatingHook` for its system (a five-line adapter), and in `main.rs` build the app
-with `App::new(cfg, db, blobs, Arc::new(adapter))` instead of `App::open` (which hard-wires `Elo`).
-Nothing else knows which system is in use.
+`--rating-system weng-lin` (default) or `elo`: the systems of `ibc-rating` with its defaults, behind
+`RatingHook` (`src/rating.rs`; every `ibc_rating::RatingSystem` implements it). Nothing else knows which
+system is in use.
+
+- **Per game, from `outcome`.** Each finished game of a ranked series is one update, in game order, from the
+  job's `outcome` (`"a" | "b" | "draw"`, by engine slot, turned into the series' team A's view). An
+  `"unfinished"` game is not rated, and not as a draw.
+- **Computed once, stored.** Ratings are `f64` and may differ in the last bit across platforms, so they are
+  computed here, as games are rated, and stored (`ratings`: `mu`, `sigma`, games, W/L/D, last played).
+  Every change is also an event in the `rating_events` ledger: one `game` event per rated game and one
+  `submission` event per change of live submission. Ratings are a fold of the ledger and are recomputed from
+  it, on the coordinator, in two cases only: a quarantine took back rated results (their events are dropped,
+  the series is rated again from the re-runs, appended at the end), and `--rating-system` changed (at
+  start; switching back gives the old numbers bit for bit).
+- **Resubmission.** When a team's live submission is replaced (upload or selection), `on_new_submission`
+  widens its uncertainty (Weng-Lin: `sigma = max(sigma, sigma0 / 2)`; Elo reopens half the provisional
+  window). The estimate is kept.
+- **Ladder.** `GET /v1/ladder` serves the latest snapshot, written when ratings or a live submission change.
+  Each team: `rank`, `rating` (the displayed number, rounded), `provisional`, `mu`, `sigma`, `games`, `wins`,
+  `losses`, `draws`, `submission_id`; and the snapshot's `system`. Every team with a live submission is
+  listed, from its first upload.
+- **New teams: show "provisional", not the number.** Weng-Lin's displayed rating is the conservative
+  estimate `mu - 3 sigma` on a 1500-centred scale: a new team shows about 763 and climbs as it plays (a
+  settled average team shows about 1360), which reads as a weak team next to a 1500 scale. Clients should
+  show "provisional" instead of the number while `provisional` is true (Weng-Lin: `sigma > 5`, about 25 games;
+  Elo: its first 10 games), and may show the number greyed or on hover. The ladder is sorted by `rating`, so
+  provisional teams start low and rise into place, which is also what a conservative ladder should do; a
+  resubmission can make a team provisional again only if its uncertainty grows past the threshold.
+
+For another system, implement `RatingHook` and build the app with `App::new(cfg, db, blobs, hook)`; give it
+a new `name()`, since stored ratings are tagged with the system that produced them.
 
 ## Data directory
 
@@ -94,9 +134,21 @@ Nothing else knows which system is in use.
 <data>/blobs/tmp/                in-flight uploads, emptied at start
 ```
 
-Tables: `teams`, `submissions` (one `live` per team), `maps`, `patches` (one `current`), `workers`, `jobs`
-(payload, state, lease, result; `key` is unique), `series`, `games` (a game points at a job), `ratings`,
-`ladder_snapshots` (the last 200).
+Tables: `teams`, `submissions` (one `live` per team), `maps`, `map_usage` (games per map), `patches` (one
+`current`, optional runner blobs), `workers`, `jobs` (payload, state, lease, result; `key` is unique),
+`series` (with its pinned submissions), `games` (a game points at a job), `ratings`, `rating_events` (the
+ledger ratings are a fold of), `ranked_batches` (matchmaker seeds), `settings` (the rating system that
+produced the stored ratings), `ladder_snapshots` (the last 200). Columns added since the first release are
+added to an existing data directory at start.
+
+## Measured end to end
+
+Real coordinator, two real workers (`--concurrency 4` each, one trusted), the prebuilt `ibc` 0.1.0, four
+teams (rusher, holder, idle, rusher), three pool maps, all on the 20-thread Windows dev box: 968 ranked
+games (242 series) completed in 7.6 s, about **127 matches/s** for 8 runner slots (mean `wall_ms` 36 ms per
+match), plus 12 spot verifications, all confirmed. A worker killed with leases in hand: its jobs came back
+after the lease (`--lease-secs`) and were finished by the other worker. `cargo test -p ibc-worker --test e2e`
+(with `IBC_RUNNER` set) replays that scenario.
 
 ## Backup
 
@@ -121,14 +173,17 @@ a pure function of its job), losing submissions is not.
 ## Not done here (deliberately)
 
 Rate limiting and per-IP abuse protection (do it in the proxy), blob garbage collection, upload quotas for
-rejected submissions, private scrimmages (all matches and replays are public), rolling back ratings.
+rejected submissions, private scrimmages (all matches and replays are public), inactivity decay of ratings
+(`on_inactive` is not called), widening every rating on a balance patch (`on_balance_patch`).
 Any registered worker can upload blobs, and the registration secret is shared: a quarantined worker can
-register again, so rotate the secret when someone is caught.
+register again, so rotate the secret when someone is caught. A data directory from before the rating ledger
+has ratings but no ledger: it keeps them, but a recompute (quarantine rollback, system switch) would start
+from the ledger alone.
 
 ## Later: Postgres and S3
 
-- **SQL** is confined to `src/db/` (`mod.rs`, `jobs.rs`, `league.rs`): functions over a transaction. For
-  Postgres, rewrite those three files against a pool; `Db::tx` becomes a real transaction, the lease query
+- **SQL** is confined to `src/db/` (`mod.rs`, `jobs.rs`, `league.rs`, `ratings.rs`): functions over a
+  transaction. For Postgres, rewrite those files against a pool; `Db::tx` becomes a real transaction, the lease query
   gains `FOR UPDATE SKIP LOCKED` (today the single connection is the lock), `json_extract/json_each` become
   `->>`/`jsonb_array_elements_text`, and the calls become async. The `Notify` used to wake long polls
   becomes `LISTEN/NOTIFY` if more than one coordinator process runs.

@@ -865,6 +865,7 @@ dependencies = [
  "axum",
  "clap",
  "http-body-util",
+ "ibc-rating",
  "rand",
  "rusqlite",
  "serde",
@@ -954,10 +955,12 @@ name = "ibc-worker"
 version = "0.1.0"
 dependencies = [
  "ctrlc",
+ "ibc-coordinator",
  "serde",
  "serde_json",
  "sha2",
  "tiny_http",
+ "tokio",
  "ureq",
 ]
 

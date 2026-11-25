@@ -70,12 +70,6 @@ pub fn new_token(prefix: &str) -> String {
     format!("{prefix}_{}", random_hex(32))
 }
 
-/// First 8 bytes of SHA-256(`text`) as a big-endian integer: seeds and map rotation derived from ids.
-pub fn hash_u64(text: &str) -> u64 {
-    let d = Sha256::digest(text.as_bytes());
-    u64::from_be_bytes(d[..8].try_into().expect("8 bytes"))
-}
-
 /// Compare secrets without an early exit on the first differing byte.
 pub fn secret_eq(a: &str, b: &str) -> bool {
     let (da, db) = (Sha256::digest(a.as_bytes()), Sha256::digest(b.as_bytes()));

@@ -48,12 +48,14 @@ cargo build --release -p ibc-cli -p ibc-worker
 tar -czf ibc-worker-x86_64-linux.tar.gz -C target/release ibc ibc-worker -C ../../deploy ibc-worker.service
 ```
 
-A worker serves the patch of its `--runner` (`ibc version --json`: engine, ruleset hash, wasmtime) and fails
-jobs of any other patch with `patch mismatch`, retryable, so another worker takes them. Roll a new patch by
-starting workers with the new binary, then draining the old ones. To serve several patches from one worker,
-drop older runners at `<cache>/runners/<engine>-<ruleset_hash>-<wasmtime>/ibc`; each is used only after its
-own `version --json` confirms the directory name. `--allow-runner-fetch` additionally lets a job name a
-runner blob to install (off by default: it means running native code the coordinator serves).
+A worker serves the patch of its `--runner` (`ibc version --json`: engine, ruleset hash, wasmtime) and
+`release`s jobs of any other patch ("patch mismatch"): the job goes back to the queue without spending an
+attempt, and the coordinator keeps it away from that worker for its retry grace, so another worker takes it.
+Roll a new patch by starting workers with the new binary, then draining the old ones. To serve several
+patches from one worker, drop older runners at `<cache>/runners/<engine>-<ruleset_hash>-<wasmtime>/ibc`;
+each is used only after its own `version --json` confirms the directory name. `--allow-runner-fetch`
+additionally installs the runner blob a job names for its platform (`runner_blobs`, registered with the
+patch on the coordinator; off by default: it means running native code the coordinator serves).
 
 ## Bursting on spot instances
 
@@ -61,13 +63,17 @@ Workers are built for instances that vanish:
 
 - **Drain** = stop leasing, finish and report what is running, exit 0. Triggers: `SIGTERM`/Ctrl-C, or the
   `--drain-file` appearing. A second signal, or `--drain-timeout-secs` (default 90) running out, kills the
-  running matches and releases their jobs with `fail(retryable: true)`.
+  running matches and gives their jobs back with `release` (no attempt spent).
 - **Interruption notices**: `cloud-init.yaml` installs `ibc-interruption-watch`, which polls the metadata
   service (AWS `spot/instance-action`, GCP `instance/preempted`, Azure scheduled events) and touches
   `/run/ibc-worker/drain`. AWS gives 120 s, GCP and Azure about 30 s; a match takes tens of milliseconds, so
   a drain normally loses nothing. On Kubernetes or ECS the orchestrator's SIGTERM does the same job.
-- **No notice at all** (power loss, `kill -9`): nothing is reported, the leases expire after 180 s and the
-  jobs return to the queue. That costs one of a job's three attempts, nothing else.
+- **No notice at all** (power loss, `kill -9`): nothing is reported, the leases expire after 180 s (the
+  coordinator's `--lease-secs`) and the jobs return to the queue. That costs one of a job's three attempts,
+  nothing else. Measured against the real coordinator: `cargo test -p ibc-worker --test e2e` kills a worker
+  holding leases and checks that the other worker finishes its jobs.
+- **Timeouts**: a match past `--job-timeout-secs` is killed and failed with `code: "timeout"`; the
+  coordinator retries it once elsewhere and dead-letters it on a second timeout (matches are deterministic).
 - **Scaling signal**: scale on the coordinator's `/metrics` queue signals, not on worker CPU (workers are
   either flat out or idle). Scale out when the queue depth divided by the fleet's measured completion rate
   exceeds the latency you accept (say, backlog > 2 minutes of work); scale in when lease polls come back

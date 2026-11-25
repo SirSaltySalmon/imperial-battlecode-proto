@@ -135,6 +135,7 @@ fn happy_path_runs_real_matches_and_identical_jobs_give_identical_replays() {
         Stats {
             completed: 3,
             failed: 0,
+            released: 0,
             dropped: 0
         }
     );
@@ -143,7 +144,17 @@ fn happy_path_runs_real_matches_and_identical_jobs_give_identical_replays() {
         a["replay_sha256"], b["replay_sha256"],
         "the same job must give the same replay"
     );
-    assert_eq!(a, b);
+    // Everything but the measured wall time is a function of the job.
+    let deterministic = |mut v: Value| {
+        assert!(v["wall_ms"].is_u64(), "{v}");
+        v.as_object_mut().unwrap().remove("wall_ms");
+        v
+    };
+    assert_eq!(deterministic(a.clone()), deterministic(b.clone()));
+    assert_eq!(
+        (a["outcome"].as_str(), c["outcome"].as_str()),
+        (a["summary"]["outcome"].as_str(), Some("unfinished"))
+    );
     assert_ne!(a["replay_sha256"], c["replay_sha256"]);
     assert_eq!(c["ticks"], 40);
     assert_eq!(c["summary"]["outcome"], "unfinished");
@@ -209,6 +220,7 @@ fn artifact_with_wrong_hash_is_rejected() {
         Stats {
             completed: 0,
             failed: 1,
+            released: 0,
             dropped: 0
         }
     );
@@ -222,8 +234,10 @@ fn artifact_with_wrong_hash_is_rejected() {
     );
 }
 
+/// A missing blob is a bad input (`fail`, not retryable); another patch or an unknown kind is "not for me"
+/// (`release`, which spends no attempt).
 #[test]
-fn missing_blob_wrong_patch_and_unknown_kind_are_failed_as_documented() {
+fn missing_blob_is_failed_wrong_patch_and_unknown_kind_are_released() {
     let Some(f) = fixture() else { return };
     let r = rig(f, "refuse");
     r.mock.push_job(match_job(
@@ -250,24 +264,59 @@ fn missing_blob_wrong_patch_and_unknown_kind_are_failed_as_documented() {
         r.run(),
         Stats {
             completed: 0,
-            failed: 3,
+            failed: 1,
+            released: 2,
             dropped: 0
         }
     );
     let st = r.mock.state();
-    let failed = |id: &str| {
-        st.failed
+    assert_eq!(
+        st.failed,
+        [(
+            "missing".to_string(),
+            format!("blob {} not found", "0".repeat(64)),
+            false
+        )]
+    );
+    let released = |id: &str| {
+        st.released
             .iter()
-            .find(|(j, _, _)| j == id)
-            .map(|(_, e, r)| (e.as_str(), *r))
+            .find(|(j, _)| j == id)
+            .map(|(_, reason)| reason.as_str())
             .unwrap()
     };
+    assert_eq!(released("patch"), "patch mismatch");
+    assert!(released("kind").contains("unknown job kind"));
+}
+
+#[test]
+fn a_coordinator_without_release_gets_a_retryable_fail_instead() {
+    let Some(f) = fixture() else { return };
+    let r = rig(f, "norelease");
+    r.mock.state().no_release = true;
+    let mut other = f.patch.clone();
+    other["engine"] = json!("9.9.9");
+    r.mock.push_job(match_job(
+        "patch",
+        &other,
+        &r.rusher,
+        &r.holder,
+        &r.crossfire,
+        1,
+    ));
     assert_eq!(
-        failed("missing"),
-        (format!("blob {} not found", "0".repeat(64)).as_str(), false)
+        r.run(),
+        Stats {
+            completed: 0,
+            failed: 1,
+            released: 0,
+            dropped: 0
+        }
     );
-    assert_eq!(failed("patch"), ("patch mismatch", true));
-    assert!(failed("kind").0.contains("unknown job kind") && failed("kind").1);
+    assert_eq!(
+        r.mock.state().failed,
+        [("patch".to_string(), "patch mismatch".to_string(), true)]
+    );
 }
 
 #[test]
@@ -298,6 +347,7 @@ fn a_409_on_heartbeat_stops_work_and_reports_nothing() {
         Stats {
             completed: 0,
             failed: 0,
+            released: 0,
             dropped: 1
         }
     );
@@ -306,9 +356,12 @@ fn a_409_on_heartbeat_stops_work_and_reports_nothing() {
 }
 
 #[test]
-fn a_match_over_the_wall_clock_limit_is_killed_and_failed_retryable() {
+fn a_match_over_the_wall_clock_limit_is_killed_and_failed_retryable_with_the_timeout_code() {
     let Some(f) = fixture() else { return };
     let mut r = rig(f, "timeout");
+    // Download the blobs first, so the match itself (not a download) runs out of time.
+    r.push(f, "warm", 3);
+    assert_eq!(r.run().completed, 1);
     r.cfg.job_timeout = Duration::from_millis(1);
     r.push(f, "j1", 3);
     assert_eq!(
@@ -316,15 +369,17 @@ fn a_match_over_the_wall_clock_limit_is_killed_and_failed_retryable() {
         Stats {
             completed: 0,
             failed: 1,
+            released: 0,
             dropped: 0
         }
     );
     let st = r.mock.state();
     assert!(
-        st.failed[0].1.starts_with("timeout") && st.failed[0].2,
+        st.failed[0].1.starts_with("timeout: match exceeded") && st.failed[0].2,
         "{:?}",
         st.failed[0]
     );
+    assert_eq!(st.fail_codes["j1"], "timeout");
 }
 
 #[test]
@@ -347,6 +402,7 @@ fn a_runner_failed_event_becomes_a_fail_and_the_next_job_still_runs() {
         Stats {
             completed: 1,
             failed: 1,
+            released: 0,
             dropped: 0
         }
     );
@@ -387,6 +443,7 @@ fn coordinator_down_then_back_the_worker_backs_off_and_recovers() {
         Stats {
             completed: 1,
             failed: 0,
+            released: 0,
             dropped: 0
         }
     );
@@ -423,6 +480,7 @@ fn drain_finishes_in_flight_work_and_leases_nothing_more() {
         Stats {
             completed: 1,
             failed: 0,
+            released: 0,
             dropped: 0
         }
     );
@@ -435,7 +493,7 @@ fn drain_finishes_in_flight_work_and_leases_nothing_more() {
 }
 
 #[test]
-fn abort_releases_the_job_in_hand_as_retryable() {
+fn abort_releases_the_job_in_hand() {
     let Some(f) = fixture() else { return };
     let mut r = rig(f, "abort");
     r.cfg.once = false;
@@ -454,13 +512,14 @@ fn abort_releases_the_job_in_hand_as_retryable() {
         worker.join().unwrap().unwrap(),
         Stats {
             completed: 0,
-            failed: 1,
+            failed: 0,
+            released: 1,
             dropped: 0
         }
     );
     assert_eq!(
-        r.mock.state().failed[0],
-        ("j1".to_string(), "worker shutting down".to_string(), true)
+        r.mock.state().released,
+        [("j1".to_string(), "worker shutting down".to_string())]
     );
 }
 
