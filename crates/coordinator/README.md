@@ -39,6 +39,7 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
 | | auth | |
 |---|---|---|
 | `POST /v1/workers/register`, `POST /v1/jobs/lease`, `POST /v1/jobs/{id}/heartbeat\|complete\|fail\|release`, `GET\|PUT /v1/blobs/{sha256}` | worker (blobs: also admin) | protocol v1.1, see `docs/JOBS.md` |
+| `POST /v1/auth/register\|login\|logout\|device\|device/approve\|device/token`, `GET /v1/me`, `POST /v1/teams`, `/v1/teams/join\|leave\|join-code/rotate`, `POST /v1/team/token` | see [`docs/api/auth.md`](../../docs/api/auth.md) | accounts, sessions, device login, teams of users |
 | `GET /v1/team`, `POST /v1/submissions`, `GET /v1/submissions` | team | upload makes the module live if it validates, unless `?live=false` |
 | `POST /v1/submissions/{id}/live` | team (its own), or admin | make a validated submission the live one |
 | `POST /v1/series` | team: `{opponent, games}`; admin: `{team_a, team_b, games, kind: unranked\|tournament}` | unranked series, per-team daily quota (429 `quota_exceeded`) |

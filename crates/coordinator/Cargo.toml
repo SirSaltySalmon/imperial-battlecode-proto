@@ -24,6 +24,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 wasmparser = { version = "0.263", default-features = false, features = ["std", "validate", "features", "simd"] }
 sha2 = "0.10"
 rand = "0.8"
+argon2 = "0.5"
 clap = { version = "4", features = ["derive", "env"] }
 
 [dev-dependencies]

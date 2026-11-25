@@ -58,6 +58,8 @@ pub struct Config {
     pub worker_live_ms: i64,
     /// Ladder snapshots kept (older ones are pruned; they can be recomputed from the series table).
     pub ladder_snapshots_kept: i64,
+    /// Accounts, sessions, teams of users (docs/api/auth.md).
+    pub auth: crate::accounts::AuthConfig,
 }
 
 impl Default for Config {
@@ -87,6 +89,7 @@ impl Default for Config {
             languages: vec![("rust".to_string(), 1.0)],
             worker_live_ms: 90_000,
             ladder_snapshots_kept: 200,
+            auth: crate::accounts::AuthConfig::default(),
         }
     }
 }
