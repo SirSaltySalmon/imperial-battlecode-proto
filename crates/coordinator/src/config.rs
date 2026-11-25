@@ -58,6 +58,8 @@ pub struct Config {
     pub worker_live_ms: i64,
     /// Ladder snapshots kept (older ones are pruned; they can be recomputed from the series table).
     pub ladder_snapshots_kept: i64,
+    /// `distribution.json` served at `GET /v1/distribution` (written by `cargo xtask dist`). `None`: 404.
+    pub distribution_file: Option<std::path::PathBuf>,
 }
 
 impl Default for Config {
@@ -87,6 +89,7 @@ impl Default for Config {
             languages: vec![("rust".to_string(), 1.0)],
             worker_live_ms: 90_000,
             ladder_snapshots_kept: 200,
+            distribution_file: None,
         }
     }
 }

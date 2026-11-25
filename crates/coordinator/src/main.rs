@@ -10,7 +10,9 @@ use std::path::PathBuf;
 #[command(
     name = "ibc-coordinator",
     version,
-    about = "Imperial Battlecode coordinator: job queue, submissions, ladder"
+    about = "Imperial Battlecode coordinator: job queue, submissions, ladder",
+    after_help = "Maintenance (docs/DEPLOY.md): ibc-coordinator backup DIR | \
+                  ibc-coordinator prune-replays --older-than DAYS [--kinds unranked] [--dry-run]"
 )]
 struct Args {
     /// Data directory: `coordinator.sqlite` and `blobs/` live here
@@ -70,6 +72,9 @@ struct Args {
     /// Language fuel multipliers, e.g. `--language rust=1.0 --language python=3.0`
     #[arg(long = "language", value_parser = parse_language)]
     languages: Vec<(String, f64)>,
+    /// `distribution.json` (from `cargo xtask dist`) served at /v1/distribution for `ibc update`
+    #[arg(long, env = "IBC_DISTRIBUTION")]
+    distribution: Option<PathBuf>,
 }
 
 fn parse_language(s: &str) -> Result<(String, f64), String> {
@@ -127,12 +132,19 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         } else {
             args.languages.clone()
         },
+        distribution_file: args
+            .distribution
+            .clone()
+            .filter(|p| !p.as_os_str().is_empty()),
         ..defaults
     })
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if let Some(done) = ibc_coordinator::maintenance::from_args(std::env::args_os().collect()) {
+        return done;
+    }
     let args = Args::parse();
     let app = App::open(config(&args)?, &args.data)?;
     let listener = tokio::net::TcpListener::bind(args.listen).await?;

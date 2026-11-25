@@ -20,3 +20,5 @@ serde_json = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 sha2 = "0.10"
 toml = { workspace = true }
+# `ibc update` and the daily version check (same client and features as ibc-worker).
+ureq = { version = "2.12", default-features = false, features = ["tls"] }

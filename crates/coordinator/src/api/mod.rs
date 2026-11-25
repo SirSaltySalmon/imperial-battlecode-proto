@@ -3,6 +3,7 @@
 //! Bodies are parsed by hand from the raw bytes so that every malformed request gets the protocol's
 //! `400 {"error", "message"}` instead of the framework's default rejections.
 
+mod distribution;
 mod manage;
 mod public;
 mod worker;
@@ -78,6 +79,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/series/{series_id}", get(public::get_series))
         .route("/v1/maps", get(public::maps))
         .route("/v1/patch", get(public::patch))
+        .route("/v1/distribution", get(distribution::distribution))
         .route("/metrics", get(public::metrics))
         .route("/healthz", get(public::healthz))
         .layer(DefaultBodyLimit::max(limit))

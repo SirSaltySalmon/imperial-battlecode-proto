@@ -52,6 +52,11 @@ impl Harness {
         }
     }
 
+    /// The data directory (`coordinator.sqlite`, `blobs/`).
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
     /// Close the app and open the same data directory again with a changed configuration.
     pub fn reopen(&mut self, tune: impl FnOnce(&mut Config)) {
         let mut cfg = self.app.cfg.clone();

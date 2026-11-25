@@ -3,7 +3,8 @@
 //!
 //! The viewer is a static site built with Node (`viewer/`, `npm run build`). It is deliberately not embedded
 //! in this binary, so building `ibc` never needs Node: the files are served from a directory instead, found
-//! through `--viewer-dir`, `IBC_VIEWER_DIR`, or a `viewer/dist` next to the working directory or the binary.
+//! through `--viewer-dir`, the viewer bundled with a release archive or pip install, `IBC_VIEWER_DIR`, or a
+//! `viewer/dist` next to the working directory or the binary.
 //!
 //! The server is std-only, binds to 127.0.0.1, answers GET and HEAD, and serves nothing outside the viewer
 //! directory except the one replay at `/replay.ibcr` and the `.ibcr` files of the `--replays` folder
@@ -85,9 +86,31 @@ pub fn run(args: Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// The directory to serve: the first candidate that holds an `index.html`.
+/// Where the pip wheel installs the viewer, maps and docs, relative to the environment's prefix.
+const PIP_SHARE: &str = "share/imperial-battlecode";
+
+/// Where a pip install of `exe` keeps its data: `<prefix>/share/imperial-battlecode`, with the binary in
+/// `<prefix>/bin` (or `Scripts`); and for a Windows `--user` install, whose scripts are one level deeper
+/// (`%APPDATA%\Python\Python3XX\Scripts`), `%APPDATA%\Python\share\imperial-battlecode`.
+pub fn pip_share_dirs(exe: &Path) -> Vec<PathBuf> {
+    exe.ancestors().skip(2).take(2).map(|prefix| prefix.join(PIP_SHARE)).collect()
+}
+
+/// The viewer shipped with this binary: `<exe dir>/viewer` in a release archive, or the pip data dir.
+fn bundled_viewer() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let mut candidates = vec![exe.parent()?.join("viewer")];
+    candidates.extend(pip_share_dirs(&exe).into_iter().map(|d| d.join("viewer")));
+    candidates.into_iter().find(|dir| dir.join("index.html").is_file())
+}
+
+/// The directory to serve: `--viewer-dir`, the bundled viewer, `IBC_VIEWER_DIR`, then a checkout's
+/// `viewer/dist`; the first that holds an `index.html`.
 fn find_viewer_dir(flag: Option<&Path>) -> Result<PathBuf> {
-    let explicit = flag.map(Path::to_path_buf).or_else(|| std::env::var_os(VIEWER_DIR_ENV).map(PathBuf::from));
+    let explicit = flag
+        .map(Path::to_path_buf)
+        .or_else(bundled_viewer)
+        .or_else(|| std::env::var_os(VIEWER_DIR_ENV).map(PathBuf::from));
     if let Some(dir) = explicit {
         if !dir.join("index.html").is_file() {
             bail!("{} has no index.html: build the viewer with `npm run build` in viewer/", dir.display());

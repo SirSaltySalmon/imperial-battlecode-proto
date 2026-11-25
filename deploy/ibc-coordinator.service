@@ -1,0 +1,59 @@
+# Imperial Battlecode coordinator: API, job queue, ranked scheduler. One process, one data directory.
+#
+#   install -m 755 ibc-coordinator /usr/local/bin/
+#   install -m 644 ibc-coordinator.service /etc/systemd/system/
+#   install -d -m 700 /etc/ibc-coordinator
+#   ( umask 077; cat > /etc/ibc-coordinator/env <<EOF
+#   IBC_ADMIN_TOKEN=$(openssl rand -hex 24)
+#   IBC_REGISTRATION_TOKEN=$(openssl rand -hex 24)
+#   IBC_TRUSTED_REGISTRATION_TOKEN=$(openssl rand -hex 24)
+#   IBC_RANKED_INTERVAL_SECS=300
+#   EOF
+#   )
+#   systemctl enable --now ibc-coordinator
+#
+# It listens on 127.0.0.1:8080; put a TLS-terminating proxy (Caddy, nginx) in front. Data lives in
+# /var/lib/ibc-coordinator; back it up with deploy/backup.sh (docs/DEPLOY.md).
+
+[Unit]
+Description=Imperial Battlecode coordinator
+Documentation=https://github.com/SirSaltySalmon/imperial-battlecode-proto/blob/main/docs/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+Environment=IBC_DATA=/var/lib/ibc-coordinator IBC_LISTEN=127.0.0.1:8080
+# Must set IBC_ADMIN_TOKEN. May set the registration tokens, IBC_RANKED_*, IBC_DISTRIBUTION, IBC_WEB_DIR,
+# IBC_VIEWER_DIR and every other flag's IBC_* variable (`ibc-coordinator --help`).
+EnvironmentFile=/etc/ibc-coordinator/env
+ExecStart=/usr/local/bin/ibc-coordinator
+# Ctrl-C is the graceful stop: finish the requests in flight. SQLite (WAL) survives a hard kill anyway.
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+DynamicUser=yes
+StateDirectory=ibc-coordinator
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
