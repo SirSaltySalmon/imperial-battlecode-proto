@@ -1,0 +1,13 @@
+[package]
+name = "ibc-rating"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Ratings (Elo, Weng-Lin), ladder matchmaking, series plans and the match budget governor. Pure: no I/O, no async."
+
+[features]
+default = []
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }

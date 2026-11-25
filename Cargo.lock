@@ -597,6 +597,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ibc-rating"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "ibc-replay"
 version = "0.1.0"
 dependencies = [
