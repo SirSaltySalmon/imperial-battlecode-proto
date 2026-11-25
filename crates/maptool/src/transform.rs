@@ -131,9 +131,15 @@ pub fn mirror(raw: &RawMap, axis: Axis, swap_sides: bool) -> Result<RawMap, Stri
         Axis::LeftRight => x < w / 2,
         Axis::TopBottom | Axis::Point => y < h / 2,
     };
+    let mirrored = |x: usize, y: usize| match axis {
+        Axis::LeftRight => (w - 1 - x, y),
+        Axis::TopBottom => (x, h - 1 - y),
+        Axis::Point => (w - 1 - x, h - 1 - y),
+    };
     let highest = (0..h)
         .flat_map(|y| (0..w).map(move |x| (x, y)))
-        .filter(|&(x, y)| in_source(x, y))
+        // Everything that is kept: the source half and any middle row or column.
+        .filter(|&(x, y)| in_source(x, y) || !in_source(mirrored(x, y).0, mirrored(x, y).1))
         .filter_map(|(x, y)| {
             raw.rows[y][x]
                 .is_ascii_digit()
@@ -144,11 +150,7 @@ pub fn mirror(raw: &RawMap, axis: Axis, swap_sides: bool) -> Result<RawMap, Stri
     let mut out = raw.clone();
     for y in 0..h {
         for x in 0..w {
-            let (sx, sy) = match axis {
-                Axis::LeftRight => (w - 1 - x, y),
-                Axis::TopBottom => (x, h - 1 - y),
-                Axis::Point => (w - 1 - x, h - 1 - y),
-            };
+            let (sx, sy) = mirrored(x, y);
             if in_source(x, y) || !in_source(sx, sy) {
                 continue;
             }
@@ -270,6 +272,15 @@ mod tests {
         assert_eq!(
             grid(&mirror(&m, Axis::TopBottom, false).unwrap()),
             ["a1.", "...", "...", "a2."]
+        );
+    }
+
+    #[test]
+    fn mirror_keeps_a_middle_row_site_distinct() {
+        let m = raw(&["a1.", ".2.", "..."]);
+        assert_eq!(
+            grid(&mirror(&m, Axis::TopBottom, false).unwrap()),
+            ["a1.", ".2.", "a3."]
         );
     }
 

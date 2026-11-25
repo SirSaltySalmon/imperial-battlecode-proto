@@ -188,7 +188,10 @@ pub fn svg(map: &Map, analysis: Option<&Analysis>, overlays: &[Overlay]) -> Stri
         o,
         r##"<text x="2" y="{}" font-size="11" fill="#333">{} {}x{} {}v{}  A=attackers D=defenders  brown=low cover</text>"##,
         h + 13,
-        map.name,
+        map.name
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;"),
         map.width,
         map.height,
         map.team_size,
