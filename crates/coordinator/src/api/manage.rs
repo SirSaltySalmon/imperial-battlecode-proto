@@ -106,7 +106,12 @@ pub async fn upload_submission(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Created> {
-    let team = acting_team(&app, auth_team_or_admin(&app, &headers)?, q.team.as_deref())?;
+    let caller = auth_team_or_admin(&app, &headers)?;
+    let by_team = matches!(caller, Caller::Team(_));
+    let team = acting_team(&app, caller, q.team.as_deref())?;
+    if by_team {
+        super::moderation::check_upload(&app, &team)?;
+    }
     let language = q.language.unwrap_or_else(|| "rust".to_string());
     let fuel_mult = app
         .cfg
@@ -116,7 +121,11 @@ pub async fn upload_submission(
         return Err(ApiError::new(
             StatusCode::PAYLOAD_TOO_LARGE,
             "too_large",
-            format!("the limit is {} bytes", app.cfg.max_wasm_bytes),
+            format!(
+                "the module is {} bytes; the limit is {} bytes",
+                body.len(),
+                app.cfg.max_wasm_bytes
+            ),
         ));
     }
     let limits = Limits {
@@ -154,11 +163,16 @@ pub async fn upload_submission(
     };
     let now = now_ms();
     let (id, live) = app.db.tx(|tx| {
+        if by_team {
+            // Again under the write lock: parallel uploads all passed the check above.
+            db::moderation::check_upload(tx, &team.id, app.cfg.moderation.uploads_per_hour, now)?;
+        }
         let (id, change) = db::insert_submission(tx, &new, now)?;
         app.after_live_change(tx, &team.id, change, now)?;
         let live = db::live_submission(tx, &team.id)?.is_some_and(|s| s.id == id);
         Ok((id, live))
     })?;
+    super::moderation::retain(&app, &team.id);
     match verdict {
         Ok(()) => Ok((
             StatusCode::CREATED,

@@ -11,6 +11,10 @@ pub trait BlobStore: Send + Sync {
     fn put(&self, sha256: &str, bytes: &[u8]) -> io::Result<bool>;
     fn get(&self, sha256: &str) -> io::Result<Option<Vec<u8>>>;
     fn exists(&self, sha256: &str) -> bool;
+    /// Remove a blob (submission retention). Returns true if it existed. Stores that cannot delete keep it.
+    fn delete(&self, _sha256: &str) -> io::Result<bool> {
+        Ok(false)
+    }
 }
 
 /// `<root>/ab/cdef…` (first two hex digits are the directory), written to `<root>/tmp` and renamed into place.
@@ -85,6 +89,17 @@ impl BlobStore for FsBlobs {
 
     fn exists(&self, sha256: &str) -> bool {
         self.path(sha256).is_some_and(|p| p.is_file())
+    }
+
+    fn delete(&self, sha256: &str) -> io::Result<bool> {
+        let Some(path) = self.path(sha256) else {
+            return Ok(false);
+        };
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 }
 
