@@ -50,11 +50,13 @@ impl Shutdown {
     }
 }
 
-/// What a run did. `dropped` jobs were neither completed nor failed: their lease was lost or ran out.
+/// What a run did. `released` jobs were given back without spending an attempt (not this worker's patch
+/// or kind, or a shutdown). `dropped` jobs were none of the others: their lease was lost or ran out.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
     pub completed: u64,
     pub failed: u64,
+    pub released: u64,
     pub dropped: u64,
 }
 
@@ -62,6 +64,7 @@ pub struct Stats {
 pub(crate) struct Counters {
     pub completed: AtomicU64,
     pub failed: AtomicU64,
+    pub released: AtomicU64,
     pub dropped: AtomicU64,
 }
 
@@ -69,6 +72,9 @@ pub(crate) struct Counters {
 pub(crate) struct Active {
     pub job_id: String,
     pub lease_token: String,
+    /// The lease length: what the coordinator says it grants (`lease_secs` of the job, then of each
+    /// heartbeat response), never more than `--lease-secs`.
+    lease_ms: AtomicU64,
     /// When the coordinator will consider the lease expired, as far as we know.
     lease_deadline: Mutex<Instant>,
     next_heartbeat: Mutex<Instant>,
@@ -82,6 +88,24 @@ impl Active {
             .lease_deadline
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn lease_len(&self) -> Duration {
+        Duration::from_millis(self.lease_ms.load(Ordering::Relaxed))
+    }
+
+    fn set_lease_len(&self, cfg: &Config, lease_secs: Option<f64>) {
+        let len = lease_secs
+            .map(|s| Duration::from_secs_f64(s.min(cfg.lease_duration.as_secs_f64())))
+            .unwrap_or(cfg.lease_duration);
+        self.lease_ms
+            .store(len.as_millis().max(1) as u64, Ordering::Relaxed);
+    }
+
+    /// Heartbeats come six times per lease (every 30 s for protocol v1's 180 s), or more often if
+    /// `--heartbeat-secs` says so.
+    fn heartbeat_interval(&self, cfg: &Config) -> Duration {
+        cfg.heartbeat_interval.min(self.lease_len() / 6)
     }
 }
 
@@ -172,6 +196,7 @@ pub fn run(cfg: Config, shutdown: Arc<Shutdown>) -> Result<Stats, String> {
     let stats = Stats {
         completed: c.completed.load(Ordering::Relaxed),
         failed: c.failed.load(Ordering::Relaxed),
+        released: c.released.load(Ordering::Relaxed),
         dropped: c.dropped.load(Ordering::Relaxed),
     };
     crate::log!(
@@ -179,6 +204,7 @@ pub fn run(cfg: Config, shutdown: Arc<Shutdown>) -> Result<Stats, String> {
         "worker stopped",
         completed = stats.completed,
         failed = stats.failed,
+        released = stats.released,
         dropped = stats.dropped
     );
     result.map(|()| stats)
@@ -373,10 +399,20 @@ fn start_job(ctx: &Arc<Ctx>, raw: Value, seq: u64, asked: Instant) {
     let active = Arc::new(Active {
         job_id: lease.job_id.clone(),
         lease_token: lease.lease_token.clone(),
-        lease_deadline: Mutex::new(asked + ctx.cfg.lease_duration),
-        next_heartbeat: Mutex::new(Instant::now() + ctx.cfg.heartbeat_interval),
+        lease_ms: AtomicU64::new(0),
+        lease_deadline: Mutex::new(asked),
+        next_heartbeat: Mutex::new(asked),
         lost: AtomicBool::new(false),
     });
+    active.set_lease_len(&ctx.cfg, lease.lease_secs);
+    *active
+        .lease_deadline
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = asked + active.lease_len();
+    *active
+        .next_heartbeat
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Instant::now() + active.heartbeat_interval(&ctx.cfg);
     ctx.active().insert(seq, active.clone());
     crate::log!("info", "job leased", job = lease.job_id, kind = lease.kind);
     let slot = Slot {
@@ -392,9 +428,8 @@ fn start_job(ctx: &Arc<Ctx>, raw: Value, seq: u64, asked: Instant) {
 // ---- heartbeats and the drain file ----
 
 fn heartbeat_loop(ctx: &Ctx) {
-    let interval = ctx.cfg.heartbeat_interval;
-    let tick = (interval / 4).clamp(Duration::from_millis(5), Duration::from_millis(250));
-    let retry = (interval / 6).clamp(Duration::from_millis(5), Duration::from_secs(5));
+    let tick = (ctx.cfg.heartbeat_interval / 4)
+        .clamp(Duration::from_millis(5), Duration::from_millis(250));
     while !ctx.stop_heartbeats.load(Ordering::SeqCst) {
         if let Some(file) = ctx
             .cfg
@@ -421,11 +456,16 @@ fn heartbeat_loop(ctx: &Ctx) {
             .collect();
         for a in due {
             let sent = Instant::now();
+            let interval = a.heartbeat_interval(&ctx.cfg);
+            let retry = (interval / 6).clamp(Duration::from_millis(5), Duration::from_secs(5));
             let next = match ctx.client.heartbeat(&a.job_id, &a.lease_token) {
-                Ok(()) => {
+                Ok(response) => {
+                    if let Some(secs) = crate::protocol::lease_secs(&response) {
+                        a.set_lease_len(&ctx.cfg, Some(secs));
+                    }
                     *a.lease_deadline.lock().unwrap_or_else(|e| e.into_inner()) =
-                        sent + ctx.cfg.lease_duration;
-                    sent + interval
+                        sent + a.lease_len();
+                    sent + a.heartbeat_interval(&ctx.cfg)
                 }
                 Err(ApiError::LeaseLost | ApiError::NotFound) => {
                     crate::log!(

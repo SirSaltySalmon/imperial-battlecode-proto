@@ -57,9 +57,8 @@ pub struct MatchSpec {
     pub seed: u64,
     #[serde(default)]
     pub max_ticks: Option<u32>,
-    /// Worker extension, not in docs/JOBS.md (so a v1 coordinator simply never sends it): the sha256 of a
-    /// runner binary for this patch per platform (`"<os>-<arch>"`, e.g. `"linux-x86_64"`). Only honoured
-    /// with `--allow-runner-fetch`.
+    /// Optional (docs/JOBS.md): the sha256 of a runner binary for this patch per platform (`"<os>-<arch>"`,
+    /// e.g. `"linux-x86_64"`). Only honoured with `--allow-runner-fetch`.
     #[serde(default)]
     pub runner_blobs: Option<HashMap<String, String>>,
 }
@@ -70,6 +69,8 @@ pub struct Lease {
     pub job_id: String,
     pub lease_token: String,
     pub kind: String,
+    /// The lease length the coordinator grants (`lease_secs`), if it says.
+    pub lease_secs: Option<f64>,
 }
 
 impl Lease {
@@ -79,18 +80,32 @@ impl Lease {
             job_id: s("job_id")?,
             lease_token: s("lease_token")?,
             kind: s("kind").unwrap_or_default(),
+            lease_secs: lease_secs(v),
         })
     }
+}
+
+/// A usable `lease_secs` of a job or heartbeat response: positive and finite.
+pub fn lease_secs(v: &Value) -> Option<f64> {
+    v.get("lease_secs")
+        .and_then(Value::as_f64)
+        .filter(|s| s.is_finite() && *s > 0.0)
 }
 
 #[derive(Serialize)]
 pub struct MatchResult<'a> {
     pub winner: &'a Value,
+    /// `"a" | "b" | "draw" | "unfinished"`: what ratings are taken from (`winner` is also null when a match
+    /// stopped at `max_ticks`).
+    pub outcome: &'a Value,
     pub score: &'a Value,
     pub ticks: &'a Value,
     pub replay_sha256: &'a str,
     /// The bytes of `summary.json`, embedded verbatim.
     pub summary: &'a RawValue,
+    /// Wall-clock time of the match in the runner: what the coordinator sizes ranked batches by.
+    #[serde(skip_serializing_if = "Value::is_null")]
+    pub wall_ms: &'a Value,
 }
 
 #[derive(Serialize)]

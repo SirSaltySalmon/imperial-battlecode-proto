@@ -4,7 +4,7 @@ use super::{auth_admin, auth_team_or_admin, parse, AppState, Caller};
 use crate::db::{self, jobs, league, NewSubmission, TeamRow};
 use crate::error::{ApiError, ApiResult};
 use crate::model::{BotRef, Class, JobSpec, MapRef, Patch};
-use crate::util::{new_token, now_ms, sha256_hex};
+use crate::util::{is_sha256, new_token, now_ms, sha256_hex};
 use crate::wasmcheck::{check_wasm, Limits};
 use crate::{bump, App};
 use axum::body::Bytes;
@@ -13,6 +13,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 type Created = (StatusCode, Json<Value>);
 
@@ -82,6 +83,8 @@ pub struct SubmissionQuery {
     language: Option<String>,
     /// Admin only: the team to upload for (id or name).
     team: Option<String>,
+    /// Upload only: make the module live if it validates (default true).
+    live: Option<bool>,
 }
 
 /// The team a request acts for: the token's team, or `?team=` when the organisers call.
@@ -95,7 +98,8 @@ fn acting_team(app: &App, caller: Caller, team: Option<&str>) -> ApiResult<TeamR
     }
 }
 
-/// Body: the raw wasm module. A module that validates becomes the team's live submission at once.
+/// Body: the raw wasm module. A module that validates becomes the team's live submission at once, unless
+/// `?live=false`. Series that already exist keep the submissions they were created with.
 pub async fn upload_submission(
     State(app): AppState,
     Query(q): Query<SubmissionQuery>,
@@ -146,13 +150,20 @@ pub async fn upload_submission(
         language: &language,
         fuel_mult,
         rejected: verdict.as_ref().err().map(String::as_str),
+        make_live: q.live.unwrap_or(true),
     };
-    let id = app.db.tx(|tx| db::insert_submission(tx, &new, now_ms()))?;
+    let now = now_ms();
+    let (id, live) = app.db.tx(|tx| {
+        let (id, change) = db::insert_submission(tx, &new, now)?;
+        app.after_live_change(tx, &team.id, change, now)?;
+        let live = db::live_submission(tx, &team.id)?.is_some_and(|s| s.id == id);
+        Ok((id, live))
+    })?;
     match verdict {
         Ok(()) => Ok((
             StatusCode::CREATED,
             Json(
-                json!({"submission_id": id, "team_id": team.id, "sha256": sha256, "status": "validated", "live": true,
+                json!({"submission_id": id, "team_id": team.id, "sha256": sha256, "status": "validated", "live": live,
                         "language": language, "fuel_mult": fuel_mult}),
             ),
         )),
@@ -162,6 +173,29 @@ pub async fn upload_submission(
             format!("submission {id} rejected: {reason}"),
         )),
     }
+}
+
+/// Make one of the team's validated submissions the live one (team token, or the admin token). Only series
+/// created afterwards use it; a replaced submission widens the team's rating uncertainty.
+pub async fn select_live(
+    State(app): AppState,
+    Path(submission_id): Path<String>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    let caller = auth_team_or_admin(&app, &headers)?;
+    let now = now_ms();
+    let (team, change) = app.db.tx(|tx| {
+        let team = match &caller {
+            Caller::Team(t) => t.clone(),
+            Caller::Admin => db::submission_team(tx, &submission_id)?,
+        };
+        let change = db::set_live(tx, &team.id, &submission_id)?;
+        app.after_live_change(tx, &team.id, change, now)?;
+        Ok((team, change))
+    })?;
+    Ok(Json(
+        json!({"team_id": team.id, "live_submission": submission_id, "changed": change != db::LiveChange::Unchanged}),
+    ))
 }
 
 pub async fn list_submissions(
@@ -214,27 +248,49 @@ pub async fn upload_map(
     ))
 }
 
+#[derive(Deserialize)]
+struct SetPatchReq {
+    #[serde(flatten)]
+    patch: Patch,
+    /// `"<os>-<arch>"` (e.g. `linux-x86_64`) -> SHA-256 of an uploaded `ibc` binary of this patch, sent with
+    /// its jobs as `runner_blobs` (workers started with `--allow-runner-fetch` install it).
+    runner_blobs: Option<BTreeMap<String, String>>,
+}
+
 pub async fn set_patch(
     State(app): AppState,
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     auth_admin(&app, &headers)?;
-    let patch: Patch = parse(&body)?;
+    let SetPatchReq {
+        patch,
+        runner_blobs,
+    } = parse(&body)?;
     let one_line = |s: &str| !s.is_empty() && s.len() <= 100 && !s.contains('\n');
     if !(one_line(&patch.engine) && one_line(&patch.ruleset_hash) && one_line(&patch.wasmtime)) {
         return Err(ApiError::bad_request(
             "engine, ruleset_hash and wasmtime must be non-empty single-line strings",
         ));
     }
+    for (platform, sha) in runner_blobs.iter().flatten() {
+        if !valid_name(platform, 64) || !is_sha256(sha) || !app.blobs.exists(sha) {
+            return Err(ApiError::bad_request(format!(
+                "runner_blobs.{platform}: expected the sha256 of an uploaded blob"
+            )));
+        }
+    }
+    let runner_blobs = runner_blobs.map(|m| json!(m));
     let now = now_ms();
     let superseded = app.db.tx(|tx| {
-        let superseded = db::set_current_patch(tx, &patch, now)?;
+        let superseded = db::set_current_patch(tx, &patch, runner_blobs.as_ref(), now)?;
         finalize(&app, tx, now)?;
         Ok(superseded)
     })?;
     bump(&app.counters.dead, superseded);
-    Ok(Json(json!({"patch": patch, "superseded_jobs": superseded})))
+    Ok(Json(
+        json!({"patch": patch, "runner_blobs": runner_blobs, "superseded_jobs": superseded}),
+    ))
 }
 
 // ---- series ----
@@ -322,13 +378,13 @@ enum Pairing {
 
 #[derive(Deserialize)]
 struct RankedBatchReq {
-    /// `[["a", "b"], {"a": .., "b": .., "games": n}, ...]` (team ids or names). Missing: pair
-    /// rating-adjacent teams, as the periodic scheduler does.
+    /// `[["a", "b"], {"a": .., "b": .., "games": n}, ...]` (team ids or names). Missing: let the
+    /// matchmaker pair the teams, as the periodic scheduler does.
     pairings: Option<Vec<Pairing>>,
     /// Games per series when a pairing does not say; default `ranked_games`.
     games: Option<i64>,
     /// With automatic pairing: most series to create; default `ranked_series_budget`.
-    budget: Option<usize>,
+    budget: Option<u32>,
 }
 
 pub async fn ranked_batch(
@@ -342,7 +398,9 @@ pub async fn ranked_batch(
     let now = now_ms();
     let series = match req.pairings {
         None => app.ranked_round(
-            req.budget.unwrap_or(app.cfg.ranked_series_budget),
+            Some(req.budget.unwrap_or_else(|| {
+                u32::try_from(app.cfg.ranked_series_budget).unwrap_or(u32::MAX)
+            })),
             default_games,
         )?,
         Some(pairings) => {
@@ -502,7 +560,8 @@ struct QuarantineReq {
 }
 
 /// Quarantining by hand does what a verification mismatch does: no more jobs, leases revoked, unverified
-/// results requeued. Lifting it only lets the worker lease again.
+/// results requeued, closed series that counted them reopened and the ratings recomputed without them.
+/// Lifting it only lets the worker lease again.
 pub async fn quarantine_worker(
     State(app): AppState,
     Path(worker_id): Path<String>,
@@ -511,20 +570,22 @@ pub async fn quarantine_worker(
 ) -> ApiResult<Json<Value>> {
     auth_admin(&app, &headers)?;
     let req: QuarantineReq = parse(&body)?;
-    let requeued = app.db.tx(|tx| {
+    let now = now_ms();
+    let q = app.db.tx(|tx| {
         if req.quarantined {
-            jobs::quarantine(
-                tx,
-                &worker_id,
-                req.reason
-                    .as_deref()
-                    .unwrap_or("quarantined by an organiser"),
-                now_ms(),
-            )
+            let reason = req
+                .reason
+                .as_deref()
+                .unwrap_or("quarantined by an organiser");
+            let q = jobs::quarantine(tx, &worker_id, reason, now)?;
+            app.after_quarantine(tx, &q, now)?;
+            Ok(q)
         } else {
-            db::release_worker(tx, &worker_id).map(|()| 0)
+            db::release_worker(tx, &worker_id).map(|()| jobs::Quarantined::default())
         }
     })?;
     app.queue_changed.notify_waiters();
-    Ok(Json(json!({"requeued_results": requeued})))
+    Ok(Json(
+        json!({"requeued_results": q.requeued, "reopened_series": q.reopened}),
+    ))
 }

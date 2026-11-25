@@ -37,9 +37,15 @@ struct Args {
     /// A queued job is promoted one priority class per this many seconds waited; 0 = strict class order
     #[arg(long, env = "IBC_AGING_SECS", default_value_t = 600)]
     aging_secs: u64,
-    /// Seconds before a job is handed back to the worker that just failed it
+    /// Seconds before a job is handed back to the worker that just failed or released it
     #[arg(long, env = "IBC_RETRY_GRACE_SECS", default_value_t = 30)]
     retry_grace_secs: u64,
+    /// Timeouts (`fail` with `code: "timeout"`) after which a job is dead-lettered
+    #[arg(long, env = "IBC_MAX_TIMEOUTS", default_value_t = 2)]
+    max_timeouts: i64,
+    /// Rating system: weng-lin or elo. Changing it recomputes every rating from the ledger at start
+    #[arg(long, env = "IBC_RATING_SYSTEM", default_value = "weng-lin")]
+    rating_system: String,
     /// Fraction of untrusted results re-run by a trusted worker (tournament: all); 0 = off
     #[arg(long, env = "IBC_VERIFY_FRACTION", default_value_t = 0.05)]
     verify_fraction: f64,
@@ -83,8 +89,14 @@ fn config(args: &Args) -> anyhow::Result<Config> {
     if !(0.0..=1.0).contains(&args.verify_fraction) {
         anyhow::bail!("--verify-fraction must be between 0 and 1");
     }
-    if args.lease_secs == 0 || args.max_attempts < 1 || args.ranked_games < 1 {
-        anyhow::bail!("--lease-secs, --max-attempts and --ranked-games must be at least 1");
+    if args.lease_secs == 0
+        || args.max_attempts < 1
+        || args.max_timeouts < 1
+        || args.ranked_games < 1
+    {
+        anyhow::bail!(
+            "--lease-secs, --max-attempts, --max-timeouts and --ranked-games must be at least 1"
+        );
     }
     let defaults = Config::default();
     let lease_ms = (args.lease_secs * 1000) as i64;
@@ -99,6 +111,8 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         max_attempts: args.max_attempts,
         aging_ms: (args.aging_secs * 1000) as i64,
         retry_grace_ms: (args.retry_grace_secs * 1000) as i64,
+        max_timeouts: args.max_timeouts,
+        rating_system: args.rating_system.clone(),
         // Notice an expired lease within a small fraction of its length.
         sweep_ms: (lease_ms as u64 / 20).clamp(250, 5_000),
         verify_fraction: args.verify_fraction,

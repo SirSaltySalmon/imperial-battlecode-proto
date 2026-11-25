@@ -22,10 +22,13 @@ pub struct Config {
     /// Side-by-side runners of other patches: `<runners_dir>/<engine>-<ruleset>-<wasmtime>/ibc`.
     pub runners_dir: PathBuf,
     pub allow_runner_fetch: bool,
-    /// Wall-clock limit of one match; past it the runner is killed and the job failed as retryable.
+    /// Wall-clock limit of one match; past it the runner is killed and the job failed as retryable, with
+    /// `code: "timeout"`.
     pub job_timeout: Duration,
+    /// Longest gap between heartbeats; a shorter lease (`lease_secs`) brings it down to a sixth of the lease.
     pub heartbeat_interval: Duration,
-    /// How long a lease lasts from grant and from each heartbeat (180 s in protocol v1).
+    /// How long a lease lasts from grant and from each heartbeat when the coordinator does not say
+    /// (`lease_secs`, protocol 1.1), and the most it is ever assumed to last (180 s in protocol v1).
     pub lease_duration: Duration,
     pub poll_wait_ms: u64,
     pub http_timeout: Duration,
@@ -107,7 +110,10 @@ Usage: ibc-worker --coordinator URL --runner PATH [options]
   --drain-timeout-secs S        wait this long for running jobs when draining [default 90]
   --once                        exit when the queue is empty
   --poll-ms MS                  lease long-poll wait                         [default 25000]
-  --heartbeat-secs S            [default 30]      --lease-secs S   [default 180]
+  --heartbeat-secs S            at most this long between heartbeats         [default 30]
+  --lease-secs S                lease length when the coordinator does not say (`lease_secs`), and the
+                                most a lease is ever assumed to last          [default 180]
+                                Heartbeats come every min(heartbeat-secs, lease / 6).
   --version, --help
 
 Signals: SIGTERM / Ctrl-C drains (stop leasing, finish running jobs); a second one aborts.

@@ -225,24 +225,27 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
     );
     let games = series["matches"].as_array().unwrap();
     // Sides alternate, seeds differ, maps come from the pool.
-    assert_eq!(games[0]["bot_a"]["name"], "alpha");
-    assert_eq!(games[1]["bot_a"]["name"], "beta");
-    assert_eq!(games[2]["bot_a"]["name"], "alpha");
-    assert_ne!(games[0]["seed"], games[1]["seed"]);
+    for pair in games.windows(2) {
+        assert_ne!(pair[0]["bot_a"]["name"], pair[1]["bot_a"]["name"]);
+        assert_ne!(pair[0]["seed"], pair[1]["seed"]);
+    }
     assert!(games
         .iter()
         .all(|g| g["map"] == "arena" && g["state"] == "queued" && g["winner_team"].is_null()));
     assert_eq!(h.metric("ibc_queue_depth{class=\"ranked\"}").await, 4.0);
+    // Teams are on the ladder as soon as they have a live submission: unplayed and provisional.
+    let fresh = h.standing("alpha").await;
+    assert_eq!(
+        (fresh["games"].as_i64(), fresh["provisional"].as_bool()),
+        (Some(0), Some(true))
+    );
 
     // Three of four games done: nothing is rated yet.
     let w = MockWorker::register(&h, "w", true).await;
     for job in w.lease(&h, 3, 0).await {
         assert_eq!(w.complete(&h, &job).await.0, StatusCode::OK);
     }
-    assert_eq!(
-        h.ok("GET", "/v1/ladder", None, Value::Null).await["teams"],
-        json!([])
-    );
+    assert_eq!(h.standing("beta").await["games"], 0);
     let last = w.lease_one(&h).await;
     assert_eq!(w.complete(&h, &last).await.0, StatusCode::OK);
 
@@ -261,7 +264,7 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
 
     let ladder = h.ok("GET", "/v1/ladder", None, Value::Null).await;
     let teams = ladder["teams"].as_array().unwrap();
-    assert_eq!(ladder["system"], "elo");
+    assert_eq!(ladder["system"], "weng-lin-bt");
     assert_eq!(
         (teams[0]["name"].as_str(), teams[1]["name"].as_str()),
         (Some(winner), Some(loser))
@@ -278,14 +281,15 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
         (teams[1]["losses"].as_i64(), teams[1]["wins"].as_i64()),
         (Some(4), Some(0))
     );
+    // The displayed rating is a whole number on the 1500 scale; after four games it is still provisional
+    // (and below 1500 for both: it is the conservative estimate mu - 3 sigma).
     let (top, bottom) = (
-        teams[0]["rating"].as_f64().unwrap(),
-        teams[1]["rating"].as_f64().unwrap(),
+        teams[0]["rating"].as_i64().unwrap(),
+        teams[1]["rating"].as_i64().unwrap(),
     );
-    assert!(
-        top > 1500.0 && bottom < 1500.0 && (top + bottom - 3000.0).abs() < 1e-6,
-        "{top} {bottom}"
-    );
+    assert!(top > bottom && top < 1500, "{top} {bottom}");
+    assert!(teams.iter().all(|t| t["provisional"] == true));
+    assert!(teams[0]["mu"].as_f64().unwrap() > 25.0 && teams[1]["mu"].as_f64().unwrap() < 25.0);
 
     // Matches: listing, detail with the summary, replay download.
     let list = h
@@ -328,51 +332,6 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
     assert_eq!(
         h.raw("GET", "/healthz", None, vec![]).await,
         (StatusCode::OK, b"ok\n".to_vec())
-    );
-}
-
-#[tokio::test]
-async fn results_of_a_superseded_submission_are_not_rated() {
-    let h = Harness::new(|_| {});
-    let teams = h.league(&["alpha", "beta"]).await;
-    let batch = h
-        .admin(
-            "POST",
-            "/v1/admin/ranked-batch",
-            json!({"pairings": [{"a": "alpha", "b": "beta", "games": 2}]}),
-        )
-        .await;
-    // Alpha uploads a new bot while the series is still being played.
-    assert_eq!(
-        h.raw(
-            "POST",
-            "/v1/submissions",
-            Some(&teams[0].1),
-            bot_wasm("alpha v2")
-        )
-        .await
-        .0,
-        StatusCode::CREATED
-    );
-    let w = MockWorker::register(&h, "w", true).await;
-    assert_eq!(w.drain(&h).await, 2);
-    let series = h
-        .ok(
-            "GET",
-            &format!("/v1/series/{}", batch["series"][0].as_str().unwrap()),
-            None,
-            Value::Null,
-        )
-        .await;
-    assert_eq!(
-        (series["state"].as_str(), series["rated"].as_bool()),
-        (Some("done"), Some(false))
-    );
-    assert!(series["note"].as_str().unwrap().contains("superseded"));
-    assert_eq!(
-        h.ok("GET", "/v1/ladder", None, Value::Null).await["teams"],
-        json!([]),
-        "no rated series, no snapshot"
     );
 }
 
@@ -551,57 +510,15 @@ async fn unranked_series_respect_the_daily_quota_and_do_not_touch_ratings() {
         done["wins_a"].as_i64().unwrap() + done["wins_b"].as_i64().unwrap(),
         2
     );
-    assert_eq!(
-        h.ok("GET", "/v1/ladder", None, Value::Null).await["teams"],
-        json!([])
-    );
-}
-
-#[tokio::test]
-async fn the_scheduler_pairs_rating_adjacent_teams_and_skips_busy_ones() {
-    let h = Harness::new(|c| c.ranked_games = 2);
-    // Nothing to schedule without a patch: the round is refused, not half-created.
-    assert!(h.app.ranked_round(8, 2).unwrap().is_empty());
-    h.league(&["a", "b", "c", "d", "e"]).await;
-
-    let first = h.app.ranked_round(8, 2).unwrap();
-    assert_eq!(first.len(), 2, "five teams: two pairs, one sits out");
-    assert!(
-        h.app.ranked_round(8, 2).unwrap().is_empty(),
-        "four teams are busy, one alone cannot be paired"
-    );
-    let w = MockWorker::register(&h, "w", true).await;
-    assert_eq!(w.drain(&h).await, 4);
-
-    // Ratings now differ: the next round pairs neighbours on the ladder.
     let ladder = h.ok("GET", "/v1/ladder", None, Value::Null).await;
-    let order: Vec<String> = ladder["teams"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|t| t["team_id"].as_str().unwrap().to_string())
-        .collect();
-    assert_eq!(order.len(), 5);
-    let batch = h
-        .admin("POST", "/v1/admin/ranked-batch", json!({"budget": 1}))
-        .await;
-    let created = batch["series"].as_array().unwrap();
-    assert_eq!(created.len(), 1, "the budget caps a round");
-    let series = h
-        .ok(
-            "GET",
-            &format!("/v1/series/{}", created[0].as_str().unwrap()),
-            None,
-            Value::Null,
-        )
-        .await;
-    let rank = |team: &Value| {
-        order
+    assert!(
+        ladder["teams"]
+            .as_array()
+            .unwrap()
             .iter()
-            .position(|id| id == team["team_id"].as_str().unwrap())
-            .unwrap() as i64
-    };
-    assert_eq!((rank(&series["team_a"]) - rank(&series["team_b"])).abs(), 1);
+            .all(|t| t["games"] == 0),
+        "unranked and tournament games are not rated: {ladder}"
+    );
 }
 
 #[tokio::test]

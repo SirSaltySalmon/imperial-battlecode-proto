@@ -1,13 +1,14 @@
 //! The job queue: idempotent enqueue, leases, completion, failure, expiry, spot verification.
 //!
-//! States: `queued -> leased -> done`, with `leased -> queued` on a retryable failure or an expired lease,
-//! and `-> dead` after `max_attempts` leases or one non-retryable failure. `attempts` counts leases.
+//! States: `queued -> leased -> done`, with `leased -> queued` on a retryable failure, a release or an
+//! expired lease, and `-> dead` after `max_attempts` leases, `max_timeouts` timeouts or one non-retryable
+//! failure. `attempts` counts leases; a release gives its lease back.
 //! A `verify` job is a duplicate of a `match` job (same payload, key `verify:<key>`) that only workers with
 //! the `trusted` label may lease; on the wire both are `"kind": "match"`.
 
-use super::{WorkerRow, TRUSTED_LABEL};
+use super::{ratings, WorkerRow, TRUSTED_LABEL};
 use crate::error::{ApiError, ApiResult};
-use crate::model::{Class, JobSpec, CLASSES};
+use crate::model::{Class, JobSpec, Patch, CLASSES};
 use crate::util::{opt_rfc3339, random_hex, rfc3339};
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
@@ -18,6 +19,9 @@ pub struct QueueCfg {
     pub max_attempts: i64,
     pub aging_ms: i64,
     pub retry_grace_ms: i64,
+    /// A job is dead-lettered on this many timeouts (`fail` with `code: "timeout"`): a match is
+    /// deterministic, so a timeout is likely to repeat on every worker.
+    pub max_timeouts: i64,
 }
 
 struct JobRow {
@@ -35,9 +39,10 @@ struct JobRow {
     result: Option<String>,
     replay_sha256: Option<String>,
     verified: bool,
+    timeouts: i64,
 }
 
-const JOB_COLS: &str = "id, kind, class, key, payload, state, attempts, lease_token, lease_expires_at, worker_id, verifies, result, replay_sha256, verified";
+const JOB_COLS: &str = "id, kind, class, key, payload, state, attempts, lease_token, lease_expires_at, worker_id, verifies, result, replay_sha256, verified, timeouts";
 
 fn row(r: &rusqlite::Row) -> rusqlite::Result<JobRow> {
     Ok(JobRow {
@@ -55,6 +60,7 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<JobRow> {
         result: r.get(11)?,
         replay_sha256: r.get(12)?,
         verified: r.get(13)?,
+        timeouts: r.get(14)?,
     })
 }
 
@@ -133,15 +139,34 @@ pub fn enqueue(tx: &Transaction, class: Class, spec: &JobSpec, now: i64) -> ApiR
 
 // ---- lease ----
 
-fn wire_job(id: &str, lease_token: &str, lease_expires_at: i64, payload: &str) -> ApiResult<Value> {
+/// A lease's length in seconds, as sent in `lease_secs` (docs/JOBS.md).
+pub fn lease_secs(cfg: &QueueCfg) -> f64 {
+    cfg.lease_ms as f64 / 1000.0
+}
+
+/// The `Job` object of the protocol: the stored spec plus the lease envelope, and the runner blobs of the
+/// job's patch if the organisers registered some.
+fn wire_job(
+    id: &str,
+    lease_token: &str,
+    lease_expires_at: i64,
+    payload: &str,
+    cfg: &QueueCfg,
+    runners: &[(Patch, Value)],
+) -> ApiResult<Value> {
     let mut job = parse_json(payload)?;
+    let patch: Option<Patch> = serde_json::from_value(job["patch"].clone()).ok();
     let obj = job
         .as_object_mut()
         .ok_or_else(|| ApiError::internal("job payload is not an object"))?;
     obj.insert("job_id".into(), json!(id));
     obj.insert("lease_token".into(), json!(lease_token));
     obj.insert("lease_expires_at".into(), json!(rfc3339(lease_expires_at)));
+    obj.insert("lease_secs".into(), json!(lease_secs(cfg)));
     obj.insert("kind".into(), json!("match"));
+    if let Some((_, blobs)) = runners.iter().find(|(p, _)| Some(p) == patch.as_ref()) {
+        obj.insert("runner_blobs".into(), blobs.clone());
+    }
     Ok(job)
 }
 
@@ -159,6 +184,7 @@ pub fn lease(
         return Ok(Vec::new());
     }
     let labels = serde_json::to_string(&worker.labels).map_err(ApiError::internal)?;
+    let runners = super::runner_blobs(tx)?;
     let mut out = Vec::new();
     let mut head = tx.prepare_cached(
         "SELECT id, created_at, payload FROM jobs
@@ -212,7 +238,7 @@ pub fn lease(
              WHERE id = ?1 AND state = 'queued'",
             params![id, token, expires, worker.id],
         )?;
-        out.push(wire_job(&id, &token, expires, &payload)?);
+        out.push(wire_job(&id, &token, expires, &payload, cfg, &runners)?);
     }
     Ok(out)
 }
@@ -259,8 +285,8 @@ pub struct Completed {
     pub mismatch: bool,
     /// Two trusted results disagree: a determinism bug, nobody is quarantined.
     pub conflict: bool,
-    /// Results invalidated and requeued by a quarantine.
-    pub requeued: usize,
+    /// What a quarantine triggered by a mismatch invalidated.
+    pub quarantined: Quarantined,
 }
 
 /// Store the result of a leased job. `sample(class)` decides whether an untrusted result is spot-verified.
@@ -363,7 +389,13 @@ fn apply_verification(
         return Ok(());
     }
     if original.replay_sha256.as_deref() == Some(v_sha) {
-        tx.execute("UPDATE jobs SET verified = 1 WHERE id = ?1", [original_id])?;
+        // Same replay: keep the trusted worker's result object, not the untrusted one's. The replay hash is
+        // all that was compared, and `outcome`, `winner` and `score` (what ratings are taken from) are
+        // whatever the worker wrote.
+        tx.execute(
+            "UPDATE jobs SET verified = 1, result = ?2 WHERE id = ?1",
+            params![original_id, v_result],
+        )?;
         out.confirmed = true;
     } else if original.verified {
         eprintln!(
@@ -377,7 +409,7 @@ fn apply_verification(
         out.mismatch = true;
         if let Some(bad) = original.worker_id.as_deref() {
             let reason = format!("spot verification mismatch on job {original_id}");
-            out.requeued = quarantine(tx, bad, &reason, now)?;
+            out.quarantined = quarantine(tx, bad, &reason, now)?;
         }
     }
     Ok(())
@@ -388,9 +420,26 @@ const ON_CURRENT_PATCH: &str = "EXISTS (SELECT 1 FROM patches p WHERE p.current 
                        AND p.ruleset_hash = json_extract(jobs.payload, '$.patch.ruleset_hash')
                        AND p.wasmtime = json_extract(jobs.payload, '$.patch.wasmtime'))";
 
+/// What a quarantine invalidated.
+#[derive(Debug, Default)]
+pub struct Quarantined {
+    /// Results thrown away and queued again.
+    pub requeued: usize,
+    /// Closed series that had counted one of them: reopened, their rating events dropped. When this is not
+    /// zero the caller recomputes the ratings (`ratings::recompute`).
+    pub reopened: usize,
+}
+
 /// Quarantine a worker: it gets no more jobs, its running leases are revoked and every result of its that
-/// no trusted worker has confirmed is thrown away and queued again. Returns the number of such results.
-pub fn quarantine(tx: &Transaction, worker_id: &str, reason: &str, now: i64) -> ApiResult<usize> {
+/// no trusted worker has confirmed is thrown away and queued again. A closed series that counted such a
+/// result is reopened and rated again when the re-runs finish; its earlier rating events are dropped from
+/// the ledger, so the caller must recompute the ratings.
+pub fn quarantine(
+    tx: &Transaction,
+    worker_id: &str,
+    reason: &str,
+    now: i64,
+) -> ApiResult<Quarantined> {
     let known = tx.execute(
         "UPDATE workers SET quarantined = 1, quarantine_reason = ?2 WHERE id = ?1",
         params![worker_id, reason],
@@ -405,23 +454,38 @@ pub fn quarantine(tx: &Transaction, worker_id: &str, reason: &str, now: i64) -> 
         params![worker_id, now],
     )?;
     // Only results on the current patch can be re-run; older ones stay as they are (unverified).
-    let suspect = format!("worker_id = ?1 AND state = 'done' AND verified = 0 AND kind = 'match' AND {ON_CURRENT_PATCH}");
-    // Series that were already closed keep their score and rating; say so on the series.
-    tx.execute(
-        &format!(
-            "UPDATE series SET note = 'a result was invalidated after this series closed; ratings were not rolled back'
-             WHERE state = 'done' AND id IN (SELECT g.series_id FROM games g JOIN jobs ON jobs.id = g.job_id WHERE {suspect})"
-        ),
-        [worker_id],
-    )?;
-    let invalidated = tx.execute(
+    let suspect = format!(
+        "jobs.worker_id = ?1 AND jobs.state = 'done' AND jobs.verified = 0 AND jobs.kind = 'match' AND {ON_CURRENT_PATCH}"
+    );
+    let reopen: Vec<String> = {
+        let mut st = tx.prepare(&format!(
+            "SELECT DISTINCT g.series_id FROM games g JOIN jobs ON jobs.id = g.job_id
+             JOIN series s ON s.id = g.series_id WHERE s.state = 'done' AND {suspect} ORDER BY g.series_id"
+        ))?;
+        let rows = st.query_map([worker_id], |r| r.get(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    ratings::forget_series(tx, &reopen)?;
+    {
+        let mut st = tx.prepare_cached(
+            "UPDATE series SET state = 'running', rated = 0, wins_a = 0, wins_b = 0, draws = 0,
+                    finished_at = NULL, note = ?2 WHERE id = ?1",
+        )?;
+        for id in &reopen {
+            st.execute(params![id, super::league::REOPENED_NOTE])?;
+        }
+    }
+    let requeued = tx.execute(
         &format!(
             "UPDATE jobs SET state = 'queued', result = NULL, replay_sha256 = NULL, finished_at = NULL, lease_token = NULL,
-                    worker_id = NULL, attempts = 0, queued_at = ?2 WHERE {suspect}"
+                    worker_id = NULL, attempts = 0, timeouts = 0, queued_at = ?2 WHERE {suspect}"
         ),
         params![worker_id, now],
     )?;
-    Ok(invalidated)
+    Ok(Quarantined {
+        requeued,
+        reopened: reopen.len(),
+    })
 }
 
 // ---- fail, expiry ----
@@ -434,12 +498,19 @@ pub enum Failed {
     Noop,
 }
 
+/// The body of a `fail` call. `code` is `Some("timeout")` when the match ran past the worker's wall-clock
+/// limit.
+pub struct FailReport<'a> {
+    pub error: &'a str,
+    pub retryable: bool,
+    pub code: Option<&'a str>,
+}
+
 pub fn fail(
     tx: &Transaction,
     job_id: &str,
     token: &str,
-    error: &str,
-    retryable: bool,
+    report: &FailReport,
     worker: &WorkerRow,
     now: i64,
     cfg: &QueueCfg,
@@ -453,20 +524,64 @@ pub fn fail(
     if !live_lease(&job, token, worker, now) {
         return Err(ApiError::lease_lost());
     }
-    let error: String = error.chars().take(2000).collect();
-    if retryable && job.attempts < cfg.max_attempts {
+    let error: String = report.error.chars().take(2000).collect();
+    // A second timeout only says something about the match if another machine reports it: the same slow
+    // worker timing the job out again (it may lease it once the retry grace is over) still costs an attempt,
+    // but is not evidence that the match itself is too slow.
+    let last_failed_on: Option<String> = tx.query_row(
+        "SELECT avoid_worker FROM jobs WHERE id = ?1",
+        [&job.id],
+        |r| r.get(0),
+    )?;
+    let same_worker_again = job.timeouts > 0 && last_failed_on.as_deref() == Some(worker.id.as_str());
+    let timeouts =
+        job.timeouts + i64::from(report.code == Some("timeout") && !same_worker_again);
+    if report.retryable && job.attempts < cfg.max_attempts && timeouts < cfg.max_timeouts {
         tx.execute(
-            "UPDATE jobs SET state = 'queued', lease_expires_at = NULL, queued_at = ?2, error = ?3, avoid_worker = ?4 WHERE id = ?1",
-            params![job.id, now, error, worker.id],
+            "UPDATE jobs SET state = 'queued', lease_expires_at = NULL, queued_at = ?2, error = ?3, avoid_worker = ?4,
+                    timeouts = ?5 WHERE id = ?1",
+            params![job.id, now, error, worker.id, timeouts],
         )?;
         Ok(Failed::Requeued)
     } else {
         tx.execute(
-            "UPDATE jobs SET state = 'dead', lease_expires_at = NULL, finished_at = ?2, error = ?3 WHERE id = ?1",
-            params![job.id, now, error],
+            "UPDATE jobs SET state = 'dead', lease_expires_at = NULL, finished_at = ?2, error = ?3, timeouts = ?4
+             WHERE id = ?1",
+            params![job.id, now, error, timeouts],
         )?;
         Ok(Failed::Dead)
     }
+}
+
+/// Give a job back without spending an attempt: the worker cannot serve it (another patch, an unknown kind)
+/// or is shutting down. It is not offered to the same worker again for the retry grace period. Returns
+/// false for a repeat of a release that was already applied.
+pub fn release(
+    tx: &Transaction,
+    job_id: &str,
+    token: &str,
+    reason: &str,
+    worker: &WorkerRow,
+    now: i64,
+) -> ApiResult<bool> {
+    let job = load(tx, job_id)?.ok_or_else(|| ApiError::not_found(format!("no job {job_id:?}")))?;
+    // Like a failed job, a released one keeps its lease token until the next lease.
+    if job.state == "queued" && job.lease_token.as_deref() == Some(token) {
+        return Ok(false);
+    }
+    if !live_lease(&job, token, worker, now) {
+        return Err(ApiError::lease_lost());
+    }
+    let note: String = format!("released by {}: {reason}", worker.id)
+        .chars()
+        .take(2000)
+        .collect();
+    tx.execute(
+        "UPDATE jobs SET state = 'queued', attempts = MAX(attempts - 1, 0), lease_expires_at = NULL,
+                queued_at = ?2, error = ?3, avoid_worker = ?4 WHERE id = ?1",
+        params![job.id, now, note, worker.id],
+    )?;
+    Ok(true)
 }
 
 /// Return jobs whose lease ran out to the queue, or to the dead-letter list once their attempts are used up.
@@ -488,7 +603,7 @@ pub fn sweep_expired(tx: &Transaction, now: i64, cfg: &QueueCfg) -> ApiResult<(u
 
 // ---- admin views ----
 
-const VIEW_COLS: &str = "id, kind, class, key, state, attempts, worker_id, lease_expires_at, verified, error, result, payload, created_at, finished_at, verifies";
+const VIEW_COLS: &str = "id, kind, class, key, state, attempts, worker_id, lease_expires_at, verified, error, result, payload, created_at, finished_at, verifies, timeouts";
 
 fn view(r: &rusqlite::Row) -> rusqlite::Result<Value> {
     let parse = |s: Option<String>| s.and_then(|s| serde_json::from_str::<Value>(&s).ok());
@@ -500,7 +615,7 @@ fn view(r: &rusqlite::Row) -> rusqlite::Result<Value> {
         "verified": r.get::<_, bool>(8)?, "error": r.get::<_, Option<String>>(9)?,
         "result": parse(r.get(10)?), "spec": parse(r.get(11)?),
         "created_at": rfc3339(r.get(12)?), "finished_at": opt_rfc3339(r.get(13)?),
-        "verifies": r.get::<_, Option<String>>(14)?,
+        "verifies": r.get::<_, Option<String>>(14)?, "timeouts": r.get::<_, i64>(15)?,
     }))
 }
 
@@ -523,11 +638,11 @@ pub fn dead_jobs(tx: &Transaction, limit: i64) -> ApiResult<Vec<Value>> {
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// A human decided a dead job deserves another three attempts.
+/// A human decided a dead job deserves another `max_attempts` attempts.
 pub fn requeue_dead(tx: &Transaction, id: &str, now: i64) -> ApiResult<()> {
     let n = tx.execute(
         &format!(
-        "UPDATE jobs SET state = 'queued', attempts = 0, error = NULL, finished_at = NULL, lease_token = NULL,
+        "UPDATE jobs SET state = 'queued', attempts = 0, timeouts = 0, error = NULL, finished_at = NULL, lease_token = NULL,
                 avoid_worker = NULL, queued_at = ?2 WHERE id = ?1 AND state = 'dead' AND {ON_CURRENT_PATCH}"
         ),
         params![id, now],

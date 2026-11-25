@@ -1,10 +1,11 @@
-//! All SQL of the coordinator lives in this module tree (`db`, `db::jobs`, `db::league`), behind plain
-//! functions that take a transaction. One SQLite connection in WAL mode, serialised by a mutex: every
-//! operation is a short transaction, so "lease" can never hand the same job to two workers.
-//! Moving to Postgres means rewriting these three files and nothing else.
+//! All SQL of the coordinator lives in this module tree (`db`, `db::jobs`, `db::league`, `db::ratings`),
+//! behind plain functions that take a transaction. One SQLite connection in WAL mode, serialised by a mutex:
+//! every operation is a short transaction, so "lease" can never hand the same job to two workers.
+//! Moving to Postgres means rewriting these four files and nothing else.
 
 pub mod jobs;
 pub mod league;
+pub mod ratings;
 
 use crate::error::{ApiError, ApiResult};
 use crate::model::Patch;
@@ -27,7 +28,8 @@ CREATE TABLE IF NOT EXISTS maps(
   name TEXT PRIMARY KEY, sha256 TEXT NOT NULL, in_pool INTEGER NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS patches(
   id INTEGER PRIMARY KEY, engine TEXT NOT NULL, ruleset_hash TEXT NOT NULL, wasmtime TEXT NOT NULL,
-  current INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, UNIQUE(engine, ruleset_hash, wasmtime));
+  current INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, runner_blobs TEXT,
+  UNIQUE(engine, ruleset_hash, wasmtime));
 CREATE TABLE IF NOT EXISTS workers(
   id TEXT PRIMARY KEY, name TEXT NOT NULL, labels TEXT NOT NULL, cores INTEGER NOT NULL,
   token_hash TEXT NOT NULL UNIQUE, trusted INTEGER NOT NULL DEFAULT 0, quarantined INTEGER NOT NULL DEFAULT 0,
@@ -39,6 +41,7 @@ CREATE TABLE IF NOT EXISTS jobs(
   lease_token TEXT, lease_expires_at INTEGER, worker_id TEXT,
   require_label TEXT, verifies TEXT, avoid_worker TEXT,
   result TEXT, replay_sha256 TEXT, verified INTEGER NOT NULL DEFAULT 0, error TEXT,
+  timeouts INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL, queued_at INTEGER NOT NULL, finished_at INTEGER);
 CREATE INDEX IF NOT EXISTS jobs_queue ON jobs(state, class, created_at);
 CREATE INDEX IF NOT EXISTS jobs_worker ON jobs(worker_id, state);
@@ -59,12 +62,49 @@ CREATE TABLE IF NOT EXISTS games(
 CREATE INDEX IF NOT EXISTS games_job ON games(job_id);
 CREATE INDEX IF NOT EXISTS games_series ON games(series_id, idx);
 CREATE INDEX IF NOT EXISTS games_created ON games(created_at);
+CREATE TABLE IF NOT EXISTS map_usage(name TEXT PRIMARY KEY, games INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS ratings(
   team_id TEXT PRIMARY KEY, mu REAL NOT NULL, sigma REAL NOT NULL, games INTEGER NOT NULL,
-  wins INTEGER NOT NULL, losses INTEGER NOT NULL, draws INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+  wins INTEGER NOT NULL, losses INTEGER NOT NULL, draws INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  last_played INTEGER);
+CREATE TABLE IF NOT EXISTS rating_events(
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, team_a TEXT NOT NULL, team_b TEXT,
+  series_id TEXT, game_idx INTEGER, outcome TEXT, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS rating_events_series ON rating_events(series_id);
+CREATE INDEX IF NOT EXISTS rating_events_created ON rating_events(created_at);
+CREATE TABLE IF NOT EXISTS ranked_batches(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, seed TEXT NOT NULL, budget INTEGER NOT NULL, created INTEGER NOT NULL,
+  created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ladder_snapshots(
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, body TEXT NOT NULL);
 ";
+
+/// Columns added after the first release: `CREATE TABLE IF NOT EXISTS` does not add them to an existing data
+/// directory, so they are added here when missing.
+const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
+    ("jobs", "timeouts", "INTEGER NOT NULL DEFAULT 0"),
+    ("patches", "runner_blobs", "TEXT"),
+    ("ratings", "last_played", "INTEGER"),
+];
+
+fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    for (table, column, decl) in ADDED_COLUMNS {
+        let present: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = ?1"),
+            [column],
+            |r| r.get(0),
+        )?;
+        if present == 0 {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
+        }
+    }
+    // `map_usage` is a running count of games per map; fill it once for a data directory that predates it.
+    conn.execute_batch(
+        "INSERT INTO map_usage(name, games) SELECT map_name, COUNT(*) FROM games
+           WHERE NOT EXISTS (SELECT 1 FROM map_usage) GROUP BY map_name",
+    )
+}
 
 pub struct Db {
     conn: Mutex<Connection>,
@@ -86,6 +126,7 @@ impl Db {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Db {
             conn: Mutex::new(conn),
         })
@@ -99,6 +140,22 @@ impl Db {
         tx.commit()?;
         Ok(out)
     }
+}
+
+pub fn setting(tx: &Transaction, key: &str) -> ApiResult<Option<String>> {
+    Ok(tx
+        .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+            r.get(0)
+        })
+        .optional()?)
+}
+
+pub fn set_setting(tx: &Transaction, key: &str, value: &str) -> ApiResult<()> {
+    tx.execute(
+        "INSERT INTO settings(key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
 }
 
 fn is_unique_violation(e: &rusqlite::Error) -> bool {
@@ -189,34 +246,105 @@ pub struct NewSubmission<'a> {
     pub size: usize,
     pub language: &'a str,
     pub fuel_mult: f64,
-    /// `None`: validated, becomes the team's live submission. `Some(reason)`: rejected.
+    /// `None`: validated. `Some(reason)`: rejected (never live).
     pub rejected: Option<&'a str>,
+    /// Make a validated module the team's live submission at once (the default of the upload endpoint).
+    pub make_live: bool,
 }
 
-pub fn insert_submission(tx: &Transaction, s: &NewSubmission, now: i64) -> ApiResult<String> {
-    let live = s.rejected.is_none();
-    if live {
-        // Re-uploading the module that is already live changes nothing (and so cannot be used to get a
-        // running ranked series dropped from rating).
-        if let Some(current) = live_submission(tx, s.team_id)? {
-            if current.sha256 == s.sha256 && current.fuel_mult == s.fuel_mult {
-                return Ok(current.id);
-            }
-        }
+/// What a change of live submission did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveChange {
+    /// The live submission is what it was.
+    Unchanged,
+    /// The team had no live submission before.
+    First,
+    /// Another submission was live before: the team's rating uncertainty is widened.
+    Replaced,
+}
+
+/// Store a submission. Returns its id and what happened to the team's live submission.
+pub fn insert_submission(
+    tx: &Transaction,
+    s: &NewSubmission,
+    now: i64,
+) -> ApiResult<(String, LiveChange)> {
+    let validated = s.rejected.is_none();
+    let current = live_submission(tx, s.team_id)?;
+    // Re-uploading the module that is already live changes nothing.
+    if let Some(current) = current
+        .as_ref()
+        .filter(|c| validated && c.sha256 == s.sha256 && c.fuel_mult == s.fuel_mult)
+    {
+        return Ok((current.id.clone(), LiveChange::Unchanged));
     }
     let id = format!("sub{}", random_hex(6));
-    if live {
-        tx.execute(
-            "UPDATE submissions SET live = 0 WHERE team_id = ?1 AND live = 1",
-            [s.team_id],
-        )?;
-    }
     tx.execute(
         "INSERT INTO submissions(id, team_id, sha256, size, language, fuel_mult, status, reason, live, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![id, s.team_id, s.sha256, s.size as i64, s.language, s.fuel_mult, if live { "validated" } else { "rejected" }, s.rejected, live, now],
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9)",
+        params![id, s.team_id, s.sha256, s.size as i64, s.language, s.fuel_mult, if validated { "validated" } else { "rejected" }, s.rejected, now],
     )?;
-    Ok(id)
+    let change = if validated && s.make_live {
+        set_live(tx, s.team_id, &id)?
+    } else {
+        LiveChange::Unchanged
+    };
+    Ok((id, change))
+}
+
+/// Make `submission_id` (a validated submission of `team_id`) the team's live submission. Series that
+/// already exist keep the submissions they were created with; only series created from now on use it.
+pub fn set_live(tx: &Transaction, team_id: &str, submission_id: &str) -> ApiResult<LiveChange> {
+    let row: Option<(String, bool)> = tx
+        .query_row(
+            "SELECT status, live FROM submissions WHERE id = ?1 AND team_id = ?2",
+            params![submission_id, team_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((status, live)) = row else {
+        return Err(ApiError::not_found(format!(
+            "no submission {submission_id:?} for this team"
+        )));
+    };
+    if status != "validated" {
+        return Err(ApiError::conflict(
+            "not_validated",
+            format!("submission {submission_id:?} was rejected and cannot be live"),
+        ));
+    }
+    if live {
+        return Ok(LiveChange::Unchanged);
+    }
+    let replaced = tx.execute(
+        "UPDATE submissions SET live = 0 WHERE team_id = ?1 AND live = 1",
+        [team_id],
+    )?;
+    tx.execute(
+        "UPDATE submissions SET live = 1 WHERE id = ?1",
+        [submission_id],
+    )?;
+    Ok(if replaced > 0 {
+        LiveChange::Replaced
+    } else {
+        LiveChange::First
+    })
+}
+
+/// The team a submission belongs to.
+pub fn submission_team(tx: &Transaction, submission_id: &str) -> ApiResult<TeamRow> {
+    tx.query_row(
+        "SELECT t.id, t.name FROM submissions s JOIN teams t ON t.id = s.team_id WHERE s.id = ?1",
+        [submission_id],
+        |r| {
+            Ok(TeamRow {
+                id: r.get(0)?,
+                name: r.get(1)?,
+            })
+        },
+    )
+    .optional()?
+    .ok_or_else(|| ApiError::not_found(format!("no submission {submission_id:?}")))
 }
 
 pub fn live_submission(tx: &Transaction, team_id: &str) -> ApiResult<Option<SubmissionRow>> {
@@ -285,12 +413,22 @@ pub fn list_maps(tx: &Transaction) -> ApiResult<Vec<Value>> {
 /// Make `patch` the current one. Jobs still waiting or running on another patch can no longer be run by
 /// an up-to-date fleet, so they are dead-lettered now instead of after three "patch mismatch" attempts.
 /// Returns how many jobs that were.
-pub fn set_current_patch(tx: &Transaction, patch: &Patch, now: i64) -> ApiResult<usize> {
+///
+/// `runner_blobs` (`"<os>-<arch>"` -> SHA-256 of an `ibc` binary of this patch), when given, replaces the
+/// runner blobs stored for the patch; they are sent with its jobs (docs/JOBS.md, `runner_blobs`).
+pub fn set_current_patch(
+    tx: &Transaction,
+    patch: &Patch,
+    runner_blobs: Option<&Value>,
+    now: i64,
+) -> ApiResult<usize> {
     tx.execute("UPDATE patches SET current = 0 WHERE current = 1", [])?;
+    let blobs = runner_blobs.map(Value::to_string);
     tx.execute(
-        "INSERT INTO patches(engine, ruleset_hash, wasmtime, current, created_at) VALUES (?1, ?2, ?3, 1, ?4)
-         ON CONFLICT(engine, ruleset_hash, wasmtime) DO UPDATE SET current = 1",
-        params![patch.engine, patch.ruleset_hash, patch.wasmtime, now],
+        "INSERT INTO patches(engine, ruleset_hash, wasmtime, current, created_at, runner_blobs) VALUES (?1, ?2, ?3, 1, ?4, ?5)
+         ON CONFLICT(engine, ruleset_hash, wasmtime) DO UPDATE SET current = 1,
+           runner_blobs = COALESCE(excluded.runner_blobs, runner_blobs)",
+        params![patch.engine, patch.ruleset_hash, patch.wasmtime, now, blobs],
     )?;
     let superseded = tx.execute(
         "UPDATE jobs SET state = 'dead', error = 'patch superseded', finished_at = ?4, lease_token = NULL, lease_expires_at = NULL
@@ -300,6 +438,30 @@ pub fn set_current_patch(tx: &Transaction, patch: &Patch, now: i64) -> ApiResult
         params![patch.engine, patch.ruleset_hash, patch.wasmtime, now],
     )?;
     Ok(superseded)
+}
+
+/// The runner blobs of every patch that has some, keyed by patch.
+pub fn runner_blobs(tx: &Transaction) -> ApiResult<Vec<(Patch, Value)>> {
+    let mut st = tx.prepare_cached(
+        "SELECT engine, ruleset_hash, wasmtime, runner_blobs FROM patches WHERE runner_blobs IS NOT NULL",
+    )?;
+    let rows = st.query_map([], |r| {
+        let patch = Patch {
+            engine: r.get(0)?,
+            ruleset_hash: r.get(1)?,
+            wasmtime: r.get(2)?,
+        };
+        Ok((patch, r.get::<_, String>(3)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (patch, text) = row?;
+        let blobs: Value = serde_json::from_str(&text).map_err(ApiError::internal)?;
+        if blobs.as_object().is_some_and(|m| !m.is_empty()) {
+            out.push((patch, blobs));
+        }
+    }
+    Ok(out)
 }
 
 pub fn current_patch(tx: &Transaction) -> ApiResult<Option<Patch>> {
@@ -409,6 +571,15 @@ pub fn list_workers(tx: &Transaction, now: i64, live_ms: i64) -> ApiResult<Vec<V
                   "live": now - last_seen <= live_ms, "leased_jobs": r.get::<_, i64>(9)?}))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Cores of the workers heard from since `since` that are not quarantined.
+pub fn live_cores(tx: &Transaction, since: i64) -> ApiResult<i64> {
+    Ok(tx.query_row(
+        "SELECT COALESCE(SUM(cores), 0) FROM workers WHERE last_seen >= ?1 AND quarantined = 0",
+        [since],
+        |r| r.get(0),
+    )?)
 }
 
 fn worker_exists(tx: &Transaction, id: &str) -> ApiResult<()> {

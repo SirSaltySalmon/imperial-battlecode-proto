@@ -48,10 +48,11 @@ pub struct App {
     /// Woken whenever a job may have become leasable; long polls wait on it.
     pub queue_changed: tokio::sync::Notify,
     pub counters: Counters,
-    scheduler_round: AtomicU64,
 }
 
 impl App {
+    /// Assemble an app from its parts. The ratings in `db` must have been produced by `rating` (`open`
+    /// checks that); use `open` unless you are plugging in another `RatingHook`.
     pub fn new(
         cfg: Config,
         db: Db,
@@ -65,22 +66,26 @@ impl App {
             rating,
             queue_changed: tokio::sync::Notify::new(),
             counters: Counters::default(),
-            scheduler_round: AtomicU64::new(0),
         })
     }
 
-    /// Open (or create) a data directory with the built-in Elo. To use another rating system, build the
-    /// pieces yourself and call `App::new` with its `RatingHook`.
+    /// Open (or create) a data directory with the rating system named in `cfg.rating_system`. If the stored
+    /// ratings were produced by another system, they are recomputed from the event ledger first.
     pub fn open(cfg: Config, data: &Path) -> anyhow::Result<Arc<App>> {
+        let hook = rating::by_name(&cfg.rating_system).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown rating system {:?} (use weng-lin or elo)",
+                cfg.rating_system
+            )
+        })?;
         std::fs::create_dir_all(data)?;
         let db = Db::open(&data.join("coordinator.sqlite"))?;
         let blobs = FsBlobs::open(&data.join("blobs"))?;
-        Ok(App::new(
-            cfg,
-            db,
-            Arc::new(blobs),
-            Arc::new(rating::Elo::default()),
-        ))
+        db.tx(|tx| {
+            db::ratings::adopt_system(tx, hook.as_ref(), util::now_ms(), cfg.ladder_snapshots_kept)
+        })
+        .map_err(|e| anyhow::anyhow!("{}", e.message))?;
+        Ok(App::new(cfg, db, Arc::new(blobs), hook))
     }
 
     pub fn queue_cfg(&self) -> QueueCfg {
@@ -89,7 +94,51 @@ impl App {
             max_attempts: self.cfg.max_attempts,
             aging_ms: self.cfg.aging_ms,
             retry_grace_ms: self.cfg.retry_grace_ms,
+            max_timeouts: self.cfg.max_timeouts,
         }
+    }
+
+    /// After a quarantine: if it reopened rated series, rebuild the ratings without their games and write a
+    /// ladder snapshot (the re-runs rate them again when they finish).
+    pub fn after_quarantine(
+        &self,
+        tx: &rusqlite::Transaction,
+        q: &db::jobs::Quarantined,
+        now: i64,
+    ) -> ApiResult<()> {
+        if q.reopened > 0 {
+            db::ratings::recompute(tx, self.rating.as_ref(), now)?;
+            db::ratings::write_snapshot(
+                tx,
+                self.rating.as_ref(),
+                now,
+                self.cfg.ladder_snapshots_kept,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// After a team's live submission changed: widen its rating uncertainty if a submission was replaced,
+    /// and write a ladder snapshot (the ladder shows the live submission).
+    pub fn after_live_change(
+        &self,
+        tx: &rusqlite::Transaction,
+        team_id: &str,
+        change: db::LiveChange,
+        now: i64,
+    ) -> ApiResult<()> {
+        if change == db::LiveChange::Replaced {
+            db::ratings::submission_changed(tx, self.rating.as_ref(), team_id, now)?;
+        }
+        if change != db::LiveChange::Unchanged {
+            db::ratings::write_snapshot(
+                tx,
+                self.rating.as_ref(),
+                now,
+                self.cfg.ladder_snapshots_kept,
+            )?;
+        }
+        Ok(())
     }
 
     /// One pass of the sweeper: requeue (or dead-letter) expired leases, then close finished series.
@@ -137,15 +186,62 @@ impl App {
         Ok(id)
     }
 
-    /// One round of the ranked scheduler: pair rating-adjacent live teams and queue a series per pair.
-    /// Returns the ids of the series created.
-    pub fn ranked_round(&self, budget: usize, games: i64) -> ApiResult<Vec<String>> {
+    /// How many ranked series the live workers can play in one scheduler round
+    /// (`ibc_rating::series_per_batch`): their cores, the measured cost of the matches of the last hour (the
+    /// governor's prior until there are some), at most `ranked_series_budget`.
+    pub fn ranked_budget(
+        &self,
+        tx: &rusqlite::Transaction,
+        games: i64,
+        now: i64,
+    ) -> ApiResult<u32> {
+        let cores = db::live_cores(tx, now - self.cfg.worker_live_ms)?;
+        let mean = db::league::mean_game_seconds(tx, now - 3_600_000)?;
+        let budget = ibc_rating::BudgetConfig {
+            games_per_series: u32::try_from(games).unwrap_or(u32::MAX),
+            batches_per_hour: if self.cfg.ranked_interval_ms > 0 {
+                3_600_000.0 / self.cfg.ranked_interval_ms as f64
+            } else {
+                ibc_rating::BudgetConfig::default().batches_per_hour
+            },
+            max_series_per_batch: u32::try_from(self.cfg.ranked_series_budget).unwrap_or(u32::MAX),
+            ..ibc_rating::BudgetConfig::default()
+        };
+        Ok(ibc_rating::series_per_batch(
+            cores as f64 * 3600.0,
+            mean,
+            &budget,
+        ))
+    }
+
+    /// One round of the ranked scheduler: `ibc_rating::plan_batch` pairs live teams that have no ranked
+    /// series running (under-played teams first, opponents near in rating), at most `budget` series
+    /// (`None`: what `ranked_budget` says the workers can play). Returns the ids of the series created.
+    pub fn ranked_round(&self, budget: Option<u32>, games: i64) -> ApiResult<Vec<String>> {
         let now = util::now_ms();
-        let round = self.scheduler_round.fetch_add(1, Ordering::Relaxed);
+        let seed = u64::from_str_radix(&util::random_hex(8), 16).expect("16 hex digits");
         let created = self.db.tx(|tx| {
+            let budget = match budget {
+                Some(b) => b,
+                None => self.ranked_budget(tx, games, now)?,
+            };
+            let pool = db::league::matchmaking_pool(tx, self.rating.as_ref(), now)?;
+            let states: Vec<ibc_rating::TeamState> = pool.iter().map(|(_, s)| s.clone()).collect();
+            let pairings = ibc_rating::plan_batch(
+                self.rating.system(),
+                &states,
+                (now.max(0) / 1000) as u64,
+                budget,
+                &ibc_rating::MatchmakingConfig::default(),
+                seed,
+            );
             let mut created = Vec::new();
-            for (a, b) in db::league::auto_pairings(tx, self.rating.as_ref(), budget, round)? {
-                created.push(self.new_series(tx, "ranked", &a, &b, games, None, now)?);
+            for p in pairings {
+                let (a, b) = (&pool[p.team_a as usize].0, &pool[p.team_b as usize].0);
+                created.push(self.new_series(tx, "ranked", a, b, games, None, now)?);
+            }
+            if !created.is_empty() {
+                db::league::record_batch(tx, seed, budget, created.len(), now)?;
             }
             Ok(created)
         })?;
@@ -173,7 +269,7 @@ pub fn spawn_background(app: Arc<App>) {
             let mut tick = tokio::time::interval(Duration::from_millis(app.cfg.ranked_interval_ms));
             loop {
                 tick.tick().await;
-                match app.ranked_round(app.cfg.ranked_series_budget, app.cfg.ranked_games) {
+                match app.ranked_round(None, app.cfg.ranked_games) {
                     Ok(created) if !created.is_empty() => {
                         eprintln!("scheduler: queued {} ranked series", created.len())
                     }

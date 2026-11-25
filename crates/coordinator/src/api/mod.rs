@@ -33,6 +33,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/jobs/{job_id}/heartbeat", post(worker::heartbeat))
         .route("/v1/jobs/{job_id}/complete", post(worker::complete))
         .route("/v1/jobs/{job_id}/fail", post(worker::fail))
+        .route("/v1/jobs/{job_id}/release", post(worker::release))
         .route(
             "/v1/blobs/{sha256}",
             get(worker::get_blob).put(worker::put_blob),
@@ -42,6 +43,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route(
             "/v1/submissions",
             post(manage::upload_submission).get(manage::list_submissions),
+        )
+        .route(
+            "/v1/submissions/{submission_id}/live",
+            post(manage::select_live),
         )
         .route("/v1/series", post(manage::create_series))
         // organisers

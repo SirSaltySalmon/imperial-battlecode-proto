@@ -24,3 +24,6 @@ ctrlc = { version = "3.4", features = ["termination"] }
 
 [dev-dependencies]
 tiny_http = "0.12"
+# tests/e2e.rs: the real coordinator, in-process, against real worker processes.
+ibc-coordinator = { path = "../coordinator" }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time"] }

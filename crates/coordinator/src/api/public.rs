@@ -2,7 +2,7 @@
 
 use super::worker::blob_response;
 use super::AppState;
-use crate::db::{self, jobs, league};
+use crate::db::{self, jobs, league, ratings};
 use crate::error::{ApiError, ApiResult};
 use crate::model::CLASSES;
 use crate::util::now_ms;
@@ -15,9 +15,9 @@ use serde_json::{json, Value};
 use std::fmt::Write;
 use std::sync::atomic::Ordering;
 
-/// Served verbatim from the latest snapshot (written whenever a rated series closes).
+/// Served verbatim from the latest snapshot (written whenever ratings or a live submission change).
 pub async fn ladder(State(app): AppState) -> ApiResult<Response> {
-    let body = app.db.tx(league::latest_snapshot)?;
+    let body = app.db.tx(ratings::latest_snapshot)?;
     let body = body.unwrap_or_else(|| {
         json!({"generated_at": null, "system": app.rating.name(), "teams": []}).to_string()
     });
