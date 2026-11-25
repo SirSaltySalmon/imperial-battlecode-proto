@@ -1,0 +1,10 @@
+# Build context for deploy/Dockerfile is the repository root; keep it to sources.
+target
+target-*
+out
+.git
+.claude
+**/target
+**/.ibc
+**/node_modules
+viewer/dist
