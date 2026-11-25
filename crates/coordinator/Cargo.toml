@@ -1,0 +1,31 @@
+[package]
+name = "ibc-coordinator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Imperial Battlecode coordinator: job queue, lease protocol v1, submissions, ladder. One process, one data directory."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "ibc-coordinator"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+# Same version as the one wasmtime pulls into the workspace lock file.
+wasmparser = { version = "0.263", default-features = false, features = ["std", "validate", "features", "simd"] }
+sha2 = "0.10"
+rand = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+wat = "1"
