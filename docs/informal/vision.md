@@ -1,0 +1,60 @@
+# Battlecode Vision
+This is the developer's informal vision notes for how the platform should function, how the game should play out, with ways to make development and participant experience better.
+
+Principles:
+- The platform should be safe and prevent cheating / unfair play as much as possible. This means
+  - No decompiling another team's bot to look at their code, or injecting any code
+  - No exploiting, like cheating the fuel count, crashing the game in your favor, freezing elo by not having any bots available to fight against, etc.
+  - Gameplay limitations to allow the game to be played the intended way, like limiting turn speeds as direction you're facing is important in this game.
+  - Rate limiting for uploads and matches
+- The game should feel like a real e-sports experience, where
+  - Many tools given to introduce interesting strategies, especially abilities. Ability use should have enough weight to turn tides and momentum, so that pure gunplay doesn't decide the game.
+  - Effective coordination and team play is rewarded
+  - Lack of information encourages winning through prediction and game theory
+  - Tradeoffs for every decision one can make
+  - Match-making puts you in appropriate position and can give you clear data you can interpret and use to help improve your bot
+- The development experience should be consistent, fast, and easy for agents to follow without them breaking guardrails, or rotting context. This means
+  - Docs detailing exact word definitions for agents to correctly refer to and interpret.
+  - Docs update from the right sources of truth, by direct computation rather than agent generating it
+  - Irrelevant or broken docs don't get archived, we simply write to a DEPRECATED.md if we drop features or so, with very brief summaries.
+  - Visualization tools and gameplay with user input possible for better intuition of the game
+    - Buy menu where weapon prices and stats are visible, as well as ability prices and information, and armour too.
+    - Tab where you can see all teammates equipment and stats.
+    - Real-time gameplay, with WASD and mouse (turn speed limited), and also tick-based, turn-based gameplay
+  - Tests are ran only when we edit what can break it, minimizing agent and CI/CD compute
+  - Simulations and benchmarks ready to run with every change we make
+  - Adding new weapons, abilities, and maps should be extremely easy. Maps especially wants a map editor, map import export, players can make custom maps to test on, as new maps gets introduced often.
+  - Moderation terminal exists, where we can see performance loads, flagged accounts, and ban / kick / suspend participants at will.
+- The tournament formula should look like:
+  - Ranked games are queued automatically always during the period, using everyone's active bot. Elo adjusts based on final results, maps won / lost difference, and elo difference.
+  - In each games, full 7 rounds are done on 3-5 randomly picked maps (number not finalized) from the pool.
+  - All uploaded versions gets archvived. User can queue unranked games with any team's bot, including their old version. 
+  - Each elo bracket is given a ranking like Iron, Bronze, Silver, Gold, Platinum, Emerald, Diamond, Immortal, Ascendant, Radiant.
+  - Tournaments run every week. When tournament runs, game stops for 1 hour, no more matches gets queued, and is maintained. Active bot versions gets recorded and locked for everyone, the tournament runs with that archived version of the bot rather than any new bot teams might upload. Tournamnets get seeded, can be single or double elimination. All teams play against each other on all maps defined for the tournament, which will be hidden before start. Tournament is not expected to finish in that 1 hour, will be continuing the whole time alongside real matches queueing again.
+  - Maps from tournaments gets added to real play after the 1 hour. 
+- The gameplay formula should look like:
+  - Draft picking system to pick different kits, made into an agent selection system like Valorant. During this time, compute is given, and can write to a draft memory that won't be editable after draft finishes, but can be read for the rest of the game.
+  - Buy phase memory works similar to draft memory, resetting every round. Smaller size and compute given.
+  - Then each agent act independently. Communicate through shared team memory. Smallest but editable and rewritable at all time in the actual match (so not usable in draft and buy phase)
+  - Match results and history is visible at all times.
+  - Free signature ability charge every round, unused ability charges get kept, can buy new ability charges.
+  - Gameplay abilities can look like:
+    - Placing tiles of walls (API should reveal it is player-placed to disambiguate from normal walls)
+    - Placing traps
+    - Smoking to block vision
+    - Flashing
+    - Area damage throwables (travel slower than bullets)
+    - And outside of those foundational kit, we should have MANY more interesting abilities.
+    - Start up for most abilities
+  - Wining rules as current: Defenders kill all before plant or defuse charge, Attackers kill all or detonate plant, etc.
+  - Spike plant timing and defuse timing should be decently long, to make it actually risky to do. Spike plant faster than defuse. Rotation to a different site should be a viable strategy
+  - On a round win, stop immediately: No more killing or movement, unlike Valorant where you can still kill after defuse for more credits.
+  - Half and half until won, first to 7. Only one over time game where sides are swapped, rather than two overtime games and keep overtiming until results are clear like in Valorant, to prevent indefinite game running.
+  - Shooting and running make noises, and you can hear and detect them, allowing bots to virtually map their estimated positions to self knowledge. Walking to not make noises is an option.
+  - Shooting has random spray when walking, more when running to encourage slowing down. Spray should be large enough to really discourage it. During startup and actual shooting you can move fine, but the bullet spray is determined by your speed when you shoot.
+  - Detonation of charge kills all players within a radius, they will lose their gun if they don't escape it.
+- The participant experience might look like:
+  - Can run local tests, with downloaded maps from map pool and custom maps as well
+  - Can access API and run automated unranked testing
+  - Match results and data are downloadable and interpretable for them to watch by replay and analyze
+  - Most participants will probably use agents to code their bot, information and errors, especially for API and rate limits, should be accessible.

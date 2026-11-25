@@ -1,0 +1,19 @@
+[package]
+name = "ibc-combatviz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Browser lab for weapon fans and the combat tests in docs/rules/combat.md"
+
+[lib]
+name = "ibc_combatviz"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ibc-combatviz"
+path = "src/main.rs"
+
+[dependencies]
+ibc-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

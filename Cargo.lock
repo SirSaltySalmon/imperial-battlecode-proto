@@ -858,6 +858,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ibc-combatviz"
+version = "0.1.0"
+dependencies = [
+ "ibc-engine",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ibc-coordinator"
 version = "0.1.0"
 dependencies = [

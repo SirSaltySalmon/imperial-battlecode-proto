@@ -1,0 +1,116 @@
+/* Layout only. Colours are the viewer's CSS variables, set from theme.ts. */
+
+#lab-nav {
+  width: 220px;
+  flex: none;
+  overflow: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 8px;
+}
+
+#lab-nav h2 {
+  margin: 12px 8px 4px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+#lab-nav button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 2px 0;
+}
+
+#panel .weapons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+#panel label.row {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  color: var(--dim);
+}
+
+#panel label.row output {
+  color: var(--text);
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#panel table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+#panel th {
+  text-align: left;
+  color: var(--dim);
+  font-weight: 500;
+  font-size: 11px;
+  padding: 2px 4px 2px 0;
+}
+
+#panel td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding: 1px;
+}
+
+#panel .chart {
+  width: 100%;
+  height: 84px;
+  display: block;
+  background: var(--bg);
+  border-radius: 6px;
+}
+
+#panel .timeline {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+#panel .timeline i {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  display: block;
+}
+
+#panel h2 {
+  font-size: 15px;
+  margin: 10px 0 4px;
+}
+
+#panel ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#panel li {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  line-height: 1.4;
+}
+
+#panel .badge {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+}
+
+#check.bad {
+  color: var(--hp-low);
+}

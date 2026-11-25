@@ -24,6 +24,8 @@ export interface Scene {
   show: { vision: boolean; debug: boolean; sounds: boolean };
   /** Unit id to ring (the single-unit perspective), or null. */
   selected: number | null;
+  /** Extra marks in tile space, after shots and before units, so bodies cover their roots. */
+  marks?: (pen: Pen) => void;
 }
 
 /** Shared by the drawing modules: the context plus the numbers they all need. */
@@ -111,6 +113,7 @@ export function render(ctx: CanvasRenderingContext2D, width: number, height: num
   // is drawn: a bullet about to enter the viewers' sight must not be traced back into the fog.
   const shots = interpShots(frame.projectiles, scene.next?.projectiles ?? null, scene.t, stopFn(scene));
   drawShots(pen, shots.filter((s) => s.team === view.team || view.canSee(s.x, s.y)));
+  scene.marks?.(pen);
   drawUnits(pen, poses);
   if (scene.show.debug) drawDebug(pen, view.debug);
 }

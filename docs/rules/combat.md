@@ -16,6 +16,16 @@ IBC_BLESS=1 cargo test -p ibc-engine --test combat_ttk
 
 `cargo test -p ibc-engine` fails while they are stale.
 
+Watch the same duels, and the other combat tests, in the replay viewer. Record them, then open the combat lab
+(`viewer/lab.html`), which draws with the viewer's theme and units:
+
+```
+cargo run -p ibc-combatviz -- --out viewer/public/lab.json
+```
+
+From `viewer/`, `npm run dev` and open `/lab.html`. The page also accepts a dropped `lab.json`. Pass `--out` to
+write the recording somewhere else (the default is `out/combat-lab/lab.json`).
+
 ## One trigger pull
 
 `A_FIRE(angle)` on tick `T` with a weapon of wind-up `w` and cooldown `c`:

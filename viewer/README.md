@@ -27,6 +27,10 @@ ibc view replay.ibcr --port 8080 --viewer-dir path/to/dist
 or any static server over `dist/` (`npx vite preview`, `python -m http.server`), opening
 `/?replay=<url of an .ibcr>`. `npm run dev` runs the Vite dev server with hot reload.
 
+`/lab.html` is the combat lab. It uses this viewer's theme, units and map to draw a recording from
+`cargo run -p ibc-combatviz -- --out viewer/public/lab.json`. Drop a `lab.json` on the page if it is not
+served from `public/`.
+
 `ibc view` finds the built viewer through `--viewer-dir`, then `IBC_VIEWER_DIR`, then a `viewer/dist` beside
 the working directory or the binary. The viewer is not embedded in the `ibc` binary on purpose: that would
 make building `ibc` depend on Node.

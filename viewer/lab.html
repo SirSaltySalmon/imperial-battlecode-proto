@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Combat lab</title>
+    <link rel="stylesheet" href="./src/style.css" />
+    <link rel="stylesheet" href="./src/lab.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="top">
+        <div class="brand">IBC<span>combat</span></div>
+        <div id="match-title"></div>
+        <div class="spacer"></div>
+        <span id="check"></span>
+        <button id="btn-open" title="Open a lab.json (O)">Open lab</button>
+        <button id="btn-theme" title="Switch theme (T)">Light</button>
+        <input type="file" id="file" accept="application/json,.json" hidden />
+      </header>
+      <main>
+        <nav id="lab-nav"></nav>
+        <div id="stage">
+          <canvas id="canvas"></canvas>
+          <div id="empty">
+            <div class="empty-card">
+              <h1>Drop a combat lab here</h1>
+              <p><code>cargo run -p ibc-combatviz</code> writes <code>out/combat-lab/lab.json</code>.</p>
+              <button id="btn-open-2">Choose a file</button>
+              <p id="status" role="status"></p>
+            </div>
+          </div>
+        </div>
+        <aside id="panel"></aside>
+      </main>
+      <footer id="controls">
+        <button id="btn-step-back" title="Back one step (Left)">&lsaquo;</button>
+        <button id="btn-play" class="primary" title="Play / pause (Space)">Play</button>
+        <button id="btn-step" title="Forward one step (Right)">&rsaquo;</button>
+        <button id="btn-jump" title="Jump to the killing step" hidden>Death</button>
+        <select id="speed" title="Playback speed" aria-label="Playback speed">
+          <option value="0.25">0.25×</option>
+          <option value="1" selected>1×</option>
+          <option value="4">4×</option>
+          <option value="8">8×</option>
+        </select>
+        <div id="scrub-wrap">
+          <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Step" />
+        </div>
+        <button id="btn-fit" title="Fit (F)">Fit</button>
+        <div id="readout">no lab</div>
+      </footer>
+    </div>
+    <script type="module" src="./src/lab.ts"></script>
+  </body>
+</html>
