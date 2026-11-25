@@ -34,7 +34,10 @@ struct Args {
 
 impl Args {
     fn parse(raw: &[String]) -> Result<Args, String> {
-        let mut args = Args { positional: Vec::new(), flags: Vec::new() };
+        let mut args = Args {
+            positional: Vec::new(),
+            flags: Vec::new(),
+        };
         let mut it = raw.iter();
         while let Some(a) = it.next() {
             if SWITCHES.contains(&a.as_str()) {
@@ -50,7 +53,10 @@ impl Args {
     }
 
     fn get(&self, name: &str) -> Option<&str> {
-        self.flags.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+        self.flags
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
     }
 
     fn has(&self, name: &str) -> bool {
@@ -59,7 +65,11 @@ impl Args {
 
     /// Reject flags the command does not know, so a typo is not silently ignored.
     fn allow(&self, known: &[&str]) -> Result<(), String> {
-        match self.flags.iter().find(|(k, _)| !known.contains(&k.as_str())) {
+        match self
+            .flags
+            .iter()
+            .find(|(k, _)| !known.contains(&k.as_str()))
+        {
             Some((k, _)) => Err(format!("unknown option {k}\n{USAGE}")),
             None => Ok(()),
         }
@@ -82,7 +92,12 @@ fn rules(args: &Args) -> Result<Ruleset, String> {
         None => Ok(Ruleset::builtin()),
         Some(dir) => {
             let file = |name: &str| read(&format!("{dir}/{name}.toml"));
-            Ruleset::from_toml(&file("core")?, &file("weapons")?, &file("abilities")?, &file("economy")?)
+            Ruleset::from_toml(
+                &file("core")?,
+                &file("weapons")?,
+                &file("abilities")?,
+                &file("economy")?,
+            )
         }
     }
 }
@@ -110,13 +125,28 @@ fn cmd_lint(args: &Args) -> Result<bool, String> {
     let rules = rules(args)?;
     let mut failed = false;
     for path in &args.positional {
-        let stem = Path::new(path).file_stem().map(|s| s.to_string_lossy().into_owned());
+        let stem = Path::new(path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned());
         let issues = lint(&read(path)?, stem.as_deref(), &rules);
         let bad = fails(&issues, args.has("--strict"));
         failed |= bad;
-        println!("{path}: {}", if bad { "FAIL" } else if issues.is_empty() { "ok" } else { "ok (with warnings)" });
+        println!(
+            "{path}: {}",
+            if bad {
+                "FAIL"
+            } else if issues.is_empty() {
+                "ok"
+            } else {
+                "ok (with warnings)"
+            }
+        );
         for i in &issues {
-            let level = if i.severity == Severity::Error { "error" } else { "warning" };
+            let level = if i.severity == Severity::Error {
+                "error"
+            } else {
+                "warning"
+            };
             println!("  {level}[{}]: {}", i.code, i.message);
         }
     }
@@ -146,8 +176,14 @@ fn cmd_picture(args: &Args, as_svg: bool) -> Result<bool, String> {
     args.allow(&["-o", "--overlay", "--rules"])?;
     let map = load_map(args.one_map()?)?;
     let overlays = Overlay::parse_list(args.get("--overlay").unwrap_or(""))?;
-    let analysis = (!overlays.is_empty()).then(|| rules(args).map(|r| analyze(&map, &r, &Bands::default()))).transpose()?;
-    let text = if as_svg { svg(&map, analysis.as_ref(), &overlays) } else { ascii(&map, analysis.as_ref(), &overlays) };
+    let analysis = (!overlays.is_empty())
+        .then(|| rules(args).map(|r| analyze(&map, &r, &Bands::default())))
+        .transpose()?;
+    let text = if as_svg {
+        svg(&map, analysis.as_ref(), &overlays)
+    } else {
+        ascii(&map, analysis.as_ref(), &overlays)
+    };
     emit(args, &text)?;
     Ok(true)
 }
@@ -166,26 +202,42 @@ fn finish_edit(args: &Args, mut raw: RawMap) -> Result<bool, String> {
 
 fn cmd_transform(args: &Args) -> Result<bool, String> {
     args.allow(&["--op", "--name", "-o"])?;
-    let op = Op::parse(args.get("--op").ok_or_else(|| format!("transform needs --op\n{USAGE}"))?)?;
+    let op = Op::parse(
+        args.get("--op")
+            .ok_or_else(|| format!("transform needs --op\n{USAGE}"))?,
+    )?;
     finish_edit(args, apply(&raw_map(args.one_map()?)?, op)?)
 }
 
 fn cmd_mirror(args: &Args) -> Result<bool, String> {
     args.allow(&["--axis", "--swap-sides", "--name", "-o"])?;
-    let axis = Axis::parse(args.get("--axis").ok_or_else(|| format!("mirror needs --axis\n{USAGE}"))?)?;
-    finish_edit(args, mirror(&raw_map(args.one_map()?)?, axis, args.has("--swap-sides"))?)
+    let axis = Axis::parse(
+        args.get("--axis")
+            .ok_or_else(|| format!("mirror needs --axis\n{USAGE}"))?,
+    )?;
+    finish_edit(
+        args,
+        mirror(&raw_map(args.one_map()?)?, axis, args.has("--swap-sides"))?,
+    )
 }
 
 fn cmd_new(args: &Args) -> Result<bool, String> {
     args.allow(&["--size", "--team-size", "--name", "-o"])?;
-    let size = args.get("--size").ok_or_else(|| format!("new needs --size WxH\n{USAGE}"))?;
+    let size = args
+        .get("--size")
+        .ok_or_else(|| format!("new needs --size WxH\n{USAGE}"))?;
     let (w, h) = size
         .split_once(['x', 'X'])
         .and_then(|(w, h)| Some((w.parse::<usize>().ok()?, h.parse::<usize>().ok()?)))
         .ok_or_else(|| format!("--size: `{size}` is not WxH"))?;
     let team = args.get("--team-size").unwrap_or("5");
-    let team: usize = team.parse().map_err(|_| format!("--team-size: `{team}` is not a number"))?;
-    emit(args, &scaffold(w, h, team, args.get("--name").unwrap_or("unnamed"))?.to_text())?;
+    let team: usize = team
+        .parse()
+        .map_err(|_| format!("--team-size: `{team}` is not a number"))?;
+    emit(
+        args,
+        &scaffold(w, h, team, args.get("--name").unwrap_or("unnamed"))?.to_text(),
+    )?;
     Ok(true)
 }
 

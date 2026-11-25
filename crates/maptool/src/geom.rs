@@ -17,11 +17,21 @@ pub struct Rect {
 
 impl Rect {
     pub fn tile(tx: i32, ty: i32) -> Rect {
-        Rect { x0: tx * TILE, y0: ty * TILE, x1: (tx + 1) * TILE, y1: (ty + 1) * TILE }
+        Rect {
+            x0: tx * TILE,
+            y0: ty * TILE,
+            x1: (tx + 1) * TILE,
+            y1: (ty + 1) * TILE,
+        }
     }
 
     fn corners(&self) -> [V2; 4] {
-        [(self.x0, self.y0), (self.x1, self.y0), (self.x1, self.y1), (self.x0, self.y1)]
+        [
+            (self.x0, self.y0),
+            (self.x1, self.y0),
+            (self.x1, self.y1),
+            (self.x0, self.y1),
+        ]
     }
 }
 
@@ -77,7 +87,9 @@ pub fn seg_rect_within(a: V2, b: V2, q: Rect, r: i64) -> bool {
     if q.corners().iter().any(|&c| point_seg_within(c, a, b, r)) {
         return true;
     }
-    [a, b].iter().any(|&p| dist2(p, (p.0.clamp(q.x0, q.x1), p.1.clamp(q.y0, q.y1))) < r * r)
+    [a, b]
+        .iter()
+        .any(|&p| dist2(p, (p.0.clamp(q.x0, q.x1), p.1.clamp(q.y0, q.y1))) < r * r)
 }
 
 /// Conservative y-range of the part of segment `a-b` whose x lies in `[x_lo, x_hi]`.
@@ -103,7 +115,8 @@ pub fn swept_free(map: &Map, a: V2, b: V2, r: i32) -> bool {
         let (lo, hi) = y_span(a, b, tx * TILE - r, (tx + 1) * TILE + r);
         let (ty0, ty1) = ((lo - r).div_euclid(TILE), (hi + r).div_euclid(TILE));
         for ty in ty0..=ty1 {
-            if map.tile(tx, ty) != TILE_FLOOR && seg_rect_within(a, b, Rect::tile(tx, ty), r as i64) {
+            if map.tile(tx, ty) != TILE_FLOOR && seg_rect_within(a, b, Rect::tile(tx, ty), r as i64)
+            {
                 return false;
             }
         }
@@ -125,10 +138,18 @@ mod tests {
 
     #[test]
     fn segment_rect_cases() {
-        let q = Rect { x0: 0, y0: 0, x1: 1024, y1: 1024 };
+        let q = Rect {
+            x0: 0,
+            y0: 0,
+            x1: 1024,
+            y1: 1024,
+        };
         assert!(seg_rect_intersects((-500, 512), (1500, 512), q));
         assert!(seg_rect_intersects((-100, 150), (150, -100), q));
-        assert!(seg_rect_intersects((-100, 100), (100, -100), q), "touching a corner counts");
+        assert!(
+            seg_rect_intersects((-100, 100), (100, -100), q),
+            "touching a corner counts"
+        );
         assert!(!seg_rect_intersects((-100, 0), (0, -101), q));
         assert!(seg_rect_within((-100, -200), (1200, -200), q, 300));
         assert!(!seg_rect_within((-100, -300), (1200, -300), q, 300));
@@ -136,8 +157,11 @@ mod tests {
 
     #[test]
     fn swept_test_agrees_with_circle_blocked_samples() {
-        let m = Map::parse("name: t\n---\n########\n#a..#.d#\n#....o.#\n#.#..1.#\n########\n").unwrap();
-        let pts: Vec<V2> = (0..40).map(|i| (1100 + i * 157 % 6000, 1100 + i * 311 % 3000)).collect();
+        let m =
+            Map::parse("name: t\n---\n########\n#a..#.d#\n#....o.#\n#.#..1.#\n########\n").unwrap();
+        let pts: Vec<V2> = (0..40)
+            .map(|i| (1100 + i * 157 % 6000, 1100 + i * 311 % 3000))
+            .collect();
         let mut free = 0;
         for &a in &pts {
             for &b in &pts {
@@ -153,6 +177,9 @@ mod tests {
                 free += swept_free(&m, a, b, 300) as u32;
             }
         }
-        assert!(free > 100, "the layout has open floor, most short hops are free ({free})");
+        assert!(
+            free > 100,
+            "the layout has open floor, most short hops are free ({free})"
+        );
     }
 }

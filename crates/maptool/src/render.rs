@@ -35,7 +35,10 @@ impl Overlay {
                 "time-a" => Ok(Overlay::TimeAttack),
                 "time-d" => Ok(Overlay::TimeDefend),
                 "advantage" => Ok(Overlay::Advantage),
-                other => Err(format!("unknown overlay `{other}` (known: {})", Overlay::NAMES)),
+                other => Err(format!(
+                    "unknown overlay `{other}` (known: {})",
+                    Overlay::NAMES
+                )),
             })
             .collect()
     }
@@ -53,7 +56,12 @@ fn px(v: i32) -> f64 {
 fn mix(from: (u8, u8, u8), to: (u8, u8, u8), t: f64) -> String {
     let t = t.clamp(0.0, 1.0);
     let ch = |a: u8, b: u8| (a as f64 + (b as f64 - a as f64) * t).round() as u8;
-    format!("#{:02x}{:02x}{:02x}", ch(from.0, to.0), ch(from.1, to.1), ch(from.2, to.2))
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        ch(from.0, to.0),
+        ch(from.1, to.1),
+        ch(from.2, to.2)
+    )
 }
 
 /// Ticks for a side to reach tile `i`, if it can.
@@ -65,14 +73,22 @@ fn tile_ticks(a: &Analysis, side: usize, i: usize) -> Option<i64> {
 fn heat_colour(a: &Analysis, overlays: &[Overlay], i: usize) -> Option<String> {
     const PALE: (u8, u8, u8) = (0xf4, 0xf1, 0xea);
     let side_heat = |side: usize, deep: (u8, u8, u8)| {
-        let max = (0..a.tile_dist[side].len()).filter_map(|j| tile_ticks(a, side, j)).max().unwrap_or(1).max(1);
+        let max = (0..a.tile_dist[side].len())
+            .filter_map(|j| tile_ticks(a, side, j))
+            .max()
+            .unwrap_or(1)
+            .max(1);
         tile_ticks(a, side, i).map(|t| mix(PALE, deep, t as f64 / max as f64))
     };
     if overlays.contains(&Overlay::Advantage) {
         let (ta, td) = (tile_ticks(a, 0, i)?, tile_ticks(a, 1, i)?);
         // Positive: defenders first (blue). Negative: attackers first (orange). Saturates at 20 ticks.
         let lead = (ta - td) as f64 / 20.0;
-        return Some(if lead >= 0.0 { mix(PALE, (0x4c, 0x8f, 0xe0), lead) } else { mix(PALE, (0xf0, 0x8c, 0x3c), -lead) });
+        return Some(if lead >= 0.0 {
+            mix(PALE, (0x4c, 0x8f, 0xe0), lead)
+        } else {
+            mix(PALE, (0xf0, 0x8c, 0x3c), -lead)
+        });
     }
     if overlays.contains(&Overlay::TimeAttack) {
         return side_heat(0, (0xe0, 0x5a, 0x1a));
@@ -93,7 +109,11 @@ pub fn svg(map: &Map, analysis: Option<&Analysis>, overlays: &[Overlay]) -> Stri
         h + 18,
         h + 18
     );
-    let _ = writeln!(o, r##"<rect width="{w}" height="{}" fill="#ffffff"/>"##, h + 18);
+    let _ = writeln!(
+        o,
+        r##"<rect width="{w}" height="{}" fill="#ffffff"/>"##,
+        h + 18
+    );
     for ty in 0..map.height {
         for tx in 0..map.width {
             let i = (ty * map.width + tx) as usize;
@@ -109,16 +129,25 @@ pub fn svg(map: &Map, analysis: Option<&Analysis>, overlays: &[Overlay]) -> Stri
             } else {
                 "#f4f1ea".to_string()
             };
-            let _ = writeln!(o, r##"<rect x="{x}" y="{y}" width="{CELL}" height="{CELL}" fill="{fill}" stroke="#d9d4c7" stroke-width="0.5"/>"##);
+            let _ = writeln!(
+                o,
+                r##"<rect x="{x}" y="{y}" width="{CELL}" height="{CELL}" fill="{fill}" stroke="#d9d4c7" stroke-width="0.5"/>"##
+            );
             if tile == TILE_LOW {
                 let _ = writeln!(
                     o,
                     r##"<rect x="{}" y="{}" width="{}" height="{}" rx="3" fill="#a9824a" stroke="#6e5026" stroke-width="1"/>"##,
-                    x + 2, y + 2, CELL - 4, CELL - 4
+                    x + 2,
+                    y + 2,
+                    CELL - 4,
+                    CELL - 4
                 );
             }
             if site > 0 && tile != TILE_WALL {
-                let _ = writeln!(o, r##"<rect x="{x}" y="{y}" width="{CELL}" height="{CELL}" fill="none" stroke="#c98a00" stroke-width="1"/>"##);
+                let _ = writeln!(
+                    o,
+                    r##"<rect x="{x}" y="{y}" width="{CELL}" height="{CELL}" fill="none" stroke="#c98a00" stroke-width="1"/>"##
+                );
             }
         }
     }
@@ -128,13 +157,17 @@ pub fn svg(map: &Map, analysis: Option<&Analysis>, overlays: &[Overlay]) -> Stri
             let _ = writeln!(
                 o,
                 r##"<circle cx="{:.1}" cy="{:.1}" r="{:.1}" fill="{colour}" fill-opacity="{}"/>"##,
-                px(p.0), px(p.1), px(300), if used { "0.9" } else { "0.35" }
+                px(p.0),
+                px(p.1),
+                px(300),
+                if used { "0.9" } else { "0.35" }
             );
             if k == 0 {
                 let _ = writeln!(
                     o,
                     r##"<text x="{:.1}" y="{:.1}" font-size="11" font-weight="bold" fill="{colour}">{label}</text>"##,
-                    px(p.0) - 4.0, px(p.1) - 9.0
+                    px(p.0) - 4.0,
+                    px(p.1) - 9.0
                 );
             }
         }
@@ -143,7 +176,9 @@ pub fn svg(map: &Map, analysis: Option<&Analysis>, overlays: &[Overlay]) -> Stri
         let _ = writeln!(
             o,
             r##"<text x="{:.1}" y="{:.1}" font-size="13" font-weight="bold" text-anchor="middle" fill="#7a5200">{}</text>"##,
-            px(s.centre_x), px(s.centre_y) + 4.5, s.id + 1
+            px(s.centre_x),
+            px(s.centre_y) + 4.5,
+            s.id + 1
         );
     }
     if let Some(a) = analysis {
@@ -152,7 +187,12 @@ pub fn svg(map: &Map, analysis: Option<&Analysis>, overlays: &[Overlay]) -> Stri
     let _ = writeln!(
         o,
         r##"<text x="2" y="{}" font-size="11" fill="#333">{} {}x{} {}v{}  A=attackers D=defenders  brown=low cover</text>"##,
-        h + 13, map.name, map.width, map.height, map.team_size, map.team_size
+        h + 13,
+        map.name,
+        map.width,
+        map.height,
+        map.team_size,
+        map.team_size
     );
     o.push_str("</svg>\n");
     o
@@ -165,7 +205,10 @@ fn overlay_shapes(o: &mut String, a: &Analysis, overlays: &[Overlay]) {
                 let _ = writeln!(
                     o,
                     r##"<rect x="{}" y="{}" width="{}" height="{}" fill="#b5179e" fill-opacity="0.3" stroke="#b5179e" stroke-width="1"/>"##,
-                    tx * CELL + 1, ty * CELL + 1, CELL - 2, CELL - 2
+                    tx * CELL + 1,
+                    ty * CELL + 1,
+                    CELL - 2,
+                    CELL - 2
                 );
             }
         }
@@ -176,14 +219,20 @@ fn overlay_shapes(o: &mut String, a: &Analysis, overlays: &[Overlay]) {
             let _ = writeln!(
                 o,
                 r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="#2b9348" stroke-width="1.5" stroke-dasharray="5 3"/>"##,
-                c(s.from.0), c(s.from.1), c(s.to.0), c(s.to.1)
+                c(s.from.0),
+                c(s.from.1),
+                c(s.to.0),
+                c(s.to.1)
             );
         }
     }
     if overlays.contains(&Overlay::Routes) {
         for s in &a.sites {
             for (path, colour) in [(&s.attacker_path, ATTACK), (&s.defender_path, DEFEND)] {
-                let pts: Vec<String> = path.iter().map(|p| format!("{:.1},{:.1}", px(p.0), px(p.1))).collect();
+                let pts: Vec<String> = path
+                    .iter()
+                    .map(|p| format!("{:.1},{:.1}", px(p.0), px(p.1)))
+                    .collect();
                 let _ = writeln!(
                     o,
                     r##"<polyline points="{}" fill="none" stroke="{colour}" stroke-width="2" stroke-opacity="0.8" stroke-linejoin="round"/>"##,
@@ -197,7 +246,8 @@ fn overlay_shapes(o: &mut String, a: &Analysis, overlays: &[Overlay]) {
 /// The grid with rulers. With a time overlay, floor tiles show ticks/4 as 0-9A-Z; with `advantage`,
 /// `+` where defenders arrive first, `-` where attackers do, `=` within a tick.
 pub fn ascii(map: &Map, analysis: Option<&Analysis>, overlays: &[Overlay]) -> String {
-    let spawn_at = |side: usize, tx: i32, ty: i32| map.spawns[side].iter().any(|&p| tile_of(p) == (tx, ty));
+    let spawn_at =
+        |side: usize, tx: i32, ty: i32| map.spawns[side].iter().any(|&p| tile_of(p) == (tx, ty));
     let mut o = String::new();
     for row in [|x: i32| x / 10 % 10, |x: i32| x % 10] {
         o.push_str("    ");
@@ -230,10 +280,17 @@ pub fn ascii(map: &Map, analysis: Option<&Analysis>, overlays: &[Overlay]) -> St
 }
 
 fn overlay_char(a: &Analysis, overlays: &[Overlay], i: usize) -> Option<char> {
-    let scale = |t: i64| char::from_digit((t / 4).clamp(0, 35) as u32, 36).map(|c| c.to_ascii_uppercase());
+    let scale =
+        |t: i64| char::from_digit((t / 4).clamp(0, 35) as u32, 36).map(|c| c.to_ascii_uppercase());
     if overlays.contains(&Overlay::Advantage) {
         let lead = tile_ticks(a, 0, i)? - tile_ticks(a, 1, i)?;
-        return Some(if lead > 1 { '+' } else if lead < -1 { '-' } else { '=' });
+        return Some(if lead > 1 {
+            '+'
+        } else if lead < -1 {
+            '-'
+        } else {
+            '='
+        });
     }
     if overlays.contains(&Overlay::TimeAttack) {
         return scale(tile_ticks(a, 0, i)?);

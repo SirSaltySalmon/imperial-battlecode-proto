@@ -15,7 +15,11 @@ fn band(b: Band) -> String {
 
 /// ` (low)` / ` (high)` when a value is outside its band.
 fn mark(a: &Analysis, metric: &str, scope: &str) -> String {
-    match a.flags.iter().find(|f| f.metric == metric && f.scope == scope) {
+    match a
+        .flags
+        .iter()
+        .find(|f| f.metric == metric && f.scope == scope)
+    {
         Some(f) => format!(" **({})**", f.verdict),
         None => String::new(),
     }
@@ -28,7 +32,11 @@ pub fn json(a: &Analysis) -> String {
 pub fn markdown(a: &Analysis) -> String {
     let mut o = String::new();
     let b = &a.bands;
-    let _ = writeln!(o, "# {} ({}x{}, {}v{})\n", a.map, a.width, a.height, a.team_size, a.team_size);
+    let _ = writeln!(
+        o,
+        "# {} ({}x{}, {}v{})\n",
+        a.map, a.width, a.height, a.team_size, a.team_size
+    );
     let _ = writeln!(
         o,
         "Walkable tiles: {}. Travel is any-angle for a circle of radius {} at run speed {} per tick; sight is exact \
@@ -66,8 +74,13 @@ pub fn markdown(a: &Analysis) -> String {
     let _ = writeln!(
         o,
         "\nBands: attackers {} ticks, defenders {} ticks, advantage (attacker minus defender) {} ticks. \
-         Teams running at each other meet after about {} ticks.\n",
-        band(b.attacker_ticks), band(b.defender_ticks), band(b.advantage_ticks), a.spawn_to_spawn_ticks
+         Teams running at each other meet after about {} ticks{} (band {}).\n",
+        band(b.attacker_ticks),
+        band(b.defender_ticks),
+        band(b.advantage_ticks),
+        a.spawn_to_spawn_ticks,
+        mark(a, "spawn_to_spawn_ticks", "map"),
+        band(b.spawn_to_spawn_ticks)
     );
 
     if !a.rotations.is_empty() {
@@ -76,33 +89,71 @@ pub fn markdown(a: &Analysis) -> String {
         let _ = writeln!(o, "|---|---|---|");
         for r in &a.rotations {
             let scope = format!("site {} -> site {}", r.from_site, r.to_site);
-            let _ = writeln!(o, "| {} | {}{} | {} |", scope, r.ticks, mark(a, "rotation_ticks", &scope), tiles(r.dist));
+            let _ = writeln!(
+                o,
+                "| {} | {}{} | {} |",
+                scope,
+                r.ticks,
+                mark(a, "rotation_ticks", &scope),
+                tiles(r.dist)
+            );
         }
         let _ = writeln!(o, "\nBand: rotation {} ticks.\n", band(b.rotation_ticks));
     } else {
         let _ = writeln!(o, "## Retake\n");
     }
-    let _ = writeln!(o, "| Charge on | Defender from | Run | Run + defuse | Fuse slack | Verdict |");
+    let _ = writeln!(
+        o,
+        "| Charge on | Defender from | Run | Run + defuse | Fuse slack | Verdict |"
+    );
     let _ = writeln!(o, "|---|---|---|---|---|---|");
     for s in &a.sites {
         for r in &s.retakes {
-            let verdict = if r.slack_ticks >= 0 { "can defuse" } else { "too late" };
-            let _ = writeln!(o, "| site {} | {} | {} | {} | {} | {} |", s.site, r.from, r.run_ticks, r.total_ticks, r.slack_ticks, verdict);
+            let verdict = if r.slack_ticks >= 0 {
+                "can defuse"
+            } else {
+                "too late"
+            };
+            let _ = writeln!(
+                o,
+                "| site {} | {} | {} | {} | {} | {} |",
+                s.site, r.from, r.run_ticks, r.total_ticks, r.slack_ticks, verdict
+            );
         }
     }
-    let _ = writeln!(o, "\nBand: slack from the nearest other site {} ticks (unopposed run; fights eat into it).\n", band(b.retake_slack_ticks));
+    let _ = writeln!(
+        o,
+        "\nBand: slack from the nearest other site {} ticks (unopposed run; fights eat into it).\n",
+        band(b.retake_slack_ticks)
+    );
 
     let _ = writeln!(o, "## Routes and chokepoints\n");
-    let _ = writeln!(o, "| Site | Routes | Total width | Chokes (middle tile x width) |");
+    let _ = writeln!(
+        o,
+        "| Site | Routes | Total width | Chokes (middle tile x width) |"
+    );
     let _ = writeln!(o, "|---|---|---|---|");
     for s in &a.sites {
         let scope = format!("site {}", s.site);
-        let list: Vec<String> = s.chokes.iter().map(|c| format!("({},{}) x{}", c.at.0, c.at.1, c.width_tiles)).collect();
-        let (routes, width) = if s.routes < 0 { ("open".to_string(), "-".to_string()) } else { (s.routes.to_string(), s.cut_width.to_string()) };
+        let list: Vec<String> = s
+            .chokes
+            .iter()
+            .map(|c| format!("({},{}) x{}", c.at.0, c.at.1, c.width_tiles))
+            .collect();
+        let (routes, width) = if s.routes < 0 {
+            ("open".to_string(), "-".to_string())
+        } else {
+            (s.routes.to_string(), s.cut_width.to_string())
+        };
         let _ = writeln!(
             o,
             "| {} | {}{} | {}{} | {} |",
-            s.site, routes, mark(a, "routes", &scope), width, mark(a, "cut_width", &scope), list.join(", ")
+            s.site,
+            routes,
+            mark(a, "routes", &scope),
+            width,
+            mark(a, "cut_width", &scope),
+            list.join(", ")
         );
     }
     let _ = writeln!(
@@ -116,9 +167,28 @@ pub fn markdown(a: &Analysis) -> String {
     let _ = writeln!(o, "| Longest sightlines | From | To | Tiles |");
     let _ = writeln!(o, "|---|---|---|---|");
     for (k, s) in a.sightlines.iter().enumerate() {
-        let note = if s.beyond_vision { " (beyond vision range)" } else { "" };
-        let flag = if k == 0 { mark(a, "longest_sightline_tiles", "map") } else { String::new() };
-        let _ = writeln!(o, "| {} | ({},{}) | ({},{}) | {}{}{} |", k + 1, s.from.0, s.from.1, s.to.0, s.to.1, tiles(s.length), flag, note);
+        let note = if s.beyond_vision {
+            " (beyond vision range)"
+        } else {
+            ""
+        };
+        let flag = if k == 0 {
+            mark(a, "longest_sightline_tiles", "map")
+        } else {
+            String::new()
+        };
+        let _ = writeln!(
+            o,
+            "| {} | ({},{}) | ({},{}) | {}{}{} |",
+            k + 1,
+            s.from.0,
+            s.from.1,
+            s.to.0,
+            s.to.1,
+            tiles(s.length),
+            flag,
+            note
+        );
     }
     let _ = writeln!(
         o,
@@ -143,9 +213,21 @@ pub fn markdown(a: &Analysis) -> String {
         band(b.best_hold_share_pct), band(b.mean_hold_share_pct), band(b.cover_pct), band(b.postplant_visible_pct)
     );
     for s in &a.sites {
-        let best: Vec<String> = s.best_holds.iter().map(|h| format!("({},{}) {}%", h.at.0, h.at.1, h.share_pct)).collect();
-        let far = s.postplant_farthest.map_or("-".to_string(), |p| format!("({},{})", p.0, p.1));
-        let _ = writeln!(o, "- Site {}: best holds {}; farthest tile watching the charge {}.", s.site, best.join(", "), far);
+        let best: Vec<String> = s
+            .best_holds
+            .iter()
+            .map(|h| format!("({},{}) {}%", h.at.0, h.at.1, h.share_pct))
+            .collect();
+        let far = s
+            .postplant_farthest
+            .map_or("-".to_string(), |p| format!("({},{})", p.0, p.1));
+        let _ = writeln!(
+            o,
+            "- Site {}: best holds {}; farthest tile watching the charge {}.",
+            s.site,
+            best.join(", "),
+            far
+        );
     }
 
     let _ = writeln!(o, "\n## Flags\n");
@@ -155,7 +237,15 @@ pub fn markdown(a: &Analysis) -> String {
         let _ = writeln!(o, "| Metric | Where | Value | Band | Verdict |");
         let _ = writeln!(o, "|---|---|---|---|---|");
         for f in &a.flags {
-            let _ = writeln!(o, "| {} | {} | {} | {} | {} |", f.metric, f.scope, f.value, band(f.band), f.verdict);
+            let _ = writeln!(
+                o,
+                "| {} | {} | {} | {} | {} |",
+                f.metric,
+                f.scope,
+                f.value,
+                band(f.band),
+                f.verdict
+            );
         }
     }
     o

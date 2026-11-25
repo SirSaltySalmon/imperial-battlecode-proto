@@ -16,6 +16,10 @@ pub struct Bands {
     pub defender_ticks: Band,
     /// Attacker ticks minus defender ticks: how long defenders hold the site before first contact.
     pub advantage_ticks: Band,
+    /// Ticks until the teams meet when both run at each other's spawn (half the spawn-to-spawn run).
+    /// Above the band a unit cannot cross the map and come back within a round, and defenders
+    /// pushing out are out of earshot of an attack that has already left.
+    pub spawn_to_spawn_ticks: Band,
     /// Ticks to run between two site centres.
     pub rotation_ticks: Band,
     /// Distinct chokepoints between the attacker spawn zone and the site.
@@ -55,6 +59,7 @@ impl Default for Bands {
             attacker_ticks: [22, 50],
             defender_ticks: [6, 36],
             advantage_ticks: [5, 18],
+            spawn_to_spawn_ticks: [14, 26],
             rotation_ticks: [10, 30],
             routes: [2, 5],
             cut_width: [3, 14],
@@ -79,7 +84,10 @@ impl Bands {
         let b: Bands = toml::from_str(text).map_err(|e| format!("bands: {e}"))?;
         for (name, band) in b.named() {
             if band[0] > band[1] {
-                return Err(format!("bands: {name} = [{}, {}] has low above high", band[0], band[1]));
+                return Err(format!(
+                    "bands: {name} = [{}, {}] has low above high",
+                    band[0], band[1]
+                ));
             }
         }
         Ok(b)
@@ -89,11 +97,12 @@ impl Bands {
         toml::to_string(self).expect("bands serialise")
     }
 
-    fn named(&self) -> [(&'static str, Band); 13] {
+    fn named(&self) -> [(&'static str, Band); 14] {
         [
             ("attacker_ticks", self.attacker_ticks),
             ("defender_ticks", self.defender_ticks),
             ("advantage_ticks", self.advantage_ticks),
+            ("spawn_to_spawn_ticks", self.spawn_to_spawn_ticks),
             ("rotation_ticks", self.rotation_ticks),
             ("routes", self.routes),
             ("cut_width", self.cut_width),
@@ -117,7 +126,10 @@ mod tests {
         let d = Bands::default();
         assert_eq!(Bands::from_toml(&d.to_toml()).unwrap(), d);
         let b = Bands::from_toml("advantage_ticks = [3, 9]\ncover_radius_tiles = 4\n").unwrap();
-        assert_eq!((b.advantage_ticks, b.cover_radius_tiles, b.routes), ([3, 9], 4, d.routes));
+        assert_eq!(
+            (b.advantage_ticks, b.cover_radius_tiles, b.routes),
+            ([3, 9], 4, d.routes)
+        );
         assert!(Bands::from_toml("advantage_ticks = [9, 3]").is_err());
         assert!(Bands::from_toml("no_such_band = [1, 2]").is_err());
     }

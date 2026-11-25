@@ -21,11 +21,18 @@ impl TileGraph {
     pub fn build(map: &Map, r: i32) -> TileGraph {
         let (w, h) = (map.width, map.height);
         let n = (w * h) as usize;
-        let mut g = TileGraph { w, h, stand: vec![false; n], right: vec![false; n], down: vec![false; n] };
+        let mut g = TileGraph {
+            w,
+            h,
+            stand: vec![false; n],
+            right: vec![false; n],
+            down: vec![false; n],
+        };
         for ty in 0..h {
             for tx in 0..w {
                 let i = (ty * w + tx) as usize;
-                g.stand[i] = map.tile(tx, ty) == TILE_FLOOR && !map.circle_blocked(tile_centre(tx, ty), r);
+                g.stand[i] =
+                    map.tile(tx, ty) == TILE_FLOOR && !map.circle_blocked(tile_centre(tx, ty), r);
             }
         }
         for ty in 0..h {
@@ -35,8 +42,11 @@ impl TileGraph {
                     continue;
                 }
                 let c = tile_centre(tx, ty);
-                g.right[i] = tx + 1 < w && g.stand[i + 1] && swept_free(map, c, tile_centre(tx + 1, ty), r);
-                g.down[i] = ty + 1 < h && g.stand[i + w as usize] && swept_free(map, c, tile_centre(tx, ty + 1), r);
+                g.right[i] =
+                    tx + 1 < w && g.stand[i + 1] && swept_free(map, c, tile_centre(tx + 1, ty), r);
+                g.down[i] = ty + 1 < h
+                    && g.stand[i + w as usize]
+                    && swept_free(map, c, tile_centre(tx, ty + 1), r);
             }
         }
         g
@@ -122,7 +132,10 @@ mod tests {
         let g = TileGraph::build(&m, 300);
         let seen = g.flood(&[g.index(1, 1)]);
         assert!(seen[g.index(2, 3)], "orthogonal neighbours connect");
-        assert!(!seen[g.index(3, 2)], "(2,3)->(3,2) is a zero-width diagonal gap");
+        assert!(
+            !seen[g.index(3, 2)],
+            "(2,3)->(3,2) is a zero-width diagonal gap"
+        );
         assert!(!seen[g.index(3, 4)]);
     }
 
@@ -130,6 +143,9 @@ mod tests {
     fn fat_units_cannot_use_one_tile_corridors() {
         let m = Map::parse(PINCH).unwrap();
         let g = TileGraph::build(&m, 600);
-        assert!(!g.stand[g.index(1, 1)], "a radius over half a tile does not fit a 1-tile corridor");
+        assert!(
+            !g.stand[g.index(1, 1)],
+            "a radius over half a tile does not fit a 1-tile corridor"
+        );
     }
 }

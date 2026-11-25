@@ -62,7 +62,13 @@ impl<'m> VisGraph<'m> {
                 }
             }
         }
-        let mut g = VisGraph { map, r, nodes, adj, tile_vis: Vec::new() };
+        let mut g = VisGraph {
+            map,
+            r,
+            nodes,
+            adj,
+            tile_vis: Vec::new(),
+        };
         let mut tile_vis = vec![Vec::new(); (map.width * map.height) as usize];
         for ty in 0..map.height {
             for tx in 0..map.width {
@@ -87,8 +93,12 @@ impl<'m> VisGraph<'m> {
     /// Dijkstra from several sources at once (a unit may start at any of them).
     pub fn field(&self, sources: &[V2]) -> Field {
         let n = self.nodes.len();
-        let mut f =
-            Field { sources: sources.to_vec(), dist: vec![UNREACHABLE; n], prev: vec![NONE; n], origin: vec![NONE; n] };
+        let mut f = Field {
+            sources: sources.to_vec(),
+            dist: vec![UNREACHABLE; n],
+            prev: vec![NONE; n],
+            origin: vec![NONE; n],
+        };
         let mut heap = BinaryHeap::new();
         for (si, &s) in sources.iter().enumerate() {
             if self.map.circle_blocked(s, self.r) {
@@ -127,7 +137,9 @@ impl<'m> VisGraph<'m> {
         let mut best: Option<(i64, u32, u32)> = None;
         for (si, &s) in f.sources.iter().enumerate() {
             let d = len(s, p);
-            if best.is_none_or(|b| d < b.0) && !self.map.circle_blocked(s, self.r) && swept_free(self.map, s, p, self.r)
+            if best.is_none_or(|b| d < b.0)
+                && !self.map.circle_blocked(s, self.r)
+                && swept_free(self.map, s, p, self.r)
             {
                 best = Some((d, NONE, si as u32));
             }
@@ -188,11 +200,18 @@ fn corner_nodes(map: &Map, r: i32) -> Vec<V2> {
             if count != 1 {
                 continue; // flat wall, inside corner, open floor, or a diagonal pinch nothing passes
             }
-            let q = quads.into_iter().find(|&q| is_blocked(q)).expect("one blocked quadrant");
+            let q = quads
+                .into_iter()
+                .find(|&q| is_blocked(q))
+                .expect("one blocked quadrant");
             // The path bends in the quadrant opposite the blocked tile.
             let (sx, sy) = (-q.0, -q.1);
             let (cx, cy) = (vx * TILE, vy * TILE);
-            for p in [(cx + sx * axis, cy), (cx + sx * diag, cy + sy * diag), (cx, cy + sy * axis)] {
+            for p in [
+                (cx + sx * axis, cy),
+                (cx + sx * diag, cy + sy * diag),
+                (cx, cy + sy * axis),
+            ] {
                 if !map.circle_blocked(p, r) {
                     nodes.push(p);
                 }
@@ -229,7 +248,10 @@ mod tests {
         let text = "name: t\n---\n########\n#a.....#\n#......#\n#......#\n#....1d#\n########\n";
         // (1,1) -> (6,4): sqrt(5^2 + 3^2) tiles = 5.83 tiles, not the 8-connected 3*sqrt2 + 2 = 6.24.
         let d = graph_dist(text, (1, 1), (6, 4));
-        assert_eq!(d, fixed::isqrt(((5 * 1024i64).pow(2) + (3 * 1024i64).pow(2)) as u64) as i64);
+        assert_eq!(
+            d,
+            fixed::isqrt(((5 * 1024i64).pow(2) + (3 * 1024i64).pow(2)) as u64) as i64
+        );
     }
 
     #[test]
@@ -248,8 +270,14 @@ mod tests {
         let to_corner = (2560f64).atan2(1536f64);
         let wrap = to_corner + (300f64 / corner_dist2.sqrt()).asin();
         let exact = 2.0 * (tangent + 300.0 * wrap) + 1024.0;
-        assert!(d as f64 >= exact - 4.0, "never shorter than the true optimum: {d} vs {exact:.1}");
-        assert!((d as f64) < exact * 1.01, "within 1% of the true optimum: {d} vs {exact:.1}");
+        assert!(
+            d as f64 >= exact - 4.0,
+            "never shorter than the true optimum: {d} vs {exact:.1}"
+        );
+        assert!(
+            (d as f64) < exact * 1.01,
+            "within 1% of the true optimum: {d} vs {exact:.1}"
+        );
         // The 8-connected grid answer would be 3 down, 4 across, 3 up = 10 tiles.
         assert!(d < 8 * 1024);
     }
@@ -259,7 +287,10 @@ mod tests {
         let m = Map::parse("name: t\n---\n#######\n#a.#.d#\n#..#.1#\n#######\n").unwrap();
         let g = VisGraph::build(&m, 300);
         let f = g.field(&[tile_centre(1, 1)]);
-        assert!(g.dist_to(&f, tile_centre(5, 1)).is_none(), "other side of a solid wall");
+        assert!(
+            g.dist_to(&f, tile_centre(5, 1)).is_none(),
+            "other side of a solid wall"
+        );
         assert!(g.dist_to(&f, tile_centre(3, 1)).is_none(), "inside a wall");
         assert_eq!(g.dist_to(&f, tile_centre(2, 2)), Some(1448));
     }

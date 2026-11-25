@@ -597,6 +597,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ibc-maptool"
+version = "0.1.0"
+dependencies = [
+ "ibc-engine",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "ibc-replay"
 version = "0.1.0"
 dependencies = [

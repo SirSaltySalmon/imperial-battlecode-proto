@@ -26,7 +26,12 @@ impl Op {
             "rot180" => Op::Rot180,
             "rot270" => Op::Rot270,
             "swap-sides" => Op::SwapSides,
-            other => return Err(format!("unknown transform `{other}` (known: {})", Op::NAMES)),
+            other => {
+                return Err(format!(
+                    "unknown transform `{other}` (known: {})",
+                    Op::NAMES
+                ))
+            }
         })
     }
 }
@@ -34,7 +39,10 @@ impl Op {
 fn check_rect(raw: &RawMap) -> Result<(), String> {
     let w = raw.width();
     match raw.rows.iter().position(|r| r.len() != w) {
-        Some(y) => Err(format!("row {y} is {} wide but row 0 is {w}; fix the grid first", raw.rows[y].len())),
+        Some(y) => Err(format!(
+            "row {y} is {} wide but row 0 is {w}; fix the grid first",
+            raw.rows[y].len()
+        )),
         None => Ok(()),
     }
 }
@@ -49,7 +57,9 @@ fn swap_side(c: u8) -> u8 {
 
 fn transpose(rows: &[Vec<u8>]) -> Vec<Vec<u8>> {
     let w = rows.first().map_or(0, |r| r.len());
-    (0..w).map(|x| rows.iter().map(|r| r[x]).collect()).collect()
+    (0..w)
+        .map(|x| rows.iter().map(|r| r[x]).collect())
+        .collect()
 }
 
 fn flip_h(rows: &mut [Vec<u8>]) {
@@ -77,7 +87,11 @@ pub fn apply(raw: &RawMap, op: Op) -> Result<RawMap, String> {
             out.rows = transpose(&raw.rows);
             out.rows.reverse();
         }
-        Op::SwapSides => out.rows.iter_mut().flatten().for_each(|c| *c = swap_side(*c)),
+        Op::SwapSides => out
+            .rows
+            .iter_mut()
+            .flatten()
+            .for_each(|c| *c = swap_side(*c)),
     }
     Ok(out)
 }
@@ -98,7 +112,11 @@ impl Axis {
             "h" | "left-right" => Axis::LeftRight,
             "v" | "top-bottom" => Axis::TopBottom,
             "point" => Axis::Point,
-            other => return Err(format!("unknown mirror axis `{other}` (known: h, v, point)")),
+            other => {
+                return Err(format!(
+                    "unknown mirror axis `{other}` (known: h, v, point)"
+                ))
+            }
         })
     }
 }
@@ -116,7 +134,11 @@ pub fn mirror(raw: &RawMap, axis: Axis, swap_sides: bool) -> Result<RawMap, Stri
     let highest = (0..h)
         .flat_map(|y| (0..w).map(move |x| (x, y)))
         .filter(|&(x, y)| in_source(x, y))
-        .filter_map(|(x, y)| raw.rows[y][x].is_ascii_digit().then(|| raw.rows[y][x] - b'0'))
+        .filter_map(|(x, y)| {
+            raw.rows[y][x]
+                .is_ascii_digit()
+                .then(|| raw.rows[y][x] - b'0')
+        })
         .max()
         .unwrap_or(0);
     let mut out = raw.clone();
@@ -134,7 +156,9 @@ pub fn mirror(raw: &RawMap, axis: Axis, swap_sides: bool) -> Result<RawMap, Stri
             if c.is_ascii_digit() {
                 let shifted = c - b'0' + highest;
                 if shifted > 9 {
-                    return Err(format!("mirroring would create site {shifted}; the format allows 1..9"));
+                    return Err(format!(
+                        "mirroring would create site {shifted}; the format allows 1..9"
+                    ));
                 }
                 c = b'0' + shifted;
             }
@@ -146,7 +170,12 @@ pub fn mirror(raw: &RawMap, axis: Axis, swap_sides: bool) -> Result<RawMap, Stri
 
 /// A bordered, lint-clean starting point: spawns at the left and right edges hidden from each other
 /// by a centre wall, and two sites on the defenders' side.
-pub fn scaffold(width: usize, height: usize, team_size: usize, name: &str) -> Result<RawMap, String> {
+pub fn scaffold(
+    width: usize,
+    height: usize,
+    team_size: usize,
+    name: &str,
+) -> Result<RawMap, String> {
     if !(16..=128).contains(&width) || !(12..=128).contains(&height) {
         return Err(format!("size {width}x{height} is outside 16x12 .. 128x128"));
     }
@@ -190,34 +219,58 @@ mod tests {
     use crate::Ruleset;
 
     fn raw(grid: &[&str]) -> RawMap {
-        RawMap { header: vec!["name: t".into()], rows: grid.iter().map(|r| r.as_bytes().to_vec()).collect() }
+        RawMap {
+            header: vec!["name: t".into()],
+            rows: grid.iter().map(|r| r.as_bytes().to_vec()).collect(),
+        }
     }
 
     fn grid(raw: &RawMap) -> Vec<String> {
-        raw.rows.iter().map(|r| String::from_utf8(r.clone()).unwrap()).collect()
+        raw.rows
+            .iter()
+            .map(|r| String::from_utf8(r.clone()).unwrap())
+            .collect()
     }
 
     #[test]
     fn rotations_compose() {
         let m = raw(&["#a.", "..1", "d.o", "###"]);
-        assert_eq!(grid(&apply(&m, Op::Rot90).unwrap()), ["#d.#", "#..a", "#o1."]);
+        assert_eq!(
+            grid(&apply(&m, Op::Rot90).unwrap()),
+            ["#d.#", "#..a", "#o1."]
+        );
         let twice = apply(&apply(&m, Op::Rot90).unwrap(), Op::Rot90).unwrap();
         assert_eq!(twice, apply(&m, Op::Rot180).unwrap());
         let back = apply(&apply(&m, Op::Rot90).unwrap(), Op::Rot270).unwrap();
         assert_eq!(back, m);
         assert_eq!(grid(&apply(&m, Op::FlipH).unwrap())[0], ".a#");
         assert_eq!(grid(&apply(&m, Op::FlipV).unwrap())[0], "###");
-        assert_eq!(grid(&apply(&m, Op::SwapSides).unwrap()), ["#d.", "..1", "a.o", "###"]);
-        assert_eq!(apply(&apply(&m, Op::Transpose).unwrap(), Op::Transpose).unwrap(), m);
+        assert_eq!(
+            grid(&apply(&m, Op::SwapSides).unwrap()),
+            ["#d.", "..1", "a.o", "###"]
+        );
+        assert_eq!(
+            apply(&apply(&m, Op::Transpose).unwrap(), Op::Transpose).unwrap(),
+            m
+        );
     }
 
     #[test]
     fn mirror_copies_half_and_renumbers_sites() {
         let m = raw(&["#a1..", "#.o..", "#...."]);
-        assert_eq!(grid(&mirror(&m, Axis::LeftRight, true).unwrap()), ["#a1d#", "#.o.#", "#...#"]);
+        assert_eq!(
+            grid(&mirror(&m, Axis::LeftRight, true).unwrap()),
+            ["#a1d#", "#.o.#", "#...#"]
+        );
         let m = raw(&["a1.", "...", "...", "..."]);
-        assert_eq!(grid(&mirror(&m, Axis::Point, true).unwrap()), ["a1.", "...", "...", ".2d"]);
-        assert_eq!(grid(&mirror(&m, Axis::TopBottom, false).unwrap()), ["a1.", "...", "...", "a2."]);
+        assert_eq!(
+            grid(&mirror(&m, Axis::Point, true).unwrap()),
+            ["a1.", "...", "...", ".2d"]
+        );
+        assert_eq!(
+            grid(&mirror(&m, Axis::TopBottom, false).unwrap()),
+            ["a1.", "...", "...", "a2."]
+        );
     }
 
     #[test]

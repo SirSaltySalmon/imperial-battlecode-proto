@@ -7,7 +7,9 @@ use crate::flow::min_cut;
 use crate::path::{VisGraph, UNREACHABLE};
 use crate::sight::{longest_sightlines, los, spawn_sightline, tiles_seeing};
 use crate::tilegraph::TileGraph;
-use crate::{tile_centre, tile_of, ticks_for, used_spawns, Map, Ruleset, TILE, TILE_LOW, TILE_WALL, V2};
+use crate::{
+    ticks_for, tile_centre, tile_of, used_spawns, Map, Ruleset, TILE, TILE_LOW, TILE_WALL, V2,
+};
 use ibc_engine::fixed;
 use serde::Serialize;
 
@@ -149,15 +151,25 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
     let r = core.unit_radius;
     let g = TileGraph::build(map, r);
     let vis = VisGraph::build(map, r);
-    let fields = [vis.field(used_spawns(map, 0)), vis.field(used_spawns(map, 1))];
+    let fields = [
+        vis.field(used_spawns(map, 0)),
+        vis.field(used_spawns(map, 1)),
+    ];
     let tile_dist = [vis.tile_dists(&fields[0]), vis.tile_dists(&fields[1])];
     let walkable = g.stand.iter().filter(|&&s| s).count();
     let centres: Vec<V2> = map.sites.iter().map(|s| (s.centre_x, s.centre_y)).collect();
     let site_fields: Vec<_> = centres.iter().map(|&c| vis.field(&[c])).collect();
 
     // Attacker spawn zone: the source side of every route cut.
-    let starts: Vec<usize> = used_spawns(map, 0).iter().map(|&p| g.index(tile_of(p).0, tile_of(p).1)).collect();
-    let near_spawn: Vec<bool> = g.steps_from(&starts).iter().map(|&d| (d as i64) <= bands.spawn_zone_steps).collect();
+    let starts: Vec<usize> = used_spawns(map, 0)
+        .iter()
+        .map(|&p| g.index(tile_of(p).0, tile_of(p).1))
+        .collect();
+    let near_spawn: Vec<bool> = g
+        .steps_from(&starts)
+        .iter()
+        .map(|&d| (d as i64) <= bands.spawn_zone_steps)
+        .collect();
 
     let mut sites = Vec::new();
     for (k, site) in map.sites.iter().enumerate() {
@@ -172,12 +184,18 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
 
         // Source side of the route cut: the spawn surroundings plus the first part of the approach.
         let start = a_dist.max(0) * bands.approach_start_pct / 100;
-        let zone: Vec<bool> = (0..g.stand.len()).map(|i| near_spawn[i] || (g.stand[i] && tile_dist[0][i] <= start)).collect();
+        let zone: Vec<bool> = (0..g.stand.len())
+            .map(|i| near_spawn[i] || (g.stand[i] && tile_dist[0][i] <= start))
+            .collect();
         let cut = min_cut(&g, &zone, &own);
         let chokes: Vec<ChokeReport> = cut
             .iter()
             .flat_map(|c| &c.chokes)
-            .map(|ch| ChokeReport { at: ch.tiles[ch.tiles.len() / 2], width_tiles: ch.width(), tiles: ch.tiles.clone() })
+            .map(|ch| ChokeReport {
+                at: ch.tiles[ch.tiles.len() / 2],
+                width_tiles: ch.width(),
+                tiles: ch.tiles.clone(),
+            })
             .collect();
 
         // Hold positions: off-site tiles near the site that defenders reach clearly first and that
@@ -187,7 +205,8 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
             let (tx, ty) = g.coords(i);
             let p = tile_centre(tx, ty);
             let d = fixed::dist(p, c) as i64;
-            let in_ring = d >= bands.hold_radius_tiles[0] * TILE as i64 && d <= bands.hold_radius_tiles[1] * TILE as i64;
+            let in_ring = d >= bands.hold_radius_tiles[0] * TILE as i64
+                && d <= bands.hold_radius_tiles[1] * TILE as i64;
             let first = tile_dist[1][i] < UNREACHABLE
                 && ticks_for(tile_dist[1][i], core.run_speed) + bands.hold_lead_ticks
                     <= ticks_for(tile_dist[0][i], core.run_speed);
@@ -202,11 +221,18 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
                 })
                 .count();
             if seen > 0 {
-                holds.push(Hold { at: (tx, ty), share_pct: pct(seen, site_tiles.len()) });
+                holds.push(Hold {
+                    at: (tx, ty),
+                    share_pct: pct(seen, site_tiles.len()),
+                });
             }
         }
         holds.sort_by_key(|h| (std::cmp::Reverse(h.share_pct), h.at.1, h.at.0));
-        let mean_share = if holds.is_empty() { 0 } else { holds.iter().map(|h| h.share_pct).sum::<i64>() / holds.len() as i64 };
+        let mean_share = if holds.is_empty() {
+            0
+        } else {
+            holds.iter().map(|h| h.share_pct).sum::<i64>() / holds.len() as i64
+        };
 
         // Cover density in a disc around the centre (site tiles themselves excluded).
         let radius = bands.cover_radius_tiles * TILE as i64;
@@ -234,7 +260,12 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
             if let Some(d) = dist {
                 let run_ticks = ticks_for(d - core.interact_reach as i64, core.run_speed);
                 let total = run_ticks + core.defuse_ticks as i64;
-                retakes.push(Retake { from, run_ticks, total_ticks: total, slack_ticks: core.fuse_ticks as i64 - total });
+                retakes.push(Retake {
+                    from,
+                    run_ticks,
+                    total_ticks: total,
+                    slack_ticks: core.fuse_ticks as i64 - total,
+                });
             }
         };
         for (j, f) in site_fields.iter().enumerate() {
@@ -277,24 +308,33 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
     for i in 0..centres.len() {
         for j in i + 1..centres.len() {
             if let Some(d) = vis.dist_to(&site_fields[i], centres[j]) {
-                rotations.push(Rotation { from_site: i as i32 + 1, to_site: j as i32 + 1, dist: d, ticks: ticks_for(d, core.run_speed) });
+                rotations.push(Rotation {
+                    from_site: i as i32 + 1,
+                    to_site: j as i32 + 1,
+                    dist: d,
+                    ticks: ticks_for(d, core.run_speed),
+                });
             }
         }
     }
 
-    let sightlines: Vec<SightlineReport> = longest_sightlines(map, &g.stand, bands.sightlines_listed.max(1) as usize, 3)
-        .into_iter()
-        .map(|s| SightlineReport {
-            from: s.a,
-            to: s.b,
-            length: s.len,
-            tiles_x10: s.len * 10 / TILE as i64,
-            beyond_vision: s.len > core.vision_range as i64,
-        })
-        .collect();
+    let sightlines: Vec<SightlineReport> =
+        longest_sightlines(map, &g.stand, bands.sightlines_listed.max(1) as usize, 3)
+            .into_iter()
+            .map(|s| SightlineReport {
+                from: s.a,
+                to: s.b,
+                length: s.len,
+                tiles_x10: s.len * 10 / TILE as i64,
+                beyond_vision: s.len > core.vision_range as i64,
+            })
+            .collect();
 
     // The teams close on each other at twice the run speed.
-    let spawn_gap = used_spawns(map, 1).iter().filter_map(|&d| vis.dist_to(&fields[0], d)).min();
+    let spawn_gap = used_spawns(map, 1)
+        .iter()
+        .filter_map(|&d| vis.dist_to(&fields[0], d))
+        .min();
     let spawn_to_spawn_ticks = spawn_gap.map_or(-1, |d| ticks_for(d, core.run_speed * 2));
 
     let mut a = Analysis {
@@ -332,7 +372,13 @@ fn flags(a: &Analysis) -> Vec<Flag> {
     let mut out = Vec::new();
     let mut check = |metric: &'static str, scope: String, value: i64, band: Band| {
         if value < band[0] || value > band[1] {
-            out.push(Flag { metric, scope, value, band, verdict: if value < band[0] { "low" } else { "high" } });
+            out.push(Flag {
+                metric,
+                scope,
+                value,
+                band,
+                verdict: if value < band[0] { "low" } else { "high" },
+            });
         }
     };
     for s in &a.sites {
@@ -341,36 +387,114 @@ fn flags(a: &Analysis) -> Vec<Flag> {
             check("reachable", scope, 0, [1, 1]);
             continue;
         }
-        check("attacker_ticks", scope.clone(), s.attacker_ticks, b.attacker_ticks);
-        check("defender_ticks", scope.clone(), s.defender_ticks, b.defender_ticks);
-        check("advantage_ticks", scope.clone(), s.advantage_ticks, b.advantage_ticks);
+        check(
+            "attacker_ticks",
+            scope.clone(),
+            s.attacker_ticks,
+            b.attacker_ticks,
+        );
+        check(
+            "defender_ticks",
+            scope.clone(),
+            s.defender_ticks,
+            b.defender_ticks,
+        );
+        check(
+            "advantage_ticks",
+            scope.clone(),
+            s.advantage_ticks,
+            b.advantage_ticks,
+        );
         // "No choke at all" counts as too many routes.
-        check("routes", scope.clone(), if s.routes < 0 { i64::from(u8::MAX) } else { s.routes }, b.routes);
+        check(
+            "routes",
+            scope.clone(),
+            if s.routes < 0 {
+                i64::from(u8::MAX)
+            } else {
+                s.routes
+            },
+            b.routes,
+        );
         if s.cut_width >= 0 {
             check("cut_width", scope.clone(), s.cut_width, b.cut_width);
         }
-        check("best_hold_share_pct", scope.clone(), s.best_hold_share_pct, b.best_hold_share_pct);
-        check("mean_hold_share_pct", scope.clone(), s.mean_hold_share_pct, b.mean_hold_share_pct);
+        check(
+            "best_hold_share_pct",
+            scope.clone(),
+            s.best_hold_share_pct,
+            b.best_hold_share_pct,
+        );
+        check(
+            "mean_hold_share_pct",
+            scope.clone(),
+            s.mean_hold_share_pct,
+            b.mean_hold_share_pct,
+        );
         check("cover_pct", scope.clone(), s.cover_pct, b.cover_pct);
-        check("postplant_visible_pct", scope.clone(), s.postplant_visible_pct, b.postplant_visible_pct);
+        check(
+            "postplant_visible_pct",
+            scope.clone(),
+            s.postplant_visible_pct,
+            b.postplant_visible_pct,
+        );
         // The retake that matters is from the nearest other site (or from spawn on a one-site map).
-        let from_site = s.retakes.iter().filter(|r| r.from.starts_with("site")).map(|r| r.slack_ticks).max();
+        let from_site = s
+            .retakes
+            .iter()
+            .filter(|r| r.from.starts_with("site"))
+            .map(|r| r.slack_ticks)
+            .max();
         let slack = from_site.or_else(|| s.retakes.iter().map(|r| r.slack_ticks).max());
         if let Some(slack) = slack {
-            check("retake_slack_ticks", scope.clone(), slack, b.retake_slack_ticks);
+            check(
+                "retake_slack_ticks",
+                scope.clone(),
+                slack,
+                b.retake_slack_ticks,
+            );
         }
         if s.earliest_plant_tick > a.rules.round_ticks as i64 {
-            check("plant_in_time", scope, s.earliest_plant_tick, [0, a.rules.round_ticks as i64]);
+            check(
+                "plant_in_time",
+                scope,
+                s.earliest_plant_tick,
+                [0, a.rules.round_ticks as i64],
+            );
         }
     }
     for r in &a.rotations {
-        check("rotation_ticks", format!("site {} -> site {}", r.from_site, r.to_site), r.ticks, b.rotation_ticks);
+        check(
+            "rotation_ticks",
+            format!("site {} -> site {}", r.from_site, r.to_site),
+            r.ticks,
+            b.rotation_ticks,
+        );
     }
     if let Some(s) = a.sightlines.first() {
-        check("longest_sightline_tiles", "map".into(), s.tiles_x10 / 10, b.longest_sightline_tiles);
+        check(
+            "longest_sightline_tiles",
+            "map".into(),
+            s.tiles_x10 / 10,
+            b.longest_sightline_tiles,
+        );
+    }
+    if a.spawn_to_spawn_ticks >= 0 {
+        check(
+            "spawn_to_spawn_ticks",
+            "map".into(),
+            a.spawn_to_spawn_ticks,
+            b.spawn_to_spawn_ticks,
+        );
     }
     if a.spawn_sightline.is_some() {
-        out.push(Flag { metric: "spawn_sightline", scope: "map".into(), value: 1, band: [0, 0], verdict: "fail" });
+        out.push(Flag {
+            metric: "spawn_sightline",
+            scope: "map".into(),
+            value: 1,
+            band: [0, 0],
+            verdict: "fail",
+        });
     }
     out
 }

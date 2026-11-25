@@ -33,8 +33,11 @@ impl RawMap {
         if !found {
             return Err("missing `---` line between the header and the grid".into());
         }
-        let rows: Vec<Vec<u8>> =
-            lines.map(|l| l.trim_end()).filter(|l| !l.is_empty()).map(|l| l.as_bytes().to_vec()).collect();
+        let rows: Vec<Vec<u8>> = lines
+            .map(|l| l.trim_end())
+            .filter(|l| !l.is_empty())
+            .map(|l| l.as_bytes().to_vec())
+            .collect();
         if rows.is_empty() {
             return Err("map has no grid rows".into());
         }
@@ -57,19 +60,21 @@ impl RawMap {
 
     /// Value of a `key: value` header line.
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.header.iter().filter(|l| !l.starts_with("//")).find_map(|l| {
-            let (k, v) = l.split_once(':')?;
-            (k.trim() == key).then_some(v.trim())
-        })
+        self.header
+            .iter()
+            .filter(|l| !l.starts_with("//"))
+            .find_map(|l| {
+                let (k, v) = l.split_once(':')?;
+                (k.trim() == key).then_some(v.trim())
+            })
     }
 
     /// Replace or append a `key: value` header line.
     pub fn set(&mut self, key: &str, value: &str) {
         let line = format!("{key}: {value}");
-        let at = self
-            .header
-            .iter()
-            .position(|l| !l.starts_with("//") && l.split_once(':').is_some_and(|(k, _)| k.trim() == key));
+        let at = self.header.iter().position(|l| {
+            !l.starts_with("//") && l.split_once(':').is_some_and(|(k, _)| k.trim() == key)
+        });
         match at {
             Some(i) => self.header[i] = line,
             None => self.header.push(line),
@@ -94,10 +99,16 @@ mod tests {
         let text = "name: t\n// note\nteam_size: 3\n---\n###\n#a#\n###\n";
         let mut raw = RawMap::parse(text).unwrap();
         assert_eq!(raw.to_text(), text);
-        assert_eq!((raw.get("name"), raw.get("team_size"), raw.get("nope")), (Some("t"), Some("3"), None));
+        assert_eq!(
+            (raw.get("name"), raw.get("team_size"), raw.get("nope")),
+            (Some("t"), Some("3"), None)
+        );
         raw.set("name", "u");
         raw.set("author", "me");
-        assert_eq!(raw.header, vec!["name: u", "// note", "team_size: 3", "author: me"]);
+        assert_eq!(
+            raw.header,
+            vec!["name: u", "// note", "team_size: 3", "author: me"]
+        );
         assert!(RawMap::parse("name: t\n###\n").is_err());
     }
 }

@@ -41,7 +41,12 @@ struct Net {
 
 impl Net {
     fn new(nodes: usize) -> Net {
-        Net { head: vec![u32::MAX; nodes], next: Vec::new(), to: Vec::new(), cap: Vec::new() }
+        Net {
+            head: vec![u32::MAX; nodes],
+            next: Vec::new(),
+            to: Vec::new(),
+            cap: Vec::new(),
+        }
     }
 
     fn edge(&mut self, a: usize, b: usize, cap: u32) {
@@ -138,9 +143,14 @@ pub fn min_cut(g: &TileGraph, source: &[bool], sink: &[bool]) -> Option<Cut> {
     }
     // Cut tiles: entered from the source side but not left.
     let seen = net.reachable(s);
-    let cut: Vec<usize> = (0..n).filter(|&i| g.stand[i] && seen[2 * i] && !seen[2 * i + 1]).collect();
+    let cut: Vec<usize> = (0..n)
+        .filter(|&i| g.stand[i] && seen[2 * i] && !seen[2 * i + 1])
+        .collect();
     debug_assert_eq!(cut.len() as u32, flow);
-    Some(Cut { width: flow, chokes: cluster(g, &cut) })
+    Some(Cut {
+        width: flow,
+        chokes: cluster(g, &cut),
+    })
 }
 
 /// Group cut tiles that touch (including diagonally) into chokes.
@@ -152,8 +162,9 @@ fn cluster(g: &TileGraph, cut: &[usize]) -> Vec<Choke> {
         let mut k = 0;
         while k < tiles.len() {
             let (x, y) = tiles[k];
-            let (near, far): (Vec<_>, Vec<_>) =
-                left.into_iter().partition(|&(a, b)| (a - x).abs() <= 1 && (b - y).abs() <= 1);
+            let (near, far): (Vec<_>, Vec<_>) = left
+                .into_iter()
+                .partition(|&(a, b)| (a - x).abs() <= 1 && (b - y).abs() <= 1);
             tiles.extend(near);
             left = far;
             k += 1;
@@ -177,7 +188,10 @@ mod tests {
         let mut sink = vec![false; n];
         // Source: everything within 3 steps of the attacker spawn, so the spawn tile's own
         // neighbourhood is not the cut.
-        let starts: Vec<usize> = m.spawns[0].iter().map(|p| g.index(p.0 / 1024, p.1 / 1024)).collect();
+        let starts: Vec<usize> = m.spawns[0]
+            .iter()
+            .map(|p| g.index(p.0 / 1024, p.1 / 1024))
+            .collect();
         let source: Vec<bool> = g.steps_from(&starts).iter().map(|&d| d <= 3).collect();
         for (i, &s) in m.site_of.iter().enumerate() {
             sink[i] = s == 1;
