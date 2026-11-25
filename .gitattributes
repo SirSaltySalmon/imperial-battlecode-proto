@@ -1,3 +1,4 @@
 * text=auto eol=lf
 *.ibcr binary
 *.wasm binary
+docs/generated/** linguist-generated=true

@@ -2,6 +2,7 @@
 
 mod check;
 mod dist;
+mod docs;
 mod engine_wasm;
 mod golden;
 mod patch_id;
@@ -15,7 +16,8 @@ const USAGE: &str = "usage: cargo xtask <task>
   engine-wasm [--require-node] [replay.ibcr ...]                  build the browser engine, compare it with native
   dist --target <triple> [--builder cargo|zigbuild|cross]         release archive in dist/
   dist sums [dir]                                                 write SHA256SUMS
-  patch-id [--json | --markdown] [--bin <ibc>]                    engine, ruleset hash, wasmtime and ABI versions";
+  patch-id [--json | --markdown] [--bin <ibc>]                    engine, ruleset hash, wasmtime and ABI versions
+  docs [--check]                                                  generated handbook in docs/generated";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -26,6 +28,7 @@ fn main() -> ExitCode {
         Some("engine-wasm") => engine_wasm::main(rest),
         Some("dist") => dist::main(rest),
         Some("patch-id") => patch_id::main(rest),
+        Some("docs") => docs::main(rest),
         _ => Err(USAGE.to_string()),
     };
     match result {

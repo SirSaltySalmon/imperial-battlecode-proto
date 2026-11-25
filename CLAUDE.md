@@ -3,6 +3,7 @@
 Imperial Battlecode: a Battlecode-style competition platform and its game, a deterministic 2D tactical shooter
 played by bots. Read `docs/RULES.md` (the game), `docs/ABI.md` (what bots see) and `docs/JOBS.md` (how matches
 are dispatched) before changing anything in those areas.
+Use words as `docs/GLOSSARY.md` defines them; `docs/generated/` is written by `cargo xtask docs` (never by hand).
 
 ## Layout
 

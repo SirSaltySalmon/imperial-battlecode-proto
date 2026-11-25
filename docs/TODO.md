@@ -174,8 +174,9 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   is the main running-cost lever, so choose it deliberately.
 - [ ] **Map editor** in the browser, reusing the viewer's renderer and `ibc-maptool lint`.
 - [ ] **Bot parameter tuner** (SPSA, as `tools/evotune` did for the Cambridge bot) on top of `ibc-bench`.
-- [ ] **Handbook generator:** rules pages from `rules/*.toml`, the ABI reference from `crates/abi`, and a
-  single Markdown bundle for AI agents, as Cambridge's "Download for LLM".
+- [x] **Handbook generator:** rules pages from `rules/*.toml`, the ABI reference from `crates/abi`, and a
+  single Markdown bundle for AI agents, as Cambridge's "Download for LLM". `cargo xtask docs`, output in
+  `docs/generated/`, checked in CI. Left over: serve `llm.md` from the platform as a download.
 - [ ] **CLI self-update and `ibc.toml` version pinning,** so players are moved to a new patch reliably.
 - [ ] **More bot languages** once the ABI has settled (Go, Zig, AssemblyScript are cheap on `wasm32-wasip1`).
 - [ ] **Shadow runs before a patch goes live:** replay yesterday's ranked inputs on the new engine and compare
