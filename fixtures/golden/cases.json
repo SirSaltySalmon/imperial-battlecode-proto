@@ -1,0 +1,15 @@
+{
+  "native": [
+    { "name": "crossfire-rusher-holder-s1", "map": "maps/crossfire.ibcmap", "seed": 1, "a": "rusher", "b": "holder" },
+    { "name": "crossfire-holder-rusher-s2", "map": "maps/crossfire.ibcmap", "seed": 2, "a": "holder", "b": "rusher" },
+    { "name": "tunnels-rusher-holder-s1", "map": "maps/tunnels.ibcmap", "seed": 1, "a": "rusher", "b": "holder" },
+    { "name": "tunnels-holder-rusher-s2", "map": "maps/tunnels.ibcmap", "seed": 2, "a": "holder", "b": "rusher" },
+    { "name": "crossfire-rusher-rusher-s3", "map": "maps/crossfire.ibcmap", "seed": 3, "a": "rusher", "b": "rusher" },
+    { "name": "tunnels-holder-idle-s4", "map": "maps/tunnels.ibcmap", "seed": 4, "a": "holder", "b": "idle" }
+  ],
+  "wasm": [
+    { "name": "crossfire-rusher-holder-s1", "map": "maps/crossfire.ibcmap", "seed": 1, "a": "rusher", "b": "holder" },
+    { "name": "tunnels-holder-rusher-s2", "map": "maps/tunnels.ibcmap", "seed": 2, "a": "holder", "b": "rusher" },
+    { "name": "crossfire-idle-rusher-s5", "map": "maps/crossfire.ibcmap", "seed": 5, "a": "idle", "b": "rusher" }
+  ]
+}

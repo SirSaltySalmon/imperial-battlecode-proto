@@ -1,0 +1,28 @@
+# Monthly and grouped: one PR per ecosystem, so dependency upkeep costs one CI run a month, not twenty.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      cargo:
+        patterns: ["*"]
+    ignore:
+      # Wasmtime is part of the patch identity (fuel counts are version specific). It is bumped by hand,
+      # as a patch: see docs/release.md.
+      - dependency-name: "wasmtime*"
+      - dependency-name: "cranelift*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # When viewer/package.json exists, add an `npm` entry for `/viewer` here (monthly, grouped). Dependabot
+  # reports an error every month for a directory that is not there, so it is left out until then.

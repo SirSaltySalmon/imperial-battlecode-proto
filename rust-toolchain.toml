@@ -1,0 +1,8 @@
+# Pinned on purpose. Sort stability and codegen can change between compiler versions, and the reference
+# bots are compiled by this toolchain, so a toolchain bump is treated like a patch: re-record the goldens
+# (`cargo xtask golden record`) and review the diff. See docs/release.md.
+[toolchain]
+channel = "1.98.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-wasip1", "wasm32-unknown-unknown"]

@@ -1,0 +1,25 @@
+# `pip install imperial-battlecode` puts the `ibc` binary on PATH. The wheel contains only the Rust binary
+# (maturin `bindings = "bin"`): no Python code, no Python ABI, one wheel per platform.
+# Build one locally:  cd packaging/pip && maturin build --release --locked
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "imperial-battlecode"
+description = "Imperial Battlecode: build bots, run matches locally and verify replays (the `ibc` command)."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+# The version is the version of the ibc-cli crate, which is the engine version.
+dynamic = ["version"]
+classifiers = [
+  "Programming Language :: Rust",
+  "Environment :: Console",
+  "Topic :: Games/Entertainment :: Simulation",
+]
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "../../crates/cli/Cargo.toml"
+strip = true
