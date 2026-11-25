@@ -1,0 +1,46 @@
+# Weapons. id = position in this list. slot 0 = primary, slot 1 = sidearm.
+# One trigger pull releases `pellets` bullets after `windup` ticks, fanned `spread` apart; the fan widens by
+# move_spread per 1024 units/tick of speed and by recoil_spread per recoil point. See docs/RULES.md.
+[[weapon]]
+name = "pistol"
+slot = 1
+price = 0
+damage = 26
+pellets = 1
+spread = 0
+move_spread = 600
+recoil_spread = 120
+recoil_per_shot = 2
+recoil_recovery = 1
+windup = 1
+cooldown = 0
+magazine = 12
+reload_ticks = 3
+bullet_speed = 8192
+range = 20480
+falloff_start = 8192
+falloff_min_pct = 50
+move_pct = 100
+kill_reward = 300
+
+[[weapon]]
+name = "rifle"
+slot = 0
+price = 2700
+damage = 22
+pellets = 3
+spread = 250
+move_spread = 1200
+recoil_spread = 250
+recoil_per_shot = 3
+recoil_recovery = 1
+windup = 1
+cooldown = 0
+magazine = 8
+reload_ticks = 4
+bullet_speed = 14336
+range = 30720
+falloff_start = 16384
+falloff_min_pct = 70
+move_pct = 90
+kill_reward = 200
