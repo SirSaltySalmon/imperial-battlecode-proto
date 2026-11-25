@@ -589,6 +589,8 @@ dependencies = [
  "ibc-runner",
  "serde",
  "serde_json",
+ "sha2",
+ "toml",
 ]
 
 [[package]]

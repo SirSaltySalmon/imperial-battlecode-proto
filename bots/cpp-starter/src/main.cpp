@@ -1,0 +1,233 @@
+// cpp-starter: a small but complete C++ bot. Copy this directory and start changing it.
+//
+// Buy:     the best affordable weapon, then armour, then (defenders) a defuse kit.
+// Attack:  everyone runs to the site nearest their spawn; the carrier plants, the rest guard the charge.
+// Defence: run at the last enemy sound, else sweep the attackers' spawn and the sites; defuse a planted charge.
+// Always:  shoot the nearest visible enemy, leading it; stand still when moving would spoil the shot.
+//
+// Build and run:  ibc build bots/cpp-starter && ibc run bots/cpp-starter bots/rusher --map maps/tunnels.ibcmap
+#include "ibc.h"
+
+using namespace ibc;
+
+namespace {
+
+/// A heard enemy position is chased for this many ticks.
+constexpr int32_t SOUND_MEMORY_TICKS = 12;
+/// Keep channelling a plant or defuse under fire when this few ticks remain.
+constexpr int32_t FINISH_CHANNEL_TICKS = 2;
+/// Interact from well inside the allowed reach, so rounding never puts us outside it.
+constexpr int32_t REACH_PCT = 70;
+/// `MatchInfo::charge_state` value: the charge lies on the ground.
+constexpr int32_t CHARGE_DROPPED = 1;
+/// Angle units per radian (65536 / 2 pi).
+constexpr int64_t UNITS_PER_RADIAN = 10430;
+
+class Starter {
+  public:
+    void turn() {
+        const UnitInfo me = ibc::me();  // fetch once per tick
+        if (!alive(me)) return;
+        const MatchInfo info = match_info();
+        if (info.phase == PHASE_DRAFT) return;  // sides and spawns are not set yet
+        // Lands on the first buy tick of a round, where the fuel budget is larger.
+        if (plan_round_ != info.round || plan_side_ != info.my_side) plan(info);
+        if (info.phase == PHASE_BUY) {
+            shop(me);
+        } else if (info.phase == PHASE_ACTION || info.phase == PHASE_PLANTED) {
+            fight(me, info);
+        }
+    }
+
+  private:
+    /// Once per round: pick the site to rush (nearest to our spawn by path length).
+    void plan(const MatchInfo& info) {
+        plan_round_ = info.round;
+        plan_side_ = info.my_side;
+        map_ = map_info();  // spawns swap with the sides
+        heard_tick_ = -1;
+        sweep_ = 0;
+        const Point spawn{map_.spawn_x, map_.spawn_y};
+        int32_t best = INT32_MAX;
+        for (const SiteInfo& s : sites()) {
+            const Point centre{s.centre_x, s.centre_y};
+            const int32_t d = nav_.path_len(spawn, centre).value_or(INT32_MAX - 1);
+            if (d < best) {
+                best = d;
+                site_ = centre;
+            }
+        }
+    }
+
+    /// Buy one thing per buy tick, most valuable first.
+    void shop(const UnitInfo& me) {
+        const int32_t held_price = weapon(me.weapon).value_or(WeaponRules{}).price;
+        int32_t best_priority = 0, best_item = -1;
+        for (const ItemRules& it : items()) {
+            if (it.price > me.credits) continue;
+            int32_t priority = 0;
+            if (it.kind == ITEM_KIND_WEAPON && it.value != me.weapon && it.price > held_price) {
+                priority = 2'000'000 + it.price;
+            } else if (it.kind == ITEM_KIND_ARMOR && it.value > me.armor) {
+                priority = 1'000'000 + it.value;
+            } else if (it.kind == ITEM_KIND_DEFUSE_KIT && me.side == SIDE_DEFEND && !has(me, S_HAS_KIT)) {
+                priority = 1;
+            }
+            if (priority > best_priority) {
+                best_priority = priority;
+                best_item = it.id;
+            }
+        }
+        if (best_item >= 0) buy(best_item);
+    }
+
+    /// Rules of the weapon in hand (one host call when it changes).
+    const WeaponRules& gun(const UnitInfo& me) {
+        if (gun_.id != me.weapon) {
+            gun_ = weapon(me.weapon).value_or(WeaponRules{});
+            gun_.id = me.weapon;
+        }
+        return gun_;
+    }
+
+    /// How far the centre of the bullet fan is pushed off the aim line by movement and recoil.
+    static int32_t aim_error(const WeaponRules& w, int32_t speed, int32_t recoil) {
+        return static_cast<int32_t>((int64_t{w.move_spread} * speed / 1024 + int64_t{w.recoil_spread} * recoil) / 2);
+    }
+
+    struct Engage {
+        bool fighting;  // an enemy is in sight
+        bool hold;      // moving this tick would throw the shot off the target
+    };
+
+    /// Face the nearest visible enemy and shoot it when the weapon is ready and settled enough to hit.
+    Engage engage(const UnitInfo& me) {
+        const Point from = pos(me);
+        UnitInfo target{};
+        int64_t nearest = INT64_MAX;
+        for (const UnitInfo& e : enemies()) {
+            if (alive(e) && dist2(from, pos(e)) < nearest) {
+                nearest = dist2(from, pos(e));
+                target = e;
+            }
+        }
+        if (nearest == INT64_MAX) return {false, false};
+        const WeaponRules& w = gun(me);
+        const int32_t aim = angle_to(from, lead(from, pos(target), vel(target), w.bullet_speed, w.windup));
+        const int32_t distance = dist(from, pos(target));
+        // Half the angle the target covers from here: the fan centre must stay inside it.
+        const int32_t half = static_cast<int32_t>(core_.unit_radius * UNITS_PER_RADIAN / (distance > 1 ? distance : 1));
+        face(aim);  // bullets leave along the facing, so keep turning during the wind-up
+        if (!has(me, S_WINDUP | S_RELOADING)) {
+            const int32_t settle = w.recoil_recovery * (w.windup > 1 ? w.windup : 1);
+            const int32_t recoil = me.recoil > settle ? me.recoil - settle : 0;
+            if (me.ammo <= 0) {
+                reload();
+            } else if (distance <= w.range && aim_error(w, 0, recoil) <= half) {
+                fire(aim);
+            }
+        }
+        return {true, aim_error(w, core_.run_speed, 0) > half};
+    }
+
+    void fight(const UnitInfo& me, const MatchInfo& info) {
+        // A plant or defuse that is nearly done is worth more than one more shot.
+        if (has(me, S_PLANTING | S_DEFUSING) && me.channel <= FINISH_CHANNEL_TICKS) {
+            has(me, S_PLANTING) ? plant() : defuse();
+            return;
+        }
+        const Engage e = engage(me);
+        const bool used_hands = info.my_side == SIDE_ATTACK ? attack(me, info, e) : defend(me, info, e);
+        const WeaponRules& w = gun(me);
+        if (!e.fighting && !used_hands && !busy(me) && me.ammo * 2 <= w.magazine && me.ammo < w.magazine) reload();
+    }
+
+    /// Returns true if the tick's one "hands" action (plant, pickup) was used.
+    bool attack(const UnitInfo& me, const MatchInfo& info, Engage e) {
+        const Point charge{info.charge_x, info.charge_y};
+        Point goal = site_;
+        if (info.phase == PHASE_PLANTED) {
+            goal = charge;  // guard it until it goes off
+        } else if (has(me, S_HAS_CHARGE)) {
+            // Standing on the site: plant unless someone is shooting at us.
+            if (dist(pos(me), site_) <= TILE / 4) return !e.fighting && ok(plant());
+        } else if (info.charge_state == CHARGE_DROPPED && nearest_ally_to(me, charge)) {
+            if (dist(pos(me), charge) <= core_.pickup_reach * REACH_PCT / 100) return !e.fighting && ok(pickup());
+            goal = charge;
+        }
+        travel(me, goal, e);
+        return false;
+    }
+
+    /// Returns true if the tick's one "hands" action (defuse) was used.
+    bool defend(const UnitInfo& me, const MatchInfo& info, Engage e) {
+        for (const SoundInfo& s : sounds()) {
+            if (s.team != me.team && s.kind != SOUND_DECOY) {
+                heard_ = {s.x, s.y};
+                heard_tick_ = info.tick;
+            }
+        }
+        const bool chasing = heard_tick_ >= 0 && info.tick - heard_tick_ <= SOUND_MEMORY_TICKS;
+        const Point charge{info.charge_x, info.charge_y};
+        Point goal = chasing ? heard_ : sweep_target();
+        if (info.phase == PHASE_PLANTED) {
+            if (dist(pos(me), charge) <= core_.interact_reach * REACH_PCT / 100) return !e.fighting && ok(defuse());
+            goal = charge;
+        }
+        if (travel(me, goal, e) && info.phase != PHASE_PLANTED) {
+            // Nothing here: forget the sound, or move on to the next sweep point.
+            if (chasing) {
+                heard_tick_ = -1;
+            } else {
+                ++sweep_;
+            }
+        }
+        return false;
+    }
+
+    /// Run to `goal` (unless the gun wants us still), looking where we walk. True on arrival.
+    bool travel(const UnitInfo& me, Point goal, Engage e) {
+        if (e.hold) return false;
+        const bool arrived = nav_.go(me, goal, core_.run_speed);
+        if (!e.fighting && !arrived) face(nav_.heading);
+        return arrived;
+    }
+
+    /// Am I the living teammate closest to `p`? (Ties go to the lower id.)
+    bool nearest_ally_to(const UnitInfo& me, Point p) const {
+        const int64_t mine = dist2(pos(me), p);
+        for (const UnitInfo& a : allies()) {
+            const int64_t theirs = dist2(pos(a), p);
+            if (alive(a) && (theirs < mine || (theirs == mine && a.id < me.id))) return false;
+        }
+        return true;
+    }
+
+    /// Defence sweep route: the attackers' spawn first, then every site in turn.
+    Point sweep_target() const {
+        const uint32_t stops = static_cast<uint32_t>(map_.sites > 0 ? map_.sites : 0) + 1;
+        const uint32_t stop = sweep_ % stops;
+        if (stop > 0) {
+            if (const auto s = sites().at(stop - 1)) return {s->centre_x, s->centre_y};
+        }
+        return {map_.enemy_spawn_x, map_.enemy_spawn_y};
+    }
+
+    CoreRules core_ = core_rules();
+    MapInfo map_ = map_info();
+    Navigator nav_;
+    WeaponRules gun_{.id = -1};
+    /// (round, side) the plan below was made for.
+    int32_t plan_round_ = -1, plan_side_ = -1;
+    /// Attack: centre of the site we rush.
+    Point site_{};
+    /// Defence: last heard enemy position and the tick it was heard (-1 = none).
+    Point heard_{};
+    int32_t heard_tick_ = -1;
+    /// Defence: index into the sweep route.
+    uint32_t sweep_ = 0;
+};
+
+}  // namespace
+
+IBC_BOT(Starter)
