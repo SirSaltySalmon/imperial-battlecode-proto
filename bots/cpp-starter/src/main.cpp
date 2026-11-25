@@ -100,13 +100,14 @@ class Starter {
         bool hold;      // moving this tick would throw the shot off the target
     };
 
-    /// Face the nearest visible enemy and shoot it when the weapon is ready and settled enough to hit.
+    /// Face the nearest enemy with no wall in between and shoot it when the weapon is ready and settled
+    /// enough to hit. `enemies()` is the team's sight: an enemy only a teammate sees behind a wall is skipped.
     Engage engage(const UnitInfo& me) {
         const Point from = pos(me);
         UnitInfo target{};
         int64_t nearest = INT64_MAX;
         for (const UnitInfo& e : enemies()) {
-            if (alive(e) && dist2(from, pos(e)) < nearest) {
+            if (alive(e) && dist2(from, pos(e)) < nearest && los(from, pos(e))) {
                 nearest = dist2(from, pos(e));
                 target = e;
             }

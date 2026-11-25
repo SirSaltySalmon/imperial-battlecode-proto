@@ -11,6 +11,7 @@
 //! All units' intents come from the same start-of-tick snapshot, so nobody acts "first".
 
 use crate::fixed::{self, V2};
+use crate::vision::TeamView;
 use crate::{abilities, combat, economy, Map, Ruleset};
 use ibc_abi::*;
 
@@ -69,9 +70,6 @@ pub struct Unit {
     pub revealed: i32,
     pub running: bool,
     pub intent: Intent,
-    pub sounds: Vec<SoundInfo>,
-    /// Bitmask of unit ids this unit currently sees.
-    pub seen: u64,
     pub stats: UnitStats,
 }
 
@@ -131,8 +129,12 @@ pub struct World {
     pub charge_pos: V2,
     pub team_mem: [Vec<u8>; 2],
     pub draft_mem: [Vec<u8>; 2],
-    /// Public events of the tick that was just resolved.
+    /// Events of the tick that was just resolved, unfogged. Bots read them through `views`.
     pub events: Vec<EventInfo>,
+    /// Sounds each team heard during the tick that was just resolved.
+    pub team_sounds: [Vec<SoundInfo>; 2],
+    /// What each team perceives after the tick that was just resolved (`vision.rs`).
+    pub views: [TeamView; 2],
     pub econ: [economy::TeamEcon; 2],
     pub rounds: Vec<RoundLog>,
     pub winner: Option<i32>,
@@ -171,8 +173,6 @@ impl World {
                 revealed: 0,
                 running: false,
                 intent: Default::default(),
-                sounds: Vec::new(),
-                seen: 0,
                 stats: Default::default(),
             });
         }
@@ -198,6 +198,8 @@ impl World {
             team_mem: [vec![0; tm], vec![0; tm]],
             draft_mem: [vec![0; dm], vec![0; dm]],
             events: Vec::new(),
+            team_sounds: Default::default(),
+            views: Default::default(),
             econ: Default::default(),
             rounds: Vec::new(),
             winner: None,
@@ -257,17 +259,6 @@ impl World {
         self.events.push(EventInfo { kind, actor, target, x: pos.0, y: pos.1, value });
     }
 
-    /// Let every living enemy of `team` within `radius` hear a sound, snapped to the tile centre.
-    pub fn emit_sound(&mut self, kind: i32, pos: V2, team: i32, radius: i32) {
-        let snapped = (pos.0.div_euclid(TILE) * TILE + TILE / 2, pos.1.div_euclid(TILE) * TILE + TILE / 2);
-        let r2 = (radius as i64) * (radius as i64);
-        for u in self.units.iter_mut() {
-            if u.alive && u.team != team && fixed::dist2(u.pos, pos) <= r2 {
-                u.sounds.push(SoundInfo { kind, x: snapped.0, y: snapped.1, team });
-            }
-        }
-    }
-
     /// Static line of sight plus dynamic blockers (smoke, barriers).
     pub fn sight_clear(&self, a: V2, b: V2) -> bool {
         self.map.segment_wall(a, b).is_none() && !abilities::blocks_vision(self, a, b)
@@ -297,25 +288,6 @@ impl World {
             return false;
         }
         self.sight_clear(unit.pos, p)
-    }
-
-    fn compute_vision(&mut self) {
-        let n = self.units.len();
-        for i in 0..n {
-            let mut seen = 0u64;
-            if self.units[i].alive {
-                for j in 0..n {
-                    if i == j || !self.units[j].alive {
-                        continue;
-                    }
-                    let other = &self.units[j];
-                    if other.team == self.units[i].team || other.revealed > 0 || self.can_see_point(i, other.pos) {
-                        seen |= 1 << j;
-                    }
-                }
-            }
-            self.units[i].seen = seen;
-        }
     }
 
     // ---------------------------------------------------------------- flow
@@ -348,7 +320,6 @@ impl World {
             u.slowed = 0;
             u.revealed = 0;
             u.running = false;
-            u.sounds.clear();
         }
         self.charge_state = CHARGE_CARRIED;
         self.charge_pos = (0, 0);
@@ -407,8 +378,8 @@ impl World {
             return;
         }
         self.events.clear();
-        for u in self.units.iter_mut() {
-            u.sounds.clear();
+        for sounds in self.team_sounds.iter_mut() {
+            sounds.clear();
         }
         match self.phase {
             PHASE_DRAFT => {
@@ -874,7 +845,6 @@ impl World {
             }
             u.combat.hash(&mut h);
             u.abil.hash(&mut h);
-            h.u64(u.seen);
         }
         for p in &self.projectiles {
             for v in [p.owner as i32, p.weapon, p.kind, p.pos.0, p.pos.1, p.vel.0, p.vel.1, p.travelled] {
@@ -893,6 +863,11 @@ impl World {
             h.bytes(&self.team_mem[t]);
             h.bytes(&self.draft_mem[t]);
             self.econ[t].hash(&mut h);
+            self.views[t].hash(&mut h);
+            h.i32(self.team_sounds[t].len() as i32);
+            for s in &self.team_sounds[t] {
+                h.bytes(bytes_of(s));
+            }
         }
         h.finish()
     }

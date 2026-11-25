@@ -39,13 +39,14 @@ inline constexpr int32_t ERR_BAD_PTR = 8;
 inline constexpr uint32_t T_SELF = 1;
 /// `UnitInfo` per teammate (always known, like a radar), excluding self.
 inline constexpr uint32_t T_ALLIES = 2;
-/// `UnitInfo` per enemy currently visible to THIS unit.
+/// `UnitInfo` per living enemy currently seen by THIS unit's team (vision is shared by the team). Enemy rows
+/// hide hp, armour, credits, ammo, charges, cooldowns and the defuse kit; the weapon in hand is shown.
 inline constexpr uint32_t T_ENEMIES = 3;
-/// `SoundInfo` heard by this unit during the previous tick.
+/// `SoundInfo` heard by any living unit of THIS unit's team during the previous tick (shared by the team).
 inline constexpr uint32_t T_SOUNDS = 4;
-/// `ProjectileInfo` visible to this unit.
+/// `ProjectileInfo` seen by this unit's team (own team's bullets always).
 inline constexpr uint32_t T_PROJECTILES = 5;
-/// `EffectInfo` visible to this unit (smoke, fire, barriers, ...).
+/// `EffectInfo` seen by this unit's team (smoke, fire, barriers, ...; own team's effects always).
 inline constexpr uint32_t T_EFFECTS = 6;
 /// One `MatchInfo`.
 inline constexpr uint32_t T_MATCH = 7;
@@ -63,11 +64,13 @@ inline constexpr uint32_t T_ABILITY = 12;
 inline constexpr uint32_t T_ITEM = 13;
 /// `SiteInfo` per plant site.
 inline constexpr uint32_t T_SITES = 14;
-/// `DropInfo` per dropped item visible to this unit (the charge is always visible to attackers).
+/// `DropInfo` per dropped item seen by this unit's team (the charge is always visible to attackers).
 inline constexpr uint32_t T_DROPS = 15;
 /// `KitRules` per kit id.
 inline constexpr uint32_t T_KIT = 16;
-/// `EventInfo` per public event of the previous tick (kills, plant, defuse, round end).
+/// `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight;
+/// kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the
+/// team does not know the position. See docs/ABI.md for each kind.
 inline constexpr uint32_t T_EVENTS = 17;
 
 // ---- actions for `act(kind, a, b, c)` ----
@@ -154,6 +157,10 @@ inline constexpr int32_t EVENT_DETONATE = 4;
 inline constexpr int32_t EVENT_ROUND_END = 5;
 inline constexpr int32_t EVENT_DAMAGE = 6;
 
+/// `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real
+/// position: check for it before using the coordinates.
+inline constexpr int32_t POS_HIDDEN = -2147483648;
+
 inline constexpr int32_t ROUND_WIN_ELIMINATION = 1;
 inline constexpr int32_t ROUND_WIN_DETONATION = 2;
 inline constexpr int32_t ROUND_WIN_DEFUSE = 3;
@@ -187,7 +194,8 @@ inline constexpr uint64_t FUEL_DEBUG = 0;
 
 // ---- records ----
 
-/// A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `ammo`, `reserve` are 0.
+/// A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, `cooldown`, `ammo`, `reserve`
+/// and `blind` are 0.
 struct UnitInfo {
     int32_t id;
     int32_t team;
@@ -317,6 +325,7 @@ struct EventInfo {
     int32_t actor;
     /// Target unit id or -1.
     int32_t target;
+    /// Where it happened, or `POS_HIDDEN` in both `x` and `y` when the receiving team does not know.
     int32_t x;
     int32_t y;
     int32_t value;

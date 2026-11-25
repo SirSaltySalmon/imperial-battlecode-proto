@@ -293,14 +293,16 @@ class Rows {
 inline UnitInfo me() { return read<UnitInfo>(T_SELF, 0).value_or(UnitInfo{}); }
 /// Teammates (always known), excluding this unit. Includes dead ones: check `alive()`.
 inline Rows<UnitInfo> allies() { return Rows<UnitInfo>(T_ALLIES); }
-/// Enemies THIS unit can see right now.
+/// Living enemies THIS unit's team sees right now (vision is shared). One may be behind a wall from here:
+/// check `los` before shooting.
 inline Rows<UnitInfo> enemies() { return Rows<UnitInfo>(T_ENEMIES); }
-/// Sounds heard during the previous tick.
+/// Sounds the team heard during the previous tick (hearing is shared).
 inline Rows<SoundInfo> sounds() { return Rows<SoundInfo>(T_SOUNDS); }
 inline Rows<ProjectileInfo> projectiles() { return Rows<ProjectileInfo>(T_PROJECTILES); }
 inline Rows<EffectInfo> effects() { return Rows<EffectInfo>(T_EFFECTS); }
 inline Rows<DropInfo> drops() { return Rows<DropInfo>(T_DROPS); }
-/// Public events of the previous tick.
+/// Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN`
+/// when the team did not see it. Damage arrives only when seen.
 inline Rows<EventInfo> events() { return Rows<EventInfo>(T_EVENTS); }
 inline Rows<SiteInfo> sites() { return Rows<SiteInfo>(T_SITES); }
 /// All shop items.

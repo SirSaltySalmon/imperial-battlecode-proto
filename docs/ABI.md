@@ -34,8 +34,27 @@ clock and random source, empty args and environment. There is no filesystem, net
 - **Tables, not functions.** Everything readable is a row in a table (`T_*`). Rows are `#[repr(C)]` records made
   only of `i32`, little-endian, no padding. A buffer that is too small gets `ERR_BUFFER_TOO_SMALL`. Records only
   ever grow at the end, so a bot built against an older ABI keeps working: it reads the prefix it knows.
-- **Fog is applied by the host.** `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS` and `T_DROPS` list only what the calling
-  unit can perceive. Enemy rows hide credits, ammo, charges and cooldowns.
+- **Fog is applied by the host, per team.** Vision and hearing are shared: `T_ENEMIES`, `T_PROJECTILES`,
+  `T_EFFECTS`, `T_DROPS` and `T_SOUNDS` list what the caller's **team** perceives (the union over its living
+  units), so every teammate reads the same rows. An enemy in `T_ENEMIES` may be behind a wall from where you
+  stand; use `los` before shooting. Enemy rows hide `hp`, `armor`, credits, ammo, charges, cooldowns, blindness
+  and the defuse kit; the weapon in hand is shown. Fog applies to what bots read, not to what replays record.
+- **Events follow the fog.** `T_EVENTS` is filtered per team. A position is *known* to a team when one of its
+  living units sees it, when the event happened to one of its own units, or when it is the charge's position and
+  the team knows where the charge lies (both teams once it is planted, attackers when it is dropped). An event delivered
+  with an unknown position carries `POS_HIDDEN` (`i32::MIN`) in both `x` and `y`, never `(0, 0)`.
+
+  | Event | Delivered to a team | Position |
+  |---|---|---|
+  | `EVENT_KILL` (actor killer or -1, target victim, value weapon) | Always, both teams | `POS_HIDDEN` unless known |
+  | `EVENT_DAMAGE` (actor attacker or -1, target, value amount) | Only when the position is known | Always real |
+  | `EVENT_PLANT` (actor planter, value site) | Always | Real (the planted charge is public) |
+  | `EVENT_DEFUSE` (actor defuser) | Always | Real |
+  | `EVENT_DETONATE` | Always | Real |
+  | `EVENT_ROUND_END` (actor winner, value `ROUND_WIN_*`) | Always | The charge position if known; `POS_HIDDEN` while it is carried |
+  | Any later kind | Only when the position is known | Always real |
+
+  Sounds are separate from events: a shot heard through a wall is a `T_SOUNDS` row, not a damage event.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
   resolves with everyone else's when the tick is stepped. One move, one facing and one primary action per tick.
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;

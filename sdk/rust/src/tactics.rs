@@ -55,12 +55,15 @@ impl Gunner {
         self.weapon
     }
 
-    /// Face the nearest visible enemy and shoot it if the weapon is ready and settled enough to hit
-    /// (reload if it is empty).
-    /// `speed` is how fast the caller intends to move this tick. Returns `None` when no enemy is visible.
+    /// Face the nearest enemy in sight with no wall in between and shoot it if the weapon is ready and
+    /// settled enough to hit (reload if it is empty). `T_ENEMIES` is the team's sight, so an enemy only a
+    /// teammate sees behind a wall is skipped: there is no shot at it from here.
+    /// `speed` is how fast the caller intends to move this tick. Returns `None` when there is no such enemy.
     pub fn engage(&mut self, me: &UnitInfo, speed: i32) -> Option<Shot> {
         let from = me.pos();
-        let enemy = enemies().filter(|e| e.alive()).min_by_key(|e| dist2(from, e.pos()))?;
+        let enemy = enemies()
+            .filter(|e| e.alive() && los(from, e.pos()))
+            .min_by_key(|e| dist2(from, e.pos()))?;
         let w = self.weapon(me);
         let target = lead(from, enemy.pos(), (enemy.vx, enemy.vy), w.bullet_speed, w.windup);
         let aim = angle_to(target.0 - me.x, target.1 - me.y);

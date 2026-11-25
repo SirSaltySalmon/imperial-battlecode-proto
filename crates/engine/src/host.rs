@@ -44,8 +44,8 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
         facing: u.facing,
         vx: u.vel.0,
         vy: u.vel.1,
-        hp: u.hp,
-        armor: u.armor,
+        hp: if full { u.hp } else { 0 },
+        armor: if full { u.armor } else { 0 },
         weapon: u.weapon(),
         ammo: if full { u.ammo[u.slot] } else { 0 },
         reserve: if full { -1 } else { 0 },
@@ -59,29 +59,16 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
     }
 }
 
-/// Indices of the rows of a per-unit list table, in a fixed order.
+/// Indices of the rows of a list table as the calling unit's team perceives it, in a fixed order.
 fn rows(w: &World, me: usize, table: u32) -> Vec<usize> {
-    let my = &w.units[me];
+    let team = w.units[me].team;
+    let view = &w.views[team as usize];
     match table {
-        T_ALLIES => (0..w.units.len()).filter(|&j| j != me && w.units[j].team == my.team).collect(),
+        T_ALLIES => (0..w.units.len()).filter(|&j| j != me && w.units[j].team == team).collect(),
         T_ENEMIES => (0..w.units.len())
-            .filter(|&j| w.units[j].team != my.team && w.units[j].alive && my.seen & (1 << j) != 0)
+            .filter(|&j| w.units[j].team != team && w.units[j].alive && view.units & (1 << j) != 0)
             .collect(),
-        T_PROJECTILES => (0..w.projectiles.len())
-            .filter(|&j| w.projectiles[j].team == my.team || w.can_see_point(me, w.projectiles[j].pos))
-            .collect(),
-        T_EFFECTS => (0..w.effects.len())
-            .filter(|&j| {
-                let e = &w.effects[j].info;
-                e.team == my.team || w.can_see_point(me, (e.x, e.y))
-            })
-            .collect(),
-        T_DROPS => (0..w.drops.len())
-            .filter(|&j| {
-                let d = &w.drops[j];
-                (d.kind == DROP_CHARGE && w.side_of(my.team) == SIDE_ATTACK) || w.can_see_point(me, (d.x, d.y))
-            })
-            .collect(),
+        T_PROJECTILES | T_EFFECTS | T_DROPS => w.perceived(team, table),
         _ => Vec::new(),
     }
 }
@@ -128,14 +115,14 @@ impl Host for Match {
         match table {
             T_SELF | T_MATCH | T_MAP | T_RULES_CORE => 1,
             T_ALLIES | T_ENEMIES | T_PROJECTILES | T_EFFECTS | T_DROPS => rows(w, me, table).len() as i32,
-            T_SOUNDS => w.units[me].sounds.len() as i32,
+            T_SOUNDS => w.team_sounds[w.units[me].team as usize].len() as i32,
             T_MAP_ROW => w.map.height,
             T_WEAPON => w.rules.weapons.len() as i32,
             T_ABILITY => w.rules.abilities.len() as i32,
             T_ITEM => w.rules.items.len() as i32,
             T_KIT => w.rules.kits.len() as i32,
             T_SITES => w.map.sites.len() as i32,
-            T_EVENTS => w.events.len() as i32,
+            T_EVENTS => w.views[w.units[me].team as usize].events.len() as i32,
             _ => -ERR_UNSUPPORTED,
         }
     }
@@ -165,7 +152,7 @@ impl Host for Match {
                 Some(&j) => push(out, &unit_info(w, j, false)),
                 None => -ERR_OUT_OF_RANGE,
             },
-            T_SOUNDS => row!(w.units[me].sounds),
+            T_SOUNDS => row!(w.team_sounds[w.units[me].team as usize]),
             T_PROJECTILES => match rows(w, me, table).get(ix) {
                 Some(&j) => {
                     let p = &w.projectiles[j];
@@ -230,7 +217,7 @@ impl Host for Match {
             T_ITEM => row!(w.rules.items),
             T_KIT => row!(w.rules.kits),
             T_SITES => row!(w.map.sites),
-            T_EVENTS => row!(w.events),
+            T_EVENTS => row!(w.views[w.units[me].team as usize].events),
             _ => -ERR_UNSUPPORTED,
         }
     }
@@ -388,9 +375,9 @@ pub fn frame_json(w: &World) -> String {
                 "id": u.id, "team": u.team, "side": info.side, "kit": u.kit, "alive": u.alive, "state": info.state,
                 "x": u.pos.0, "y": u.pos.1, "facing": u.facing, "vx": u.vel.0, "vy": u.vel.1,
                 "hp": u.hp, "armor": u.armor, "weapon": info.weapon, "ammo": info.ammo, "channel": info.channel,
-                "aim": info.aim, "credits": u.credits, "seen": u.seen.to_string(),
+                "aim": info.aim, "credits": u.credits, "seen": w.views[u.team as usize].units.to_string(),
                 "kills": u.stats.kills, "deaths": u.stats.deaths,
-                "sounds": u.sounds.iter().map(|s| json!([s.kind, s.x, s.y])).collect::<Vec<_>>(),
+                "sounds": w.team_sounds[u.team as usize].iter().map(|s| json!([s.kind, s.x, s.y])).collect::<Vec<_>>(),
             })
         })
         .collect();

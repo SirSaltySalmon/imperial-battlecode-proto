@@ -48,13 +48,14 @@ pub const ERR_BAD_PTR: i32 = 8;
 pub const T_SELF: u32 = 1;
 /// `UnitInfo` per teammate (always known, like a radar), excluding self.
 pub const T_ALLIES: u32 = 2;
-/// `UnitInfo` per enemy currently visible to THIS unit.
+/// `UnitInfo` per living enemy currently seen by THIS unit's team (vision is shared by the team). Enemy rows
+/// hide hp, armour, credits, ammo, charges, cooldowns and the defuse kit; the weapon in hand is shown.
 pub const T_ENEMIES: u32 = 3;
-/// `SoundInfo` heard by this unit during the previous tick.
+/// `SoundInfo` heard by any living unit of THIS unit's team during the previous tick (shared by the team).
 pub const T_SOUNDS: u32 = 4;
-/// `ProjectileInfo` visible to this unit.
+/// `ProjectileInfo` seen by this unit's team (own team's bullets always).
 pub const T_PROJECTILES: u32 = 5;
-/// `EffectInfo` visible to this unit (smoke, fire, barriers, ...).
+/// `EffectInfo` seen by this unit's team (smoke, fire, barriers, ...; own team's effects always).
 pub const T_EFFECTS: u32 = 6;
 /// One `MatchInfo`.
 pub const T_MATCH: u32 = 7;
@@ -72,11 +73,13 @@ pub const T_ABILITY: u32 = 12;
 pub const T_ITEM: u32 = 13;
 /// `SiteInfo` per plant site.
 pub const T_SITES: u32 = 14;
-/// `DropInfo` per dropped item visible to this unit (the charge is always visible to attackers).
+/// `DropInfo` per dropped item seen by this unit's team (the charge is always visible to attackers).
 pub const T_DROPS: u32 = 15;
 /// `KitRules` per kit id.
 pub const T_KIT: u32 = 16;
-/// `EventInfo` per public event of the previous tick (kills, plant, defuse, round end).
+/// `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight;
+/// kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the
+/// team does not know the position. See docs/ABI.md for each kind.
 pub const T_EVENTS: u32 = 17;
 
 // ---- actions for `act(kind, a, b, c)` ----
@@ -164,6 +167,10 @@ pub const EVENT_DETONATE: i32 = 4;
 pub const EVENT_ROUND_END: i32 = 5;
 pub const EVENT_DAMAGE: i32 = 6;
 
+/// `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real
+/// position: check for it before using the coordinates.
+pub const POS_HIDDEN: i32 = -2147483648;
+
 pub const ROUND_WIN_ELIMINATION: i32 = 1;
 pub const ROUND_WIN_DETONATION: i32 = 2;
 pub const ROUND_WIN_DEFUSE: i32 = 3;
@@ -197,7 +204,8 @@ pub const FUEL_DEBUG: u64 = 0;
 
 // ---- records ----
 
-/// A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `ammo`, `reserve` are 0.
+/// A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, `cooldown`, `ammo`, `reserve`
+/// and `blind` are 0.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UnitInfo {
@@ -337,6 +345,7 @@ pub struct EventInfo {
     pub actor: i32,
     /// Target unit id or -1.
     pub target: i32,
+    /// Where it happened, or `POS_HIDDEN` in both `x` and `y` when the receiving team does not know.
     pub x: i32,
     pub y: i32,
     pub value: i32,

@@ -190,4 +190,4 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - Sign-in method and eligibility categories for the event.
 - Games per ranked series and ladder cadence. Cambridge ran five-game series in batches; one game here already
   has both sides, so a series may need fewer games.
-- Team shared memory size (64 bytes now) and whether teammates' sightings should be shared automatically.
+- Team shared memory size (64 bytes now). (Sightings and sounds are now shared automatically.)
