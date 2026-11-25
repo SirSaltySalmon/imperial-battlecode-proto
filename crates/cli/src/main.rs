@@ -3,6 +3,7 @@
 mod batch;
 mod build;
 mod job;
+mod view;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -75,7 +76,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Open the replay viewer (not implemented yet)
+    /// Serve the replay viewer on localhost: ibc view [replay.ibcr] [--port N] [--viewer-dir DIR]
     View {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -193,10 +194,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Replay { command } => replay(command)?,
         Command::Version { json } => version(json),
-        Command::View { .. } => {
-            eprintln!("ibc view: not implemented yet");
-            std::process::exit(2);
-        }
+        Command::View { args } => view::run(args)?,
         Command::New { .. } => {
             eprintln!("ibc new: not implemented yet");
             std::process::exit(2);

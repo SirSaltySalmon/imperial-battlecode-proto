@@ -1,0 +1,104 @@
+// What a unit can see, for drawing cones and for fogging things that carry no `seen` bit (bullets, effects,
+// drops). Mirrors `World::can_see_point` in the engine, in floats.
+//
+// The frame JSON and the replay header do not carry the core rules yet, so the numbers the viewer needs are
+// kept here per engine version. When the engine exposes them, read them from there instead.
+
+import { segmentWall, type GameMap } from "./map";
+import { FULL_TURN, S_BLINDED, type UnitFrame, type Vec2 } from "./types";
+
+export interface ViewRules {
+  unit_radius: number;
+  fov_half: number;
+  vision_range: number;
+  sense_radius: number;
+  max_hp: number;
+  plant_ticks: number;
+  defuse_ticks: number;
+  fuse_ticks: number;
+  /** Weapon names by weapon id. */
+  weapons: string[];
+}
+
+const RULES_DEFAULT: ViewRules = {
+  unit_radius: 300,
+  fov_half: 9100,
+  vision_range: 24576,
+  sense_radius: 1536,
+  max_hp: 100,
+  plant_ticks: 4,
+  defuse_ticks: 7,
+  fuse_ticks: 40,
+  weapons: ["pistol", "rifle"],
+};
+
+/** Overrides for engine versions whose rules differ from the defaults above. */
+const RULES_BY_ENGINE: Record<string, Partial<ViewRules>> = {};
+
+export function rulesFor(engineVersion: string): ViewRules {
+  return { ...RULES_DEFAULT, ...RULES_BY_ENGINE[engineVersion] };
+}
+
+export function weaponName(rules: ViewRules, id: number): string {
+  if (id < 0) return "unarmed";
+  return rules.weapons[id] ?? `weapon ${id}`;
+}
+
+/** Signed shortest difference b - a in angle units, in (-32768, 32768]. */
+export function angleDiff(a: number, b: number): number {
+  let d = (b - a) % FULL_TURN;
+  if (d > FULL_TURN / 2) d -= FULL_TURN;
+  if (d <= -FULL_TURN / 2) d += FULL_TURN;
+  return d;
+}
+
+export function toRadians(angle: number): number {
+  return (angle / FULL_TURN) * Math.PI * 2;
+}
+
+type Viewer = Pick<UnitFrame, "alive" | "x" | "y" | "facing" | "state">;
+
+/** Cone + range + line of sight, or the close all-round sense. */
+export function canSeePoint(map: GameMap, rules: ViewRules, u: Viewer, px: number, py: number): boolean {
+  if (!u.alive) return false;
+  const dx = px - u.x;
+  const dy = py - u.y;
+  const d2 = dx * dx + dy * dy;
+  if (d2 > rules.sense_radius ** 2) {
+    if (u.state & S_BLINDED) return false;
+    if (d2 > rules.vision_range ** 2) return false;
+    const ang = (Math.atan2(dy, dx) / (Math.PI * 2)) * FULL_TURN;
+    if (Math.abs(angleDiff(u.facing, ang)) > rules.fov_half) return false;
+  }
+  return segmentWall(map, u.x, u.y, px, py) === null;
+}
+
+/**
+ * Outline of the area a unit sees: the cone out to `vision_range` joined with the `sense_radius` disc, both
+ * cut by walls. Rays are cast all the way round; `facing` may be fractional (interpolated).
+ */
+export function visionPolygon(
+  map: GameMap,
+  rules: ViewRules,
+  x: number,
+  y: number,
+  facing: number,
+  blinded: boolean,
+): Vec2[] {
+  const out: Vec2[] = [];
+  const cast = (angle: number, range: number) => {
+    const r = toRadians(angle);
+    const bx = x + Math.cos(r) * range;
+    const by = y + Math.sin(r) * range;
+    out.push(segmentWall(map, x, y, bx, by) ?? [bx, by]);
+  };
+  const half = blinded ? 0 : rules.fov_half;
+  const CONE_RAYS = 40;
+  const RING_RAYS = 28;
+  if (half > 0) {
+    for (let i = 0; i <= CONE_RAYS; i++) cast(facing - half + (2 * half * i) / CONE_RAYS, rules.vision_range);
+  }
+  const rest = FULL_TURN - 2 * half;
+  for (let i = 0; i <= RING_RAYS; i++) cast(facing + half + (rest * i) / RING_RAYS, rules.sense_radius);
+  return out;
+}

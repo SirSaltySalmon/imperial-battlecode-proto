@@ -1,0 +1,571 @@
+/* Colours come from theme.ts as CSS variables; the values here are the dark defaults before the script runs. */
+:root {
+  --bg: #0d1014;
+  --panel: #151a21;
+  --panel2: #1c232c;
+  --border: #2a333f;
+  --text: #e6ebf2;
+  --dim: #8b97a8;
+  --team-a: #4fb0ff;
+  --team-b: #ff9a3d;
+  --on-team: #0b0e12;
+  --charge: #f25fd0;
+  --hp: #dfe6ee;
+  --hp-low: #ff5d5d;
+  --armor: #8fa3c2;
+  --bar-back: #05070a;
+  --warn: #ffe45c;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* `hidden` must win over the display values set below. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+button,
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+button:hover,
+select:hover {
+  border-color: var(--dim);
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+.unit:focus-visible {
+  outline: 2px solid var(--team-a);
+  outline-offset: 1px;
+}
+
+button.primary {
+  min-width: 64px;
+  font-weight: 600;
+}
+
+button.on {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+#top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.brand span {
+  margin-left: 6px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--dim);
+}
+
+#match-title {
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spacer {
+  flex: 1;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+#stage.dragover::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 2px dashed var(--team-a);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+#canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+
+#canvas.panning {
+  cursor: grabbing;
+}
+
+#banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#banner .a,
+.feed-row .a,
+.ta {
+  color: var(--team-a);
+}
+
+#banner .b,
+.feed-row .b,
+.tb {
+  color: var(--team-b);
+}
+
+#feed {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.feed-row {
+  padding: 3px 9px;
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.feed-row .how {
+  margin: 0 6px;
+  font-weight: 400;
+  color: var(--dim);
+}
+
+#toast {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--hp-low);
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+#empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+
+.empty-card {
+  text-align: center;
+  padding: 28px 36px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  max-width: 460px;
+}
+
+.empty-card h1 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.empty-card p {
+  color: var(--dim);
+  margin: 8px 0;
+}
+
+#status.error {
+  color: var(--hp-low);
+  white-space: pre-wrap;
+}
+
+#help {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 300px;
+  padding: 12px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+#help h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+#help dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+#help dt {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+#help dd {
+  margin: 0;
+  color: var(--dim);
+}
+
+#help p {
+  margin: 10px 0 0;
+  color: var(--dim);
+}
+
+#panel {
+  width: 300px;
+  flex: none;
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.score {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.score .name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score .side {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.score .points {
+  font-size: 26px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.phase {
+  display: flex;
+  justify-content: space-between;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.phase b {
+  color: var(--text);
+}
+
+.seg {
+  display: flex;
+  gap: 4px;
+}
+
+.seg button {
+  flex: 1;
+  padding: 4px 6px;
+}
+
+.section-title {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+
+.team-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.team-head small {
+  font-weight: 400;
+  color: var(--dim);
+}
+
+.unit {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  grid-template-areas: "chip bars money" "chip info kd";
+  gap: 2px 8px;
+  align-items: center;
+  width: 100%;
+  padding: 5px 6px;
+  margin-bottom: 3px;
+  text-align: left;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--panel2);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.unit.selected {
+  border-color: var(--text);
+}
+
+.unit.dead {
+  opacity: 0.45;
+}
+
+.chip {
+  grid-area: chip;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* Same shape language as the map: team A solid, team B a ring. */
+.chip.a {
+  background: var(--team-a);
+  color: var(--on-team);
+}
+
+.chip.b {
+  border: 3px solid var(--team-b);
+  color: var(--team-b);
+}
+
+.bars {
+  grid-area: bars;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bar {
+  height: 5px;
+  background: var(--bar-back);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bar.thin {
+  height: 3px;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  background: var(--hp);
+}
+
+.bar.low > i {
+  background: var(--hp-low);
+}
+
+.bar.thin > i {
+  background: var(--armor);
+}
+
+.unit .info {
+  grid-area: info;
+  color: var(--dim);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unit .info .charge {
+  color: var(--charge);
+  font-weight: 700;
+}
+
+.unit .money {
+  grid-area: money;
+  font-size: 11px;
+  text-align: right;
+}
+
+.unit .kd {
+  grid-area: kd;
+  font-size: 11px;
+  color: var(--dim);
+  text-align: right;
+}
+
+.meta {
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+#controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+
+#scrub-wrap {
+  position: relative;
+  flex: 1;
+  height: 28px;
+  margin: 0 6px;
+}
+
+#scrub {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  accent-color: var(--text);
+}
+
+#markers {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.marker {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  background: var(--dim);
+  opacity: 0.7;
+}
+
+.marker.won-a {
+  background: var(--team-a);
+}
+
+.marker.won-b {
+  background: var(--team-b);
+}
+
+.marker.plant {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  margin-left: -3px;
+  transform: rotate(45deg);
+  background: var(--charge);
+  opacity: 1;
+}
+
+.marker span {
+  position: absolute;
+  top: -3px;
+  left: 4px;
+  font-size: 9px;
+  color: var(--dim);
+}
+
+#readout {
+  min-width: 150px;
+  text-align: right;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 820px) {
+  main {
+    flex-direction: column;
+  }
+  #panel {
+    width: auto;
+    max-height: 38%;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  #round-select,
+  #btn-help {
+    display: none;
+  }
+  #readout {
+    min-width: 0;
+  }
+}
