@@ -1,0 +1,20 @@
+[package]
+name = "ibc-maptool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Map lint, analysis, rendering and transforms for Imperial Battlecode (.ibcmap)."
+
+[lib]
+name = "ibc_maptool"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ibc-maptool"
+path = "src/main.rs"
+
+[dependencies]
+ibc-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
