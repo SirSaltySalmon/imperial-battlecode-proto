@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Imperial Battlecode replay viewer</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="top">
+        <div class="brand">IBC<span>replay</span></div>
+        <div id="match-title"></div>
+        <div class="spacer"></div>
+        <button id="btn-open" title="Open a replay file (O)">Open replay</button>
+        <button id="btn-theme" title="Switch theme (T)">Light</button>
+        <button id="btn-help" title="Keyboard shortcuts (?)">Keys</button>
+        <input type="file" id="file" accept=".ibcr" hidden />
+      </header>
+      <main>
+        <div id="stage">
+          <canvas id="canvas"></canvas>
+          <div id="banner" hidden></div>
+          <div id="feed"></div>
+          <div id="toast" role="alert" hidden></div>
+          <div id="empty">
+            <div class="empty-card">
+              <h1>Drop a replay here</h1>
+              <p>Drag an <code>.ibcr</code> file onto this page, or</p>
+              <button id="btn-open-2">Choose a file</button>
+              <p id="status" role="status"></p>
+            </div>
+          </div>
+          <div id="help" hidden>
+            <h2>Keyboard</h2>
+            <dl>
+              <dt>Space</dt><dd>play / pause</dd>
+              <dt>&larr; &rarr;</dt><dd>step one tick (Shift: ten)</dd>
+              <dt>&uarr; &darr;</dt><dd>faster / slower</dd>
+              <dt>N P</dt><dd>next / previous round</dd>
+              <dt>Home End</dt><dd>start / end of the match</dd>
+              <dt>1 2 3</dt><dd>view: everyone, team A, team B</dd>
+              <dt>, .</dt><dd>previous / next unit's view (Esc: everyone)</dd>
+              <dt>V S D</dt><dd>vision cones, sounds, bot debug drawings</dd>
+              <dt>F</dt><dd>fit the map</dd>
+              <dt>T</dt><dd>dark / light</dd>
+              <dt>O</dt><dd>open a replay</dd>
+            </dl>
+            <p>Drag to pan, scroll to zoom, double-click to fit. Click a unit to see through its eyes.</p>
+          </div>
+        </div>
+        <aside id="panel"></aside>
+      </main>
+      <footer id="controls">
+        <button id="btn-prev-round" title="Previous round (P)">&laquo;</button>
+        <button id="btn-step-back" title="Back one tick (Left)">&lsaquo;</button>
+        <button id="btn-play" class="primary" title="Play / pause (Space)">Play</button>
+        <button id="btn-step" title="Forward one tick (Right)">&rsaquo;</button>
+        <button id="btn-next-round" title="Next round (N)">&raquo;</button>
+        <select id="speed" title="Playback speed (Up / Down)"></select>
+        <div id="scrub-wrap">
+          <div id="markers"></div>
+          <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Tick" />
+        </div>
+        <select id="round-select" title="Jump to round"></select>
+        <div id="readout">no replay</div>
+      </footer>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
