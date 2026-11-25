@@ -1,0 +1,35 @@
+# Economy. Item ids = position in the [[item]] list. kind: 1 weapon (value = weapon id), 2 armour (value = points),
+# 3 ability charge (value = slot), 4 defuse kit.
+start_credits = 800
+max_credits = 9000
+win_reward = 3000
+loss_reward = 1900
+loss_streak_bonus = 500
+loss_streak_cap = 2
+plant_reward = 300
+default_sidearm = 0
+armor_absorb_pct = 50
+
+[[item]]
+name = "rifle"
+kind = 1
+price = 2700
+value = 1
+
+[[item]]
+name = "light_armor"
+kind = 2
+price = 400
+value = 25
+
+[[item]]
+name = "heavy_armor"
+kind = 2
+price = 1000
+value = 50
+
+[[item]]
+name = "defuse_kit"
+kind = 4
+price = 400
+value = 0

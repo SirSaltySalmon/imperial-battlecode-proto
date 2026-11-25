@@ -1,0 +1,7 @@
+# Abilities and kits. Foundation ships one plain kit and no abilities; the abilities unit fills this in.
+# [[ability]] name, effect (EFFECT_* id), price, max_charges, cooldown, range, radius, duration, power, delay
+[[kit]]
+name = "standard"
+abilities = [-1, -1]
+hp = 100
+speed_pct = 100

@@ -1,0 +1,13 @@
+[package]
+name = "ibc-replay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Replay container (.ibcr), match summary and replay verification for Imperial Battlecode."
+
+[dependencies]
+ibc-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+miniz_oxide = "0.8"
+sha2 = "0.10"

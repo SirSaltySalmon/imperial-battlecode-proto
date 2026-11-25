@@ -1,0 +1,20 @@
+[package]
+name = "ibc-runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Wasmtime host for Imperial Battlecode: runs two wasm bots against the engine with exact per-tick fuel."
+
+[dependencies]
+ibc-abi = { workspace = true, features = ["host"] }
+ibc-engine = { workspace = true }
+ibc-replay = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Pinned exactly: the wasmtime version is part of the patch identity (fuel accounting is version specific).
+# Keep WASMTIME_VERSION in src/lib.rs in sync.
+wasmtime = { version = "=51.0.0", default-features = false, features = ["cranelift", "runtime", "async", "std"] }
+
+[dev-dependencies]
+wat = "1"

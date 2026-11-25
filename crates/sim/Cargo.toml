@@ -1,0 +1,23 @@
+[package]
+name = "ibc-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native simulation harness: runs the reference bots against the engine without wasm."
+
+[lib]
+name = "ibc_sim"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ibc-sim"
+path = "src/main.rs"
+
+[dependencies]
+ibc-engine = { workspace = true }
+ibc-abi = { workspace = true, features = ["host"] }
+serde_json = { workspace = true }
+ibc = { path = "../../sdk/rust" }
+idle = { path = "../../bots/idle" }
+rusher = { path = "../../bots/rusher" }
+holder = { path = "../../bots/holder" }

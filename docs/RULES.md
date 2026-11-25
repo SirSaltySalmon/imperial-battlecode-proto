@@ -1,0 +1,100 @@
+# Game rules (v0)
+
+A deterministic 2D attackers-vs-defenders tactical shooter played by bots. Every unit runs its own bot instance.
+Every number below lives in `rules/*.toml`; bots read the live values at runtime (`T_RULES_CORE`, `T_WEAPON`, ...),
+so never hard-code them. This file describes the mechanics; the TOML files are the source of truth for values.
+
+## World
+
+- Continuous 2D. Positions are fixed-point: 1024 units per tile, origin top-left, +x right, +y down.
+- Angles are 0..65535 per full turn. 0 points along +x and angles grow towards +y (clockwise on screen).
+- All distances are Euclidean. There is no grid movement and no Chebyshev shortcut anywhere.
+- The map is a tile grid: floor, wall (blocks movement, sight and bullets), low cover (blocks movement only).
+  Units are circles of `unit_radius`. Plant sites are tile regions. The static map is known to everyone.
+- Teams of 3 to 5, set by the map. Unit ids `0..n-1` are team A, `n..2n-1` team B.
+
+## Match flow
+
+- Tick 0 is the **draft**: each unit may pick a kit (`A_DRAFT`) and write draft memory. It has extra fuel.
+- Then rounds. Each round: **buy phase** (`buy_ticks`, units stand at spawn, `A_BUY` applies immediately), **action
+  phase** (`round_ticks`), and after a plant the **planted phase** (`fuse_ticks`).
+- Attackers win a round by eliminating the defenders or by detonation. Defenders win by eliminating the attackers
+  before a plant, by defusing, or when the action timer runs out. After a plant, killing all attackers is not
+  enough: the charge must be defused.
+- Team A attacks for the first `rounds_per_half` rounds, then sides swap and credits reset. First to
+  `rounds_to_win` wins. If regulation ends level the match is decided by kills, then damage, then a seed coin flip
+  (overtime is planned).
+- The match always ends by `max_ticks`.
+
+## A tick
+
+All living units' bots run against the same start-of-tick snapshot and queue intents. Nobody acts first. Then:
+
+1. **Intents.** Facing turns towards the requested angle by at most `turn_rate`. Primary actions start
+   (fire, reload, plant, defuse, ability, pickup, drop, swap). Velocity is set from `A_MOVE`.
+2. **Weapons.** Timers tick; wind-ups that finish release their bullets.
+3. **Movement and bullets**, in `substeps` slices: units move with collision (they slide along walls), bullets move
+   and are swept against walls and unit circles. All hits within a slice are applied together, so units can trade.
+4. **Effects and statuses** tick.
+5. **Objective.** Plant and defuse channels progress, the fuse burns, round-end conditions are checked.
+6. **Sound and vision** for the next tick are computed.
+
+A unit may queue one move, one facing and one primary action per tick; a later call of the same kind replaces
+the earlier one.
+
+## Vision and sound
+
+- A unit sees an enemy when it is within `vision_range`, inside the cone `facing +/- fov_half`, and the straight
+  line between them is not blocked. Within `sense_radius` it senses in every direction (still needs line of sight).
+- You only get your **own** vision. Teammates' positions and state are always known. What a teammate sees is not
+  shared: use team memory.
+- Running (speed above `walk_speed`) makes footsteps that enemies within `step_sound_radius` hear. Shots are heard
+  within `shot_sound_radius`. Plant and defuse starts are audible. Heard positions are snapped to the tile centre.
+
+## Shooting
+
+- `A_FIRE(angle)` starts a wind-up of the weapon's `windup` ticks. Enemies who see you get the `S_WINDUP` flag and
+  your aim angle, so they have that long to react. You can only fire within your cone: the shot is clamped to
+  `facing +/- fov_half`. If you queue no facing, firing turns you towards the aim.
+- When the wind-up ends the weapon releases `pellets` bullets fanned `S` apart, where
+  `S = spread + move_spread * speed / 1024 + recoil_spread * recoil`. Movement and recoil also shift the whole fan
+  sideways by `(S - spread) / 2`, alternating left and right each shot. Nothing is random: you can compute exactly
+  where your bullets go, but not where the target will be.
+- Bullets are fast objects, not hitscan: they fly at `bullet_speed` per tick, are stopped by walls, and hit the
+  first enemy circle on their path. Damage is full up to `falloff_start` and drops linearly to `falloff_min_pct`
+  at `range`. Armour absorbs a share of each hit until it is used up. There is no friendly fire.
+- Spread uses your speed on the tick the bullets leave, so stand still through the wind-up for a tight shot.
+  At long range sustained fire misses: the recoil shift grows past the target's width. Read `UnitInfo.recoil`
+  and pause to let it settle.
+- Each shot adds `recoil_per_shot`; recoil recovers by `recoil_recovery` on ticks without a shot. Magazines hold
+  `magazine` trigger pulls; reloading takes `reload_ticks`. Holding a weapon scales your top speed by `move_pct`.
+
+## Objective
+
+- One attacker starts each round with the charge. It drops where the carrier dies; any attacker can `A_PICKUP` it.
+- `A_PLANT` works for the carrier standing on a site and takes `plant_ticks`. `A_DEFUSE` works for a defender
+  within `interact_reach` of the planted charge and takes `defuse_ticks` (`defuse_kit_ticks` with a kit).
+  Moving, firing or `A_CANCEL` interrupts either channel.
+
+## Economy
+
+- Everyone starts each half with `start_credits`. Round win and loss pay out, with a bonus for consecutive losses.
+  Kills pay the weapon's `kill_reward`; a plant pays the whole attacking team.
+- The shop (`T_ITEM`) sells weapons, armour, ability charges and the defuse kit during the buy phase.
+- Survivors keep their weapons and armour into the next round; everyone gets a sidearm.
+
+## Kits and abilities
+
+Each unit drafts a kit: base health, speed and two ability slots. Abilities (smoke, flash, incendiary, recon,
+barrier, dash, decoy, heal) are defined in `rules/abilities.toml`. The foundation ships one plain kit.
+
+## Compute and memory
+
+- Each unit gets `fuel_per_tick` fuel per tick (times a per-language multiplier), more on the draft tick and in
+  the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
+  `memory.copy` and `memory.fill` cost fuel per byte, so large `memcpy`/`memset` calls are expensive.
+- A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
+- Team memory: `team_mem_bytes` shared by the team, readable and writable all match. Units run in an order that
+  alternates teams and rotates each tick; a teammate that runs later in the same tick sees your write.
+  Draft memory: `draft_mem_bytes`, written during the draft, read-only afterwards.
+- Units of a dead bot (crash or exit) idle for the rest of the match.

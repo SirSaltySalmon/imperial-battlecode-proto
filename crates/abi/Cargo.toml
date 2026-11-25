@@ -1,0 +1,10 @@
+[package]
+name = "ibc-abi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Frozen v0 bot<->host ABI for Imperial Battlecode: ids, records, error codes, Host trait."
+
+[features]
+default = []
+host = []

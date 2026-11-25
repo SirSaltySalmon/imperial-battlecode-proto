@@ -1,0 +1,14 @@
+[package]
+name = "ibc-engine-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "C-ABI wrapper around the engine and replay crates for the browser replay viewer."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ibc-engine = { workspace = true }
+ibc-replay = { workspace = true }
+serde_json = { workspace = true }

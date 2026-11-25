@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+exclude = ["sdk", "bots", "viewer", "target", "out"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+ibc-abi = { path = "crates/abi" }
+ibc-engine = { path = "crates/engine" }
+ibc-replay = { path = "crates/replay" }
+ibc-runner = { path = "crates/runner" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+
+[profile.dev]
+debug = 0
+opt-level = 1
+
+[profile.release]
+debug = 0
