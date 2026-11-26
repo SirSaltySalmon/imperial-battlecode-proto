@@ -14,6 +14,7 @@ ibc-abi = { workspace = true }
 ibc-engine = { workspace = true }
 ibc-replay = { workspace = true }
 ibc-runner = { workspace = true }
+ibc-maptool = { path = "../maptool" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -1,0 +1,167 @@
+/* The map editor's extra layout; colours and controls come from ../style.css. Placeholder styling. */
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+}
+
+input[type="text"],
+input[type="number"] {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+input[type="number"] {
+  width: 56px;
+}
+
+input.invalid {
+  border-color: var(--hp-low);
+}
+
+#tools {
+  width: 210px;
+  flex: none;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.palette {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.palette button {
+  text-align: left;
+  padding: 4px 6px;
+}
+
+.palette code {
+  display: inline-block;
+  width: 1.4em;
+  font-weight: 700;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#canvas {
+  cursor: crosshair;
+}
+
+.verdict {
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--panel2);
+}
+
+.verdict.ok {
+  border-left: 3px solid var(--heal, #5fd6a4);
+}
+
+.verdict.bad {
+  border-left: 3px solid var(--hp-low);
+}
+
+.findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.findings li {
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--panel2);
+  line-height: 1.35;
+}
+
+.findings li.error {
+  border-left: 3px solid var(--hp-low);
+}
+
+.findings li.warning {
+  border-left: 3px solid var(--warn);
+}
+
+.findings li.none {
+  color: var(--dim);
+}
+
+.findings code {
+  color: var(--dim);
+  margin-right: 4px;
+}
+
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.summary-table td {
+  padding: 2px 0;
+}
+
+.summary-table td:first-child {
+  color: var(--dim);
+  width: 40%;
+}
+
+.help {
+  color: var(--dim);
+  line-height: 1.4;
+}
+
+#controls {
+  padding: 6px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  min-height: 30px;
+}
+
+#new-dialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 360px;
+}
+
+#new-dialog label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 6px 0;
+}
+
+#new-dialog menu {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0;
+}

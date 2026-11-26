@@ -28,6 +28,9 @@ ibc view --replays out/replays         # a folder to pick from: menu in the head
 or any static server over `dist/` (`npx vite preview`, `python -m http.server`), opening
 `/?replay=<url of an .ibcr>`. `npm run dev` runs the Vite dev server with hot reload.
 
+`/editor.html` is the map editor: `ibc view --editor [--maps DIR]` serves it with lint and save for a map
+folder (see `docs/maps.md`, "The editor"). From any other host it still opens, edits and exports maps.
+
 `/lab.html` is the combat lab. It uses this viewer's theme, units and map to draw a recording from
 `cargo run -p ibc-combatviz -- --out viewer/public/lab.json`. Drop a `lab.json` on the page if it is not
 served from `public/`.
@@ -143,6 +146,7 @@ unit), and the rules export carries `core`, `economy`, `weapon_rules`, `ability_
 `item_rules`; both are added in `crates/engine-wasm/src/view.rs`. An older engine build without them still
 plays: the buy menu says it has no tables and the team tab shows only the weapon in hand.
 | `src/play/` | the `ibc play` page: controls (key and mouse to input messages), HUD, server API |
+| `src/editor/` | the map editor: `doc.ts` (map text), `paint.ts`, `transform.ts` (mirrors, rotations), `history.ts` (undo), `check.ts` (engine validation), `api.ts` (lint and save on `ibc view --editor`), `draw.ts` (through `render.ts`), `input.ts`, `panel.ts`, `main.ts` |
 
 Frames stay inside the engine's memory as JSON strings; the viewer decodes a frame when it is shown and
 keeps at most 48 parsed, so a long match costs little beyond the engine's own copy.

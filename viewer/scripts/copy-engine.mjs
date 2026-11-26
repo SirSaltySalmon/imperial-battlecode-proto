@@ -3,6 +3,7 @@
 // carry one file per released engine and old replays stay viewable.
 //
 //   node scripts/copy-engine.mjs [path/to/ibc_engine_wasm.wasm]
+// Without a path: $IBC_ENGINE_WASM, else the release build under $CARGO_TARGET_DIR (default ../target).
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

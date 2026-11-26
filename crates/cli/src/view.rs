@@ -1,5 +1,6 @@
 //! `ibc view [replay.ibcr] [--replays DIR] [--port N] [--viewer-dir DIR]`: serve the built replay viewer on
 //! localhost, with one replay to open and optionally a folder of replays to pick from, and print the URL.
+//! `ibc view --editor [--maps DIR]` opens the map editor instead, with lint and save for one map folder.
 //!
 //! The viewer is a static site built with Node (`viewer/`, `npm run build`). It is deliberately not embedded
 //! in this binary, so building `ibc` never needs Node: the files are served from a directory instead, found
@@ -8,7 +9,10 @@
 //!
 //! The server is std-only, binds to 127.0.0.1, answers GET and HEAD, and serves nothing outside the viewer
 //! directory except the one replay at `/replay.ibcr` and the `.ibcr` files of the `--replays` folder
-//! (`view_library`).
+//! (`view_library`). With `--editor` it also answers the editor's POSTs and serves the `--maps` folder
+//! (`editor`).
+
+mod editor;
 
 use crate::view_library as library;
 use anyhow::{anyhow, bail, Context, Result};
@@ -21,6 +25,8 @@ use std::time::Duration;
 
 const REPLAY_ROUTE: &str = "/replay.ibcr";
 const VIEWER_DIR_ENV: &str = "IBC_VIEWER_DIR";
+/// How much of a too-large request body is read and dropped before the 413.
+const DRAIN_LIMIT: usize = 4 * 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(name = "ibc view", about = "Serve the replay viewer on localhost and print its URL")]
@@ -36,6 +42,12 @@ struct Args {
     /// Directory with the built viewer (`viewer/dist`); also read from IBC_VIEWER_DIR
     #[arg(long)]
     viewer_dir: Option<PathBuf>,
+    /// Open the map editor, with lint and save enabled for the --maps folder
+    #[arg(long)]
+    editor: bool,
+    /// Folder the editor lists, opens and saves maps in (default: `maps`, created if missing)
+    #[arg(long, requires = "editor")]
+    maps: Option<PathBuf>,
 }
 
 struct Site {
@@ -44,6 +56,18 @@ struct Site {
     replay: Option<PathBuf>,
     /// Canonical path of the `--replays` folder.
     library: Option<PathBuf>,
+    /// Canonical path of the editor's map folder (`--editor`).
+    maps: Option<PathBuf>,
+}
+
+/// What `handle` keeps of a request.
+struct Request {
+    method: String,
+    target: String,
+    host: Option<String>,
+    origin: Option<String>,
+    csrf: Option<String>,
+    body: Vec<u8>,
 }
 
 struct Response {
@@ -60,6 +84,10 @@ impl Response {
     fn text(status: &'static str, message: &str) -> Response {
         Response { status, content_type: "text/plain; charset=utf-8", body: format!("{message}\n").into_bytes() }
     }
+
+    fn json(status: &'static str, value: &serde_json::Value) -> Response {
+        Response { status, content_type: "application/json", body: value.to_string().into_bytes() }
+    }
 }
 
 pub fn run(args: Vec<String>) -> Result<()> {
@@ -73,17 +101,35 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Some(dir) => Some(dir.canonicalize().with_context(|| format!("replay folder {}", dir.display()))?),
         None => None,
     };
+    let maps = if args.editor { Some(editor_folder(&root, args.maps.as_deref())?) } else { None };
     let listener =
         TcpListener::bind(("127.0.0.1", args.port)).with_context(|| format!("listening on 127.0.0.1:{}", args.port))?;
     let port = listener.local_addr()?.port();
-    let query = if args.replay.is_some() { format!("?replay={REPLAY_ROUTE}") } else { String::new() };
-    println!("http://127.0.0.1:{port}/{query}");
+    let page = match (&maps, &args.replay) {
+        (Some(_), _) => "editor.html".to_string(),
+        (None, Some(_)) => format!("?replay={REPLAY_ROUTE}"),
+        (None, None) => String::new(),
+    };
+    println!("http://127.0.0.1:{port}/{page}");
     eprintln!("serving {} (Ctrl-C to stop)", root.display());
     if let Some(dir) = &library {
         eprintln!("offering the replays under {}", dir.display());
     }
-    serve(listener, Arc::new(Site { root, replay: args.replay, library }));
+    if let Some(dir) = &maps {
+        eprintln!("the editor opens and saves maps in {}", dir.display());
+    }
+    serve(listener, Arc::new(Site { root, replay: args.replay, library, maps }));
     Ok(())
+}
+
+/// The editor's map folder (created if missing), after checking the viewer build has the editor page.
+fn editor_folder(root: &Path, flag: Option<&Path>) -> Result<PathBuf> {
+    if !root.join("editor.html").is_file() {
+        bail!("{} has no editor.html: rebuild the viewer with `npm run build` in viewer/", root.display());
+    }
+    let dir = flag.unwrap_or(Path::new("maps"));
+    std::fs::create_dir_all(dir).with_context(|| format!("creating the map folder {}", dir.display()))?;
+    dir.canonicalize().with_context(|| format!("map folder {}", dir.display()))
 }
 
 /// Where the pip wheel installs the viewer, maps and docs, relative to the environment's prefix.
@@ -146,29 +192,53 @@ fn serve(listener: TcpListener, site: Arc<Site>) {
     }
 }
 
-fn handle(stream: TcpStream, site: &Site) -> std::io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(30)))?;
-    let mut reader = BufReader::new(stream.try_clone()?.take(16 * 1024));
+/// Request line, the headers the server looks at, and a body of at most `editor::MAX_BODY` bytes. `Err` is
+/// the response to send instead (bad or too large body).
+fn read_request(stream: &TcpStream) -> std::io::Result<Result<Request, Response>> {
+    let mut reader = BufReader::new(stream.try_clone()?.take((16 * 1024 + editor::MAX_BODY) as u64));
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
-    // Read the headers to the blank line (so the client sees a clean close), keeping only Host.
-    let mut host = None;
+    let mut parts = request_line.split_whitespace();
+    let (method, target) = (parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("").to_string());
+    let mut request = Request { method, target, host: None, origin: None, csrf: None, body: Vec::new() };
+    // Read the headers to the blank line (so the client sees a clean close).
+    let mut length = Some(0usize);
     let mut line = String::new();
     while reader.read_line(&mut line)? > 2 {
         if let Some((name, value)) = line.split_once(':') {
-            if name.eq_ignore_ascii_case("host") {
-                host = Some(value.trim().to_string());
+            let value = Some(value.trim().to_string());
+            match name.trim().to_ascii_lowercase().as_str() {
+                "host" => request.host = value,
+                "origin" => request.origin = value,
+                "content-length" => length = value.and_then(|v| v.parse().ok()),
+                editor::CSRF_HEADER => request.csrf = value,
+                _ => {}
             }
         }
         line.clear();
     }
-    let mut parts = request_line.split_whitespace();
-    let (method, target) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    let response = match method {
-        _ if !host.as_deref().map_or(true, is_local_host) => Response::text("403 Forbidden", "not a local host name"),
-        "GET" | "HEAD" => respond(site, target),
-        _ => Response::text("405 Method Not Allowed", "only GET and HEAD are supported"),
+    let Some(length) = length else {
+        return Ok(Err(Response::text("400 Bad Request", "bad Content-Length")));
+    };
+    if length > editor::MAX_BODY {
+        // Read what the client sends (up to a limit) before answering: closing a socket with unread bytes
+        // resets the connection, and the client would never see the 413.
+        let unread = length.min(DRAIN_LIMIT).saturating_sub(reader.buffer().len());
+        let rest = reader.into_inner().into_inner();
+        let _ = std::io::copy(&mut rest.take(unread as u64), &mut std::io::sink());
+        return Ok(Err(Response::text("413 Payload Too Large", "the body is too large")));
+    }
+    request.body = vec![0; length];
+    reader.read_exact(&mut request.body)?;
+    Ok(Ok(request))
+}
+
+fn handle(stream: TcpStream, site: &Site) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(30)))?;
+    let (method, response) = match read_request(&stream)? {
+        Ok(request) => (request.method.clone(), dispatch(site, &request)),
+        Err(response) => (String::new(), response),
     };
     let mut out = stream;
     write!(
@@ -183,6 +253,23 @@ fn handle(stream: TcpStream, site: &Site) -> std::io::Result<()> {
         out.write_all(&response.body)?;
     }
     out.flush()
+}
+
+fn dispatch(site: &Site, request: &Request) -> Response {
+    match request.method.as_str() {
+        _ if !request.host.as_deref().map_or(true, is_local_host) => {
+            Response::text("403 Forbidden", "not a local host name")
+        }
+        "GET" | "HEAD" => respond(site, &request.target),
+        "POST" if request.target.starts_with("/api/") => {
+            if !editor::post_allowed(request.csrf.as_deref(), request.origin.as_deref()) {
+                return Response::text("403 Forbidden", "editor requests must come from the editor page");
+            }
+            let (path, query) = request.target.split_once('?').unwrap_or((&request.target, ""));
+            editor::post(site.maps.as_deref(), path, query, &request.body)
+        }
+        _ => Response::text("405 Method Not Allowed", "only GET and HEAD are supported"),
+    }
 }
 
 /// A page on another site whose name is re-pointed at 127.0.0.1 (DNS rebinding) could otherwise read the
@@ -209,6 +296,9 @@ fn respond(site: &Site, target: &str) -> Response {
         };
     }
     if let Some(response) = respond_library(site, &path) {
+        return response;
+    }
+    if let Some(response) = editor::get(site.maps.as_deref(), &path) {
         return response;
     }
     let Some(relative) = safe_relative(&path) else {
@@ -307,7 +397,7 @@ mod tests {
         std::fs::write(base.join("secret.txt"), "secret").unwrap();
         std::fs::write(base.join("match.ibcr"), b"IBCRdata").unwrap();
         let replay = replay.then(|| base.join("match.ibcr"));
-        (base, Site { root: root.canonicalize().unwrap(), replay, library: None })
+        (base, Site { root: root.canonicalize().unwrap(), replay, library: None, maps: None })
     }
 
     #[test]
@@ -398,6 +488,51 @@ mod tests {
             assert_ne!(r.status, "200 OK", "{target}");
             assert_ne!(r.body, b"secret", "{target}");
         }
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn editor_saves_over_http_only_from_its_page() {
+        let (base, mut site) = site("editor", false);
+        let maps = base.join("maps");
+        std::fs::create_dir_all(&maps).unwrap();
+        site.maps = Some(maps.canonicalize().unwrap());
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || serve(listener, Arc::new(site)));
+        let post = |target: &str, headers: &[&str], body: &str| {
+            let mut s = TcpStream::connect(addr).unwrap();
+            let mut head = format!("POST {target} HTTP/1.1\r\nHost: 127.0.0.1\r\n");
+            for h in headers {
+                head.push_str(&format!("{h}\r\n"));
+            }
+            head.push_str(&format!("Content-Length: {}\r\n\r\n", body.len()));
+            s.write_all(head.as_bytes()).unwrap();
+            let _ = s.write_all(body.as_bytes());
+            let mut out = Vec::new();
+            let _ = s.read_to_end(&mut out);
+            String::from_utf8_lossy(&out).into_owned()
+        };
+        let map = "name: t\nteam_size: 1\n---\n#######\n#a.#.d#\n#..#11#\n#...11#\n#######\n";
+        let csrf = "X-IBC-Editor: 1";
+        let ok = post("/api/save?name=t", &[csrf, "Origin: http://127.0.0.1"], map);
+        assert!(ok.starts_with("HTTP/1.1 200 OK\r\n"), "{ok}");
+        assert_eq!(std::fs::read_to_string(maps.join("t.ibcmap")).unwrap(), map);
+        let lint = post("/api/lint?name=t", &[csrf], map);
+        assert!(lint.starts_with("HTTP/1.1 200 OK\r\n") && lint.contains("\"issues\""), "{lint}");
+        let forged = post("/api/save?name=u", &["Origin: http://evil.example", csrf], map);
+        let no_header = post("/api/save?name=u", &[], map);
+        let escape = post("/api/save?name=..%2Fescaped", &[csrf], map);
+        assert!(forged.starts_with("HTTP/1.1 403 ") && no_header.starts_with("HTTP/1.1 403 "), "{forged}{no_header}");
+        assert!(escape.starts_with("HTTP/1.1 400 "), "{escape}");
+        assert!(!maps.join("u.ibcmap").exists() && !base.join("escaped.ibcmap").exists());
+        let big = post("/api/lint", &[csrf], &"#".repeat(editor::MAX_BODY + 1));
+        assert!(big.starts_with("HTTP/1.1 413 "), "{big}");
+        let mut s = TcpStream::connect(addr).unwrap();
+        s.write_all(b"POST /api/lint HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: abc\r\n\r\n").unwrap();
+        let mut bad = String::new();
+        s.read_to_string(&mut bad).unwrap();
+        assert!(bad.starts_with("HTTP/1.1 400 "), "{bad}");
         std::fs::remove_dir_all(base).unwrap();
     }
 

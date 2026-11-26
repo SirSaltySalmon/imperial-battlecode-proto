@@ -120,6 +120,37 @@ SVG (for docs and review) or text. Overlays: `routes` (fastest attacker and defe
 so a mirrored site 1 becomes a new site; `--swap-sides` trades `a` and `d` in the copy). `new` writes a
 bordered, lint-clean scaffold to start from. Several pool maps were drawn as a top half and mirrored.
 
+## The editor
+
+A map editor runs in the browser, on the replay viewer's build and renderer (`viewer/editor.html`):
+
+```
+ibc view --editor                      # lists, opens and saves maps in ./maps (created if missing)
+ibc view --editor --maps my-maps --port 8080
+```
+
+It prints the editor's URL. Open a map from the folder menu, a file (Open, or drop it on the page) or a
+link (`editor.html?map=<url>`), or start from New, which writes the same scaffold as `ibc-maptool new`.
+
+- Paint with the brush (1x1 to 5x5), a rectangle or a flood fill, for every tile type: wall, floor, low
+  cover, attacker and defender spawns, sites 1 to 9. Undo and redo cover every edit.
+- Symmetry paints the mirror image as you go (left/right, top/bottom, or 180 degrees about the centre), with
+  optional side swap (`a` and `d` trade places) and site pairing (1 and 2, 3 and 4 swap). The whole-map
+  buttons are `ibc-maptool transform` and `mirror` and give the same grids.
+- Size resizes keeping the top-left; the border moves with it and stays wall.
+- Every edit is checked by the engine itself (`Map::parse` compiled to WebAssembly): the panel says
+  whether `ibc run --map` would accept the map, what the engine reads (size, team size, spawn tiles, each
+  site's box and plant point, the map hash), an open border, and sites the engine would silently drop. The
+  spawn tiles a team uses are dotted and the plant points crossed on the map.
+- **Lint** sends the map to the local server, which runs the `lint` checks above and lists the findings.
+  **Save** writes `<folder>/<name>.ibcmap` (asking before it overwrites), setting `name:` to the file name.
+  The server writes only inside the folder: names are letters, digits, `_` and `-`.
+- **Export** downloads the `.ibcmap` and works without the server too (any static host of `viewer/dist`);
+  there Lint and Save are hidden. Run `ibc-maptool lint` on the file yourself.
+
+A saved or exported map is a normal map file: `ibc run bots/a bots/b --map maps/custom1.ibcmap`. Header
+notes and unknown keys survive an edit, and a map that is opened and saved unchanged is byte-identical.
+
 ## Design guidelines and target bands
 
 Defaults (`ibc-maptool bands`), tuned for the stock ruleset: run speed 0.68 tiles per tick, 120-tick
