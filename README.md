@@ -13,12 +13,22 @@ attackers-vs-defenders tactical shooter in which every unit runs its own bot.
 
 ## Quick start
 
+Installing and running test games:
 ```
 rustup target add wasm32-wasip1
 cargo build --release -p ibc-cli
 target/release/ibc run bots/rusher bots/holder --map maps/crossfire.ibcmap --seed 1 -o out/demo
 target/release/ibc replay verify out/demo/replay.ibcr
 cargo run --release -p ibc-sim -- league --maps maps --seeds 3     # native, no wasm
+```
+
+Booting the platform and interacting with it, from submitting bots to watching live games:
+```
+bash tools/webstack.sh
+```
+After your first run, use faster version below
+```
+bash tools/webstack.sh --no-build   
 ```
 
 ## How it fits together
