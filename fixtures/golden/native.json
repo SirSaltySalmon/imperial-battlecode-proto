@@ -18,7 +18,7 @@
         0
       ],
       "ticks": 531,
-      "final_state_hash": "0743d31e73f75bf2"
+      "final_state_hash": "50003d5d2c0aecfa"
     },
     {
       "name": "crossfire-holder-rusher-s2",
@@ -33,7 +33,7 @@
         9
       ],
       "ticks": 1104,
-      "final_state_hash": "d516054a71540bd4"
+      "final_state_hash": "44c741081076e280"
     },
     {
       "name": "tunnels-rusher-holder-s1",
@@ -48,7 +48,7 @@
         0
       ],
       "ticks": 312,
-      "final_state_hash": "0a07843446453af9"
+      "final_state_hash": "497f0cfa3d3964fb"
     },
     {
       "name": "tunnels-holder-rusher-s2",
@@ -63,7 +63,7 @@
         7
       ],
       "ticks": 325,
-      "final_state_hash": "da70c11962062341"
+      "final_state_hash": "99e26672dfb756c5"
     },
     {
       "name": "crossfire-rusher-rusher-s3",
@@ -78,7 +78,7 @@
         9
       ],
       "ticks": 711,
-      "final_state_hash": "82d788fc08e30c6c"
+      "final_state_hash": "e20dad8d534f78c8"
     },
     {
       "name": "tunnels-holder-idle-s4",
@@ -93,7 +93,7 @@
         0
       ],
       "ticks": 612,
-      "final_state_hash": "e619486ed0baf328"
+      "final_state_hash": "2ee2f7cbc6b72131"
     }
   ]
 }
