@@ -70,6 +70,8 @@ struct Args {
     /// Language fuel multipliers, e.g. `--language rust=1.0 --language python=3.0`
     #[arg(long = "language", value_parser = parse_language)]
     languages: Vec<(String, f64)>,
+    #[command(flatten)]
+    auth: ibc_coordinator::accounts::AuthArgs,
 }
 
 fn parse_language(s: &str) -> Result<(String, f64), String> {
@@ -127,6 +129,7 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         } else {
             args.languages.clone()
         },
+        auth: args.auth.config(args.listen)?,
         ..defaults
     })
 }

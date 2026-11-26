@@ -4,6 +4,9 @@ Two layers. A **worker** leases match jobs from the **coordinator** over HTTPS (
 by feeding a local `ibc run-batch --jsonl` process (part A). A match is a pure function of
 `(patch, map, bot A, bot B, seed)`, so any two honest workers produce byte-identical replays.
 
+Accounts, sessions, teams of users and the credentials team routes accept are in
+[`docs/api/auth.md`](api/auth.md).
+
 ## A. `ibc run-batch --jsonl` (implemented in `crates/cli/src/batch.rs`)
 
 ```

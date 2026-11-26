@@ -6,6 +6,7 @@
 pub mod jobs;
 pub mod league;
 pub mod ratings;
+pub mod users;
 
 use crate::error::{ApiError, ApiResult};
 use crate::model::Patch;
@@ -86,6 +87,7 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("jobs", "timeouts", "INTEGER NOT NULL DEFAULT 0"),
     ("patches", "runner_blobs", "TEXT"),
     ("ratings", "last_played", "INTEGER"),
+    ("teams", "join_code", "TEXT"),
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -127,6 +129,7 @@ impl Db {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
         migrate(&conn)?;
+        users::init(&conn)?;
         Ok(Db {
             conn: Mutex::new(conn),
         })

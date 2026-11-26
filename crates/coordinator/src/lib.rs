@@ -2,6 +2,7 @@
 //! teams, submissions, series, ratings and the ladder. One process, one data directory:
 //! `<data>/coordinator.sqlite` (WAL) and `<data>/blobs/`.
 
+pub mod accounts;
 pub mod api;
 pub mod blobs;
 pub mod config;

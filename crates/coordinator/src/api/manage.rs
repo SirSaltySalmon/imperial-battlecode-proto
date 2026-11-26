@@ -44,19 +44,28 @@ pub async fn create_team(
 ) -> ApiResult<Created> {
     auth_admin(&app, &headers)?;
     let req: CreateTeamReq = parse(&body)?;
-    if !valid_name(&req.name, 40) {
+    let (team, token) = app.db.tx(|tx| insert_team(tx, &req.name, now_ms()))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({"team_id": team.id, "name": team.name, "token": token})),
+    ))
+}
+
+/// Create a team with a fresh `ibt` token; returns the team and the token (only its hash is stored). Used
+/// by the organisers' endpoint and by users creating a team (`api::teams`).
+pub(crate) fn insert_team(
+    tx: &rusqlite::Transaction,
+    name: &str,
+    now: i64,
+) -> ApiResult<(TeamRow, String)> {
+    if !valid_name(name, 40) {
         return Err(ApiError::bad_request(
             "team name must be 1..=40 characters of [A-Za-z0-9_.-]",
         ));
     }
     let token = new_token("ibt");
-    let team = app
-        .db
-        .tx(|tx| db::create_team(tx, &req.name, &sha256_hex(token.as_bytes()), now_ms()))?;
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({"team_id": team.id, "name": team.name, "token": token})),
-    ))
+    let team = db::create_team(tx, name, &sha256_hex(token.as_bytes()), now)?;
+    Ok((team, token))
 }
 
 pub async fn list_teams(State(app): AppState, headers: HeaderMap) -> ApiResult<Json<Value>> {
@@ -88,7 +97,7 @@ pub struct SubmissionQuery {
 }
 
 /// The team a request acts for: the token's team, or `?team=` when the organisers call.
-fn acting_team(app: &App, caller: Caller, team: Option<&str>) -> ApiResult<TeamRow> {
+pub(crate) fn acting_team(app: &App, caller: Caller, team: Option<&str>) -> ApiResult<TeamRow> {
     match (caller, team) {
         (Caller::Team(t), _) => Ok(t),
         (Caller::Admin, Some(team)) => app.db.tx(|tx| db::find_team(tx, team)),
