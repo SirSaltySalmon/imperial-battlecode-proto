@@ -512,20 +512,20 @@ impl Viewer {
     }
 }
 
-/// `summary.json` names each side's module (`teams[i].wasm_sha256`, and `name`, a hash prefix unless the
-/// job named it): drop both for every side the viewer may not see. `slot_teams` is the team in each slot.
+/// `summary.json` names each side's module (`teams[i].wasm_sha256`, and `name`, a hash prefix since workers
+/// never name bots): drop the hash for every side the viewer may not see, and name every side by its team.
+/// `slot_teams` is the team (`{team_id, name}`) in each slot.
 fn redact_summary(mut summary: Value, slot_teams: [&Value; 2], viewer: &Viewer) -> Value {
     for (i, team) in slot_teams.iter().enumerate() {
-        if viewer.sees(team.as_str().unwrap_or_default()) {
-            continue;
-        }
         if let Some(side) = summary
             .get_mut("teams")
             .and_then(|t| t.get_mut(i))
             .and_then(Value::as_object_mut)
         {
-            side.remove("wasm_sha256");
-            side.remove("name");
+            if !viewer.sees(team["team_id"].as_str().unwrap_or_default()) {
+                side.remove("wasm_sha256");
+            }
+            side.insert("name".into(), team["name"].clone());
         }
     }
     summary
@@ -580,7 +580,7 @@ fn match_view(r: &rusqlite::Row, detail: Option<&Viewer>) -> rusqlite::Result<Va
         }
         v["summary"] = match result.get("summary") {
             Some(summary) if done => {
-                let slots = [&v["bot_a"]["team_id"], &v["bot_b"]["team_id"]];
+                let slots = [&v["bot_a"], &v["bot_b"]];
                 redact_summary(summary.clone(), slots, viewer)
             }
             _ => Value::Null,
@@ -631,21 +631,33 @@ pub fn get_match(tx: &Transaction, id: &str, viewer: &Viewer) -> ApiResult<Optio
         .optional()?)
 }
 
-/// The replay hash of a finished match and the team ids that played its sides A and B.
-pub fn match_replay(tx: &Transaction, id: &str) -> ApiResult<Option<(String, [String; 2])>> {
+/// The replay of a finished match and the teams that played its sides A and B.
+pub struct MatchReplay {
+    pub sha256: String,
+    pub team_ids: [String; 2],
+    pub team_names: [String; 2],
+}
+
+pub fn match_replay(tx: &Transaction, id: &str) -> ApiResult<Option<MatchReplay>> {
     Ok(tx
         .query_row(
             &format!(
-                "SELECT j.replay_sha256, g.swapped, s.team_a, s.team_b
+                "SELECT j.replay_sha256, g.swapped, s.team_a, ta.name, s.team_b, tb.name
                  FROM games g JOIN jobs j ON j.id = g.job_id JOIN series s ON s.id = g.series_id
+                 JOIN teams ta ON ta.id = s.team_a JOIN teams tb ON tb.id = s.team_b
                  WHERE g.id = ?1 AND j.state = 'done' AND {}",
                 super::tournaments::VISIBLE_GAME
             ),
             [id],
             |r| {
-                let (a, b): (String, String) = (r.get(2)?, r.get(3)?);
-                let sides = if r.get::<_, bool>(1)? { [b, a] } else { [a, b] };
-                Ok(r.get::<_, Option<String>>(0)?.map(|sha| (sha, sides)))
+                let a: (String, String) = (r.get(2)?, r.get(3)?);
+                let b: (String, String) = (r.get(4)?, r.get(5)?);
+                let (a, b) = if r.get::<_, bool>(1)? { (b, a) } else { (a, b) };
+                Ok(r.get::<_, Option<String>>(0)?.map(|sha256| MatchReplay {
+                    sha256,
+                    team_ids: [a.0, b.0],
+                    team_names: [a.1, b.1],
+                }))
             },
         )
         .optional()?

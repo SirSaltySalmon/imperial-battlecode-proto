@@ -207,6 +207,8 @@ async fn public_views_never_name_another_teams_submission() {
     let alpha_slot = usize::from(detail["bot_a"]["name"] != "alpha");
     assert!(detail["summary"]["teams"][alpha_slot]["wasm_sha256"].is_string());
     assert!(detail["summary"]["teams"][1 - alpha_slot]["wasm_sha256"].is_null());
+    assert_eq!(detail["summary"]["teams"][alpha_slot]["name"], "alpha");
+    assert_eq!(detail["summary"]["teams"][1 - alpha_slot]["name"], "beta");
     assert!(detail.get("job_id").is_none());
     let all = h
         .ok(

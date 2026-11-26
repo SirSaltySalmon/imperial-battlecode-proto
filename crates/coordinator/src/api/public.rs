@@ -131,7 +131,9 @@ fn view_keep(
 }
 
 /// Redacted views made recently, newest last: a popular match is decoded and re-encoded once, not per request.
-type ViewCache = Mutex<Vec<((String, Keep), Arc<Vec<u8>>)>>;
+/// Keyed by the team names too, so a renamed team is never served under its old name.
+type ViewKey = (String, Keep, [String; 2]);
+type ViewCache = Mutex<Vec<(ViewKey, Arc<Vec<u8>>)>>;
 const VIEW_CACHE_ENTRIES: usize = 32;
 
 fn view_cache() -> &'static ViewCache {
@@ -139,9 +141,15 @@ fn view_cache() -> &'static ViewCache {
     CACHE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// The stored replay `sha256` with only the private data of `keep`.
-fn redacted(store: &dyn BlobStore, sha256: &str, keep: Keep) -> ApiResult<Arc<Vec<u8>>> {
-    let key = (sha256.to_string(), keep);
+/// The stored replay `sha256` with only the private data of `keep`, its sides named after `team_names`
+/// (workers record a module hash prefix there, see docs/JOBS.md).
+fn redacted(
+    store: &dyn BlobStore,
+    sha256: &str,
+    keep: Keep,
+    team_names: [String; 2],
+) -> ApiResult<Arc<Vec<u8>>> {
+    let key = (sha256.to_string(), keep, team_names);
     let lock = || view_cache().lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, bytes)) = lock().iter().find(|(k, _)| *k == key) {
         return Ok(bytes.clone());
@@ -158,7 +166,11 @@ fn redacted(store: &dyn BlobStore, sha256: &str, keep: Keep) -> ApiResult<Arc<Ve
             format!("this replay cannot be redacted ({e}); only view=full serves it"),
         )
     })?;
-    let bytes = Arc::new(replay.view(keep).encode());
+    let mut view = replay.view(keep);
+    for (bot, name) in view.header.bots.iter_mut().zip(&key.2) {
+        bot.name.clone_from(name);
+    }
+    let bytes = Arc::new(view.encode());
     let mut cache = lock();
     if cache.len() >= VIEW_CACHE_ENTRIES {
         cache.remove(0);
@@ -170,7 +182,8 @@ fn redacted(store: &dyn BlobStore, sha256: &str, keep: Keep) -> ApiResult<Arc<Ve
 /// The `.ibcr` replay of a finished match. Every view has every action and event and re-simulates to the same
 /// world; they differ in whose memory writes, logs, per-turn fuel and debug drawings they keep:
 /// `view=public` (default, no token) neither team's, `view=team` (team token) the caller's team's,
-/// `view=full` (admin token) both (the stored record). Redacted views are made on request.
+/// `view=full` (admin token) both (the stored record). Redacted views are made on request and name each side
+/// by its team; the stored record keeps the names the runner recorded.
 pub async fn replay(
     State(app): AppState,
     Path(match_id): Path<String>,
@@ -183,7 +196,7 @@ pub async fn replay(
             "view {view:?}: use public, team or full"
         )));
     }
-    let (sha256, sides) = app
+    let found = app
         .db
         .tx(|tx| league::match_replay(tx, &match_id))?
         .ok_or_else(|| {
@@ -191,13 +204,15 @@ pub async fn replay(
                 "match {match_id:?} has no replay (unknown or not finished)"
             ))
         })?;
-    let Some(keep) = view_keep(&app, &headers, view, &sides)? else {
-        return blob_response(app, sha256).await;
+    let Some(keep) = view_keep(&app, &headers, view, &found.team_ids)? else {
+        return blob_response(app, found.sha256).await;
     };
     let store = app.blobs.clone();
-    let bytes = tokio::task::spawn_blocking(move || redacted(store.as_ref(), &sha256, keep))
-        .await
-        .map_err(ApiError::internal)??;
+    let bytes = tokio::task::spawn_blocking(move || {
+        redacted(store.as_ref(), &found.sha256, keep, found.team_names)
+    })
+    .await
+    .map_err(ApiError::internal)??;
     let cache = if keep == Keep::None {
         "public, max-age=3600"
     } else {

@@ -162,6 +162,16 @@ async fn replay_views_hide_the_other_teams_private_data() {
             detail[["bot_a", "bot_b"][1 - alpha_side]]["team_id"],
             beta.0.as_str()
         );
+        let names =
+            [&detail["bot_a"]["name"], &detail["bot_b"]["name"]].map(|n| n.as_str().unwrap());
+        assert_eq!(names[alpha_side], "alpha");
+        // A served view is the redacted record with every side named by its team.
+        let named = |mut r: Replay| {
+            for (bot, name) in r.header.bots.iter_mut().zip(names) {
+                bot.name = name.to_string();
+            }
+            r
+        };
 
         let (status, full) = get(&h, &match_id, "?view=full", Some(ADMIN)).await;
         assert_eq!(status, StatusCode::OK);
@@ -175,7 +185,10 @@ async fn replay_views_hide_the_other_teams_private_data() {
         let (status, public) = get(&h, &match_id, "", None).await;
         assert_eq!(status, StatusCode::OK);
         let public = Replay::decode(&public).unwrap();
-        assert_eq!(public, full.view(Keep::None));
+        assert_eq!(public, named(full.view(Keep::None)));
+        for (bot, name) in public.header.bots.iter().zip(names) {
+            assert_eq!((bot.name.as_str(), bot.sha256.as_str()), (name, ""));
+        }
         assert_eq!(
             get(&h, &match_id, "?view=public", None).await.1,
             public.encode()
@@ -187,7 +200,8 @@ async fn replay_views_hide_the_other_teams_private_data() {
             assert_eq!(status, StatusCode::OK);
             let mine = Replay::decode(&mine).unwrap();
             assert_eq!(mine.header.redacted, [side == 1, side == 0], "{}", team.0);
-            assert_eq!(mine, full.view(Keep::Team(side)));
+            assert_eq!(mine, named(full.view(Keep::Team(side))));
+            assert_eq!(mine.header.bots[side].name, names[side]);
             assert!(mine.ticks.iter().all(|t| t.private[1 - side].is_empty()));
             assert!(mine.ticks.iter().any(|t| !t.private[side].is_empty()));
             ibc_replay::verify(&mine).unwrap();

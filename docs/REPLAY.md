@@ -101,5 +101,9 @@ A team token on `view=full`, a team that did not play, or the admin token on `vi
 that is not a format-2 replay cannot be redacted: `public` and `team` answer 410, `full` still serves it. The
 last 32 redacted views are kept in memory, so a popular match is re-encoded once.
 
+Workers never name bots, so the stored header names each side by a module hash prefix (docs/JOBS.md). The
+`public` and `team` views replace both names with the current team names; `full` is the stored bytes, so it
+keeps the prefixes and still hashes to `replay_sha256`.
+
 Workers can read any blob, including full replays, by hash. That fits the existing trust model (workers run
 both modules anyway) but means a worker token is as private as the admin token for replay privacy.
