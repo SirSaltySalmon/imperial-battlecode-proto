@@ -1,4 +1,4 @@
-# Bot ABI v0
+# Bot ABI v1
 
 The single source of truth is [`crates/abi/src/lib.rs`](../crates/abi/src/lib.rs): every id, record layout and
 error code is defined and documented there. This page explains the conventions.
@@ -65,16 +65,29 @@ clock and random source, empty args and environment. There is no filesystem, net
   so compiled bots keep their layout. `WeaponRules._reserved0` was `move_spread` (movement no longer adds spread).
 - **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed.
 
-## Additions
+## Additions in v1
 
-Additive changes since v0, each at the end of its group or record:
+`ABI_VERSION` is 1 (engine 0.2.0). Every change is additive, at the end of its group or record, so a v0 bot
+still loads and reads the prefix of each record it knows; what changed is what some tables mean. In order:
 
+- `get` copies the prefix of a record that fits in `cap` (a `T_MAP_ROW` row must still fit).
+- Detonation: `CoreRules.blast_radius`; blast deaths are `EVENT_KILL` with actor -1 and weapon -1. A match that
+  reaches `max_ticks`, or a tie-break that stays level, is a draw. Team memory is zeroed at every round start.
+- Fog per team: `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS`, `T_DROPS`, `T_SOUNDS` and `T_EVENTS` are the
+  team's (see Conventions); `POS_HIDDEN`; enemy `hp` and `armor` read 0.
+- Firing: `UnitInfo.unsteadiness`; `WeaponRules.unsteady_gain`, `unsteady_decay`, `unsteady_max`,
+  `startup_per_point`; `S_BRACED` (`1 << 11`); `WeaponRules._reserved0` (was `move_spread`).
+- Team play: `A_BUY_FOR` (14), `A_DRAFT_FOR` (15), `MEM_BUY` (2), `T_ROSTER` (18), `T_ROUNDS` (19),
+  `UnitInfo.other_weapon` and `fire_cooldown`, `CoreRules.buy_mem_bytes`. Kits other than 0 are unique within a
+  team.
 - `S_CASTING` (`1 << 12`): the unit is in an ability's startup (`AbilityRules.delay` ticks). Meanwhile `act`
   refuses every primary action except `A_CANCEL` with `ERR_NOT_READY`; moving and turning still work.
 - `AbilityRules.speed`: units per tick a thrown device flies; 0 = it is not thrown and appears at once.
   `AbilityRules.delay` keeps its name and is the ability's startup.
 - `ProjectileInfo.kind` (already in v0) is now used: 0 = a bullet, otherwise a thrown ability device with
   `kind` = ability id + 1 and `weapon` = -1. Devices hit nobody; they land at a wall, a barrier or their range.
+- `EFFECT_TRAP` (9), `EFFECT_SONAR` (10), `EFFECT_CONCUSSION` (11); abilities 8-10 and kits 7-9 in the
+  ruleset. Every ability has one charge.
 
 ## For engine and SDK authors
 

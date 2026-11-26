@@ -22,7 +22,9 @@
 //! Records are `#[repr(C)]`, little-endian, made only of `i32`, so they have no padding.
 #![cfg_attr(not(feature = "host"), no_std)]
 
-pub const ABI_VERSION: u32 = 0;
+/// 1: the batch of additions listed in docs/ABI.md ("Additions in v1"). Every v0 bot still loads and reads
+/// the prefix of each record it knows; the version says what the tables mean now (team fog, startup, ...).
+pub const ABI_VERSION: u32 = 1;
 pub const IMPORT_MODULE: &str = "ibc";
 
 /// Fixed-point units per tile.

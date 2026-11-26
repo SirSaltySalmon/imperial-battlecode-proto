@@ -13,7 +13,8 @@
 
 namespace ibc {
 
-inline constexpr uint32_t ABI_VERSION = 0;
+/// 1: the additions listed in docs/ABI.md ("Additions in v1").
+inline constexpr uint32_t ABI_VERSION = 1;
 inline constexpr char IMPORT_MODULE[] = "ibc";
 
 /// Fixed-point units per tile.
