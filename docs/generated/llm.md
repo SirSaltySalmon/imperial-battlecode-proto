@@ -12,7 +12,8 @@ For AI agents and for reading offline. Use the words exactly as `docs/GLOSSARY.m
 6. `docs/ABI.md`
 7. `docs/generated/rules.md`
 8. `docs/generated/abi.md`
-9. `sdk/rust/src (Rust SDK quick reference)`
+9. `docs/PARTICIPANTS.md`
+10. `sdk/rust/src (Rust SDK quick reference)`
 
 ---
 
@@ -63,9 +64,8 @@ credits reset to `start_credits`.
 `overtime_credits`. A team that takes both rounds of a pair wins the game. At most `overtime_max_pairs` (3)
 pairs are played. Never call a single overtime round a "game".
 
-**Tie-break.** What decides a game still level after the last overtime pair, or one cut off by `max_ticks`:
-rounds, then kills, then damage. Today a seed coin flip decides if all three are level; the decided rule is a
-**drawn game** instead **(landing)**.
+**Tie-break.** What decides a game still level after the last overtime pair: rounds, then kills, then damage.
+If all three are level the game is **drawn**. A game cut off by `max_ticks` is drawn whatever the score.
 
 ## Games and the platform
 
@@ -75,8 +75,8 @@ tie-break as above. A game is a pure function of (patch, map, bot A, bot B, seed
 game never means several maps.
 
 **Series.** Several games between the same two submissions, one map each, distinct maps. The platform rates,
-lists and requests series (`GET series/{id}`). Today a ranked series has `IBC_RANKED_GAMES` games (default 2);
-the decided size is 3 to 5 **(landing)**.
+lists and requests series (`GET series/{id}`). A ranked series has `IBC_RANKED_GAMES` games (default 3; the
+decided size is 3 to 5).
 
 **Slot** (team slot). Which of the two seats a team takes in a game: **A** or **B** (`TEAM_A = 0`, `TEAM_B = 1`).
 Team A attacks first. Unit ids `0..n-1` are team A and `n..2n-1` team B. The word "slot" also appears, always
@@ -91,8 +91,7 @@ within a game.
 low 32 bits as `MatchInfo.seed_lo`.
 
 **Team.** In a game, the 3 to 5 units on one slot (the map sets the size). On the platform, a group of 1 to 4
-people who share submissions and a rating, joined by a join code **(landing: today a team is one bearer
-token)**.
+people who share submissions and a rating, joined by a join code.
 
 **Unit.** One body on the map, run by its own bot instance for the whole game.
 
@@ -110,21 +109,21 @@ The team chooses it among its submissions; it cannot be unset once set.
 uncertain to mean much (a new team or a fresh submission); clients show "provisional" instead of the number.
 
 **Tier.** The label for a rating band: Iron, Bronze, Silver, Gold, Platinum, Diamond, Ascendant, Immortal,
-Radiant. Display only; matchmaking ignores it **(landing)**.
+Radiant. Display only; matchmaking ignores it.
 
 **Ranked.** A series the platform schedules itself between live submissions, which changes ratings.
 
 **Scrim** (unranked series). A series a team requests against another team, from a daily quota. It does not
 change ratings. It uses the opponent's live submission, or exactly the submission they fielded in an earlier
-series against you **(landing: today only the live submission)**.
+series against you.
 
 **Tournament.** A bracket (single or double elimination) run by the organisers on submissions locked at a
-set time, seeded from the ladder, on maps hidden until it starts **(landing)**.
+set time, seeded from the ladder, on maps hidden until it starts.
 
 **Pairing.** One bracket match-up in a tournament round: two teams play every tournament map, one game each.
 **decided_by** records how the pairing was won: `maps` (more maps won), `rounds` (maps level, more rounds won
 across all its maps, overtime included), or `seed` (both level, the higher seed advanced; flagged for the
-organisers). `null` while unfinished **(landing)**.
+organisers). `null` while unfinished.
 
 ## Versions
 
@@ -143,17 +142,15 @@ use "patch" for a code change in general.
 
 **Kit.** What a unit drafts: base health, speed and exactly two ability slots (`T_KIT`, `KitRules`). Kit 0 is
 played by a unit that never drafts. Kits are unique within a team, not across teams, and one unit drafts for the
-whole team **(landing: today each unit drafts its own kit and duplicates are allowed)**.
+whole team (`A_DRAFT_FOR`).
 
-**Signature ability.** Ability slot 0 of a kit. Free: it is refilled to one charge at the start of every round
-**(landing: today an ability with `price = 0` is refilled to its `max_charges`, up to 2; every kit's slot 0
-holds such an ability)**.
+**Signature ability.** Ability slot 0 of a kit. Free: it is refilled to one charge at the start of every round.
 
 **Bought ability.** Ability slot 1 of a kit. Its charges are bought in the buy phase (`ITEM_KIND_ABILITY_CHARGE`;
 the charge costs the item's price plus the ability's).
 
-**Ability charge.** One use of an ability. A unit holds at most one charge per ability **(landing: today the cap
-is the ability's `max_charges`, up to 2)**; unused charges carry over to the next round.
+**Ability charge.** One use of an ability. A unit holds at most one charge per ability (`max_charges` is 1 for
+every ability); unused charges carry over to the next round.
 
 **The charge** (objective). The bomb the attackers carry, plant on a site and the defenders defuse
 (`DROP_CHARGE`, `S_HAS_CHARGE`). Not to be confused with an ability charge: say "the charge" for the bomb and
@@ -174,9 +171,9 @@ call (`FUEL_*`). Each unit gets `fuel_per_tick` per tick, times `fuel_first_tick
 `fuel_buy_mult` in the buy phase. Unused fuel is lost; a bot that runs out is paused and resumes next tick.
 
 **Fog.** The host lists only what the caller may perceive: `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS`, `T_DROPS`.
-Teammates are always known. Vision and heard sounds are shared by the whole team **(landing: today each unit sees
-only its own vision)**. Events follow fog too: a team sees an event only where it can see, except kills, which
-both teams always get without the position **(landing: today every event reaches everyone)**.
+Teammates are always known. Vision and heard sounds are shared by the whole team. Events follow fog too: a team sees
+an event only where it can see, except kills, plant, defuse, detonation and round end, which both teams always
+get, without the position when it is not known (`POS_HIDDEN`).
 
 **Vision.** A unit sees an enemy within `vision_range`, inside its cone (`facing ± fov_half`), with a clear
 line; within `sense_radius` the cone does not matter.
@@ -186,20 +183,20 @@ abilities and decoys, within their radius and through walls, at a position snapp
 (speed at most `walk_speed`) is silent.
 
 **Team memory.** `MEM_TEAM`, `team_mem_bytes` (64) shared by a team, readable and writable by every teammate. A
-teammate running later in the same tick sees a write. It is wiped at the end of every round and writable only in
-action phases **(landing: today it lasts the whole game and is writable in every phase)**.
+teammate running later in the same tick sees a write. It is wiped at the start of every round and writable only in
+action phases.
 
 **Draft memory.** `MEM_DRAFT`, `draft_mem_bytes` (1024), written during the draft, read-only afterwards.
 
-**Buy memory.** A memory scope like draft memory for the buy phase, smaller, wiped every round **(landing: not
-in the ABI yet)**.
+**Buy memory.** `MEM_BUY`, `buy_mem_bytes`, a memory scope like draft memory for the buy phase, smaller,
+wiped every round and writable only in the buy phase.
 
 **Unsteadiness.** A per-unit value that builds up with movement speed each tick and decays while the unit stands
 still, like recoil. A weapon's startup (wind-up) grows with it, so moving costs time before a shot, never
-accuracy **(landing: today the wind-up is fixed and movement widens the spread)**.
+accuracy.
 
 **Brace.** The state after a completed startup in which a unit keeps firing at the weapon's normal rate. Moving,
-a tick without firing, reloading or swapping weapon breaks it; turning does not **(landing)**.
+a tick without firing, reloading, swapping weapon or starting an ability breaks it; turning does not.
 
 **Recoil.** Heat added by each shot (`recoil_per_shot`), recovering on ticks without a shot. It widens the
 pellet fan.
@@ -235,7 +232,8 @@ so never hard-code them. This file describes the mechanics; the TOML files are t
 
 ## Match flow
 
-- Tick 0 is the **draft**: each unit may pick a kit (`A_DRAFT`) and write draft memory. It has extra fuel.
+- Tick 0 is the **draft**: each unit may pick a kit (`A_DRAFT`), or pick one for a teammate (`A_DRAFT_FOR`), and
+  write draft memory. It has extra fuel. Kits are unique within a team (kit 0, the plain one, excepted).
 - Then rounds. Each round: **buy phase** (`buy_ticks`, units stand at spawn, `A_BUY` applies immediately), **action
   phase** (`round_ticks`), and after a plant the **planted phase** (`fuse_ticks`).
 - Attackers win a round by eliminating the defenders or by detonation. Defenders win by eliminating the attackers
@@ -245,7 +243,8 @@ so never hard-code them. This file describes the mechanics; the TOML files are t
   `rounds_to_win` wins. If regulation ends level, overtime is played in pairs of rounds, one per side; see
   [rules/economy.md](rules/economy.md). Details of weapons and abilities are in [rules/combat.md](rules/combat.md)
   and [rules/abilities.md](rules/abilities.md).
-- The match always ends by `max_ticks`.
+- If overtime does not separate the teams, the tie-break does (rounds, then kills, then damage); if that is
+  level too the match is a **draw**. A match that reaches `max_ticks` is a draw whatever the score.
 
 ## A tick
 
@@ -253,9 +252,13 @@ All living units' bots run against the same start-of-tick snapshot and queue int
 
 1. **Intents.** Facing turns towards the requested angle by at most `turn_rate`. Primary actions start
    (fire, reload, plant, defuse, ability, pickup, drop, swap). Velocity is set from `A_MOVE`.
-2. **Weapons.** Timers tick; wind-ups that finish release their bullets.
+2. **Weapons.** Ability uses whose startup ends happen. A move cancels a weapon startup and breaks the brace;
+   timers tick; weapon startups that finish release their bullets.
 3. **Movement and bullets**, in `substeps` slices: units move with collision (they slide along walls), bullets move
    and are swept against walls and unit circles. All hits within a slice are applied together, so units can trade.
+   Thrown ability devices fly on the same step, over units, and land at the first wall or barrier or at their range.
+   Afterwards each unit's velocity is set to the distance it actually covered (what bots read as `vx`/`vy`) and its
+   unsteadiness is updated from it.
 4. **Effects and statuses** tick.
 5. **Objective.** Plant and defuse channels progress, the fuse burns, round-end conditions are checked.
 6. **Sound and vision** for the next tick are computed.
@@ -267,26 +270,51 @@ the earlier one.
 
 - A unit sees an enemy when it is within `vision_range`, inside the cone `facing +/- fov_half`, and the straight
   line between them is not blocked. Within `sense_radius` it senses in every direction (still needs line of sight).
-- You only get your **own** vision. Teammates' positions and state are always known. What a teammate sees is not
-  shared: use team memory.
+- **Vision is shared by the team.** A team sees the union of what its living units see, and every unit reads
+  that same picture. You can therefore fire at an enemy only a teammate sees, but your shot is still clamped to
+  your own cone and stopped by walls. Teammates' positions and state are always known.
+- Enemies in sight show their position, movement, state flags and the weapon in hand. Their health, armour,
+  credits, ammunition and ability charges are hidden.
 - Running (speed above `walk_speed`) makes footsteps that enemies within `step_sound_radius` hear. Shots are heard
   within `shot_sound_radius`. Plant and defuse starts are audible. Heard positions are snapped to the tile centre.
+  **Hearing is shared too:** a sound reaches the whole team when any living unit of it is in range.
+- **Events follow the fog.** Damage is reported only where the team sees it (or to the unit's own team). Kills
+  are always reported, with the position hidden when the team did not see it. Plant, defuse, detonation and
+  round end are always reported. Fog is applied to what bots read; replays record everything.
+
+## What a team knows
+
+- `T_ROSTER`: every unit of both teams with its kit, its credits as the round's buy phase began (a snapshot,
+  so enemy spending is not visible), and whether it is alive. Readable in every phase. Equipment is not in it.
+- `T_ROUNDS`: every finished round, with the winner, how it ended (`ROUND_WIN_*`), the attacking team, its length
+  and the score after it.
+- Your own and your teammates' `UnitInfo` include the weapon in the other slot (`other_weapon`) and the ticks
+  before the weapon in hand may fire again (`fire_cooldown`). Enemy rows read 0 there.
 
 ## Shooting
 
-- `A_FIRE(angle)` starts a wind-up of the weapon's `windup` ticks. Enemies who see you get the `S_WINDUP` flag and
-  your aim angle, so they have that long to react. You can only fire within your cone: the shot is clamped to
-  `facing +/- fov_half`. If you queue no facing, firing turns you towards the aim.
-- When the wind-up ends the weapon releases `pellets` bullets fanned `S` apart, where
-  `S = spread + move_spread * speed / 1024 + recoil_spread * recoil`. Movement and recoil also shift the whole fan
-  sideways by `(S - spread) / 2`, alternating left and right each shot. Nothing is random: you can compute exactly
-  where your bullets go, but not where the target will be.
+- `A_FIRE(angle)` starts a startup of `windup + unsteadiness * startup_per_point / 100` ticks (halves round up).
+  Enemies who see you get the `S_WINDUP` flag and your aim angle, so they have that long to react. You can only
+  fire within your cone: the shot is clamped to `facing +/- fov_half`. If you queue no facing, firing turns you
+  towards the aim.
+- **Unsteadiness** (`UnitInfo.unsteadiness`, visible to everyone) is heat like recoil: every tick it drops by the
+  weapon's `unsteady_decay` and rises by `unsteady_gain` per 1024 units/tick you actually moved, up to
+  `unsteady_max`. Walking holds it low, running drives it to the cap, and stopping for one tick before a pull
+  does not erase a run.
+- **Firing roots you.** A move cancels a startup, and a pull on a tick you also move is refused
+  (`ERR_NOT_ALLOWED`). When the startup ends the bullets leave and you are **braced** (`S_BRACED`): while you
+  stand and pull on every tick the weapon is ready, each pull leaves on the tick it is made, one every
+  `1 + cooldown` ticks. A move, a ready tick without `A_FIRE`, a reload, a swap, a cancel, a plant or a defuse
+  breaks the brace; turning does not.
+- The weapon releases `pellets` bullets centred on the aim, `S = spread + recoil_spread * recoil` apart.
+  Movement adds no spread and nothing pushes the fan sideways: a single-pellet weapon is exact, and sustained
+  fire only opens multi-pellet fans. Nothing is random: you can compute exactly where your bullets go, but not
+  where the target will be.
 - Bullets are fast objects, not hitscan: they fly at `bullet_speed` per tick, are stopped by walls, and hit the
   first enemy circle on their path. Damage is full up to `falloff_start` and drops linearly to `falloff_min_pct`
   at `range`. Armour absorbs a share of each hit until it is used up. There is no friendly fire.
-- Spread uses your speed on the tick the bullets leave, so stand still through the wind-up for a tight shot.
-  At long range sustained fire misses: the recoil shift grows past the target's width. Read `UnitInfo.recoil`
-  and pause to let it settle.
+- At long range sustained fire with a multi-pellet weapon loses its outer pellets (an even fan, all of them):
+  read `UnitInfo.recoil` and pause to let it settle, at the price of a fresh startup.
 - Each shot adds `recoil_per_shot`; recoil recovers by `recoil_recovery` on ticks without a shot. Magazines hold
   `magazine` trigger pulls; reloading takes `reload_ticks`. Holding a weapon scales your top speed by `move_pct`.
 
@@ -296,18 +324,26 @@ the earlier one.
 - `A_PLANT` works for the carrier standing on a site and takes `plant_ticks`. `A_DEFUSE` works for a defender
   within `interact_reach` of the planted charge and takes `defuse_ticks` (`defuse_kit_ticks` with a kit).
   Moving, firing or `A_CANCEL` interrupts either channel.
+- **Detonation blast.** When the fuse runs out, every living unit within `blast_radius` (12 tiles) of the charge
+  dies, attackers and defenders alike. It is a plain distance: walls do not shield anyone. The attackers win
+  the round even if the blast kills them. Blast deaths are ordinary deaths (weapons drop, the loadout is lost)
+  with no killer: `EVENT_KILL` has actor -1 and weapon -1, nobody is paid for them and they do not count as
+  kills in the tie-break. At run speed clearing the radius from the charge takes about 18 ticks.
 
 ## Economy
 
 - Everyone starts each half with `start_credits`. Round win and loss pay out, with a bonus for consecutive losses.
   Kills pay the weapon's `kill_reward`; a plant pays the whole attacking team.
-- The shop (`T_ITEM`) sells weapons, armour, ability charges and the defuse kit during the buy phase.
+- The shop (`T_ITEM`) sells weapons, armour, ability charges and the defuse kit during the buy phase. A unit can
+  buy for a teammate (`A_BUY_FOR`) and pays for it. Trade-ins go to whoever replaces the item, so credits can
+  move between teammates; that is allowed. Details in [rules/economy.md](rules/economy.md).
 - Survivors keep their weapons and armour into the next round; everyone gets a sidearm.
 
 ## Kits and abilities
 
 Each unit drafts a kit: base health, speed and two ability slots. Abilities (smoke, flash, incendiary, recon,
-barrier, dash, decoy, heal) are defined in `rules/abilities.toml`. The foundation ships one plain kit.
+barrier, dash, decoy, heal, trap, sonar, concussion) are defined in `rules/abilities.toml`, which ships a plain
+kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
 
 ## Compute and memory
 
@@ -315,9 +351,14 @@ barrier, dash, decoy, heal) are defined in `rules/abilities.toml`. The foundatio
   the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
   `memory.copy` and `memory.fill` cost fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
-- Team memory: `team_mem_bytes` shared by the team, readable and writable all match. Units run in an order that
-  alternates teams and rotates each tick; a teammate that runs later in the same tick sees your write.
-  Draft memory: `draft_mem_bytes`, written during the draft, read-only afterwards.
+- Memory is shared by the team and readable in every phase; each scope is writable in one phase only. Units run
+  in an order that alternates teams and rotates each tick; a teammate that runs later in the same tick sees
+  your write.
+  - Team memory (`MEM_TEAM`): `team_mem_bytes`, **zeroed at the start of every round** (nothing carries from one
+    round to the next through it), writable in the action phases only.
+  - Draft memory (`MEM_DRAFT`): `draft_mem_bytes`, written during the draft, read-only afterwards.
+  - Buy memory (`MEM_BUY`): `buy_mem_bytes`, zeroed at every round start, writable in the buy phase only.
+  Writing outside a scope's phase returns `ERR_NOT_ALLOWED`.
 - Units of a dead bot (crash or exit) idle for the rest of the match.
 
 ---
@@ -352,46 +393,82 @@ cargo run -p ibc-combatviz -- --out viewer/public/lab.json
 From `viewer/`, `npm run dev` and open `/lab.html`. The page also accepts a dropped `lab.json`. Pass `--out` to
 write the recording somewhere else (the default is `out/combat-lab/lab.json`).
 
-## One trigger pull
+## Startup and the brace
 
-`A_FIRE(angle)` on tick `T` with a weapon of wind-up `w` and cooldown `c`:
+A unit that is not braced pulls with `A_FIRE(angle)` on tick `T`. Its startup is
+
+```
+s = windup + (unsteadiness * startup_per_point + 50) / 100
+```
+
+ticks, with `unsteadiness` the unit's heat on that tick (below). With cooldown `c`:
 
 | Tick | What happens |
 |---|---|
-| `T` | The wind-up starts. Refused with `ERR_NOT_READY` if there is no weapon in hand, the magazine is empty, or a wind-up, reload or cooldown is running. If no facing was queued, the unit turns towards the aim. |
-| `T` .. `T+w-1` | Winding up. Enemies who see the unit get `S_WINDUP` and the aim angle; `UnitInfo.channel` counts down. Recoil recovers on these ticks. |
-| `T+w` | The bullets leave, before anyone moves on that tick. One round is used, recoil rises by `recoil_per_shot`, the shot is heard. |
-| `T+w+1` .. `T+w+c` | Cooldown: a new wind-up cannot start. |
-| `T+w+1+c` | The next `A_FIRE` is accepted. |
+| `T` | The startup begins. Refused with `ERR_NOT_READY` if there is no weapon in hand, the magazine is empty, or a startup, reload or cooldown is running, and with `ERR_NOT_ALLOWED` if the unit also queued a move this tick. If no facing was queued, the unit turns towards the aim. |
+| `T` .. `T+s-1` | Starting up. Enemies who see the unit get `S_WINDUP` and the aim angle; `UnitInfo.channel` counts down. Recoil recovers on these ticks. A move intent on any of them cancels the startup: no round, no recoil, no cooldown. |
+| `T+s` | The bullets leave, before anyone moves on that tick. One round is used, recoil rises by `recoil_per_shot`, the shot is heard. The unit is now **braced** (`S_BRACED`). |
+| `T+s+1` .. `T+s+c` | Cooldown: no pull is accepted. Skipping `A_FIRE` here does not matter. |
+| `T+s+1+c` | The weapon is ready. A braced unit's pull leaves **on this tick**, and the cooldown starts again. |
 
-So one pull takes `windup + 1 + cooldown` ticks, and a target that sees the wind-up start has `windup - 1`
-whole ticks of movement before the bullets leave, plus the flight time.
+So a braced unit fires once every `1 + cooldown` ticks for as long as it stands and keeps pulling. The brace
+breaks on:
+
+- a move intent (any speed above 0), whether or not the unit also pulls, and any tick on which the unit is
+  displaced at all (a dash);
+- a tick on which the weapon is ready and the unit queued no `A_FIRE` (a different primary action counts as
+  not pulling);
+- `A_RELOAD`, `A_SWAP`, `A_CANCEL`, dropping or picking up into the hand, starting a plant or defuse, dying.
+
+Turning does not break it: `turn_rate` is already the limit. A braced unit with an empty magazine stays braced
+(the weapon is not ready) until it reloads, which breaks it. After the brace breaks the next pull starts up
+again.
+
+Startup and braced ticks are therefore always standing ticks: by the time the bullets leave the unit has
+stopped. A target that sees the startup begin has `s - 1` whole ticks of movement before the bullets leave,
+plus the flight time; braced shots give no warning.
+
+## Unsteadiness
+
+Every unit has unsteadiness heat (`UnitInfo.unsteadiness`, visible to everyone). After each tick's movement,
+with `moved` the distance the unit actually covered that tick (what bots then read as `vx`/`vy`; a move into a
+wall covers nothing) and the numbers of the weapon in hand:
+
+```
+settled      = max(unsteadiness - unsteady_decay, 0)
+unsteadiness = min(settled + unsteady_gain * moved / 1024, max(unsteady_max, settled))
+```
+
+- A pace that adds no more than `unsteady_decay` a tick holds the heat at what one tick adds; a faster pace
+  climbs to `unsteady_max`. With the current numbers walking costs at most one tick of startup and a run costs
+  the most.
+- It decays by `unsteady_decay` a tick, so stopping for one tick before a pull removes only a little of a run.
+- It belongs to the unit and uses the numbers of the weapon in hand. `unsteady_max` only caps what moving
+  adds: heat brought from a weapon with a higher cap just decays, so swapping never sheds it. With empty
+  hands it stays as it is. It resets at the start of a round.
+
+Unsteadiness only lengthens the startup. Movement adds no spread and never moves the bullets.
 
 ## Where the bullets go
 
-At the release tick, with `speed` the length of the unit's velocity on that tick (0 when it queued no move),
-`recoil` its recoil heat and `shots` the number of pulls it has released so far this round:
+When the bullets leave, with `recoil` the unit's recoil heat:
 
 ```
-extra  = min(move_spread * speed / 1024 + recoil_spread * recoil, 32768)
+extra  = min(recoil_spread * recoil, 32768)
 S      = spread + extra                          angle between adjacent pellets
-shift  = extra / 2        if shots is even
-       = -(extra / 2)     if shots is odd
-centre = facing + clamp(aim - facing, -fov_half, +fov_half) + shift
+centre = facing + clamp(aim - facing, -fov_half, +fov_half)
 pellet i (0 .. pellets-1) flies along   centre + (2*i - (pellets - 1)) * S / 2
 ```
 
-- The fan is symmetric about `centre`. An odd pellet count puts one bullet on the centre line; an even count
+- The fan is symmetric about the aim. An odd pellet count puts one bullet on the aim line; an even count
   straddles it by `S / 2`. The full fan is `(pellets - 1) * S` wide.
-- For an even pellet count the inner pellet on the side away from the shift stays `spread / 2` off the
-  aim line whatever `extra` is; the rest of the fan swings away from it. An odd fan has no such pellet.
-- A settled, standing shooter has `extra = 0`: the fan is centred exactly on the aim and `spread` apart.
-- Moving and recoil do two things at once: they open the fan and they push all of it off the aim line, to
-  alternating sides. A single-pellet weapon misses by `extra / 2`; it hits a target at distance `d` only
-  while `extra / 2` is less than the angle the target covers, about `unit_radius * 10430 / d`.
+- A settled shooter has `extra = 0`: pellets are `spread` apart.
+- Recoil only opens the fan. A single-pellet weapon (pistol, marksman) is exact at any heat, so those weapons
+  are balanced by startup, cooldown, magazine and falloff. A multi-pellet weapon held on target loses its outer
+  pellets first; an even fan has no pellet on the aim and misses entirely once `S / 2` exceeds the angle the
+  target covers, about `unit_radius * 10430 / d` at distance `d`.
 - `aim - facing` is the signed shortest difference. You can only shoot inside your view cone; the facing used
-  is the one on the release tick, so keep turning during the wind-up.
-- Spread uses the speed of the release tick only. Stopping for that one tick gives the standing fan.
+  is the one on the release tick, so keep turning during the startup.
 
 Each bullet starts on the rim of the shooter's circle (`unit_radius` from its centre along its direction).
 If a wall or a bullet-blocking effect lies between the centre and that point the bullet is spent at once.
@@ -418,10 +495,10 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 
 - Each release adds `recoil_per_shot` to the unit's recoil heat (`UnitInfo.recoil`, visible to everyone).
 - On every tick on which the unit does not release a shot, heat drops by the `recoil_recovery` of the weapon
-  in hand, down to zero. Wind-up, cooldown and reload ticks all count.
+  in hand, down to zero. Startup, cooldown and reload ticks all count.
 - Heat belongs to the unit, not the weapon: swapping does not clear it. It resets at the start of a round.
-- Holding the trigger therefore gains `recoil_per_shot - recoil_recovery * (windup + cooldown)` per pull.
-  Where that is positive, sustained fire walks off the target; pause and it settles.
+- Braced, holding the trigger therefore gains `recoil_per_shot - recoil_recovery * cooldown` per pull. Where
+  that is positive, a multi-pellet fan keeps opening; pause and it settles, at the price of a fresh startup.
 
 ## Magazines, reload, cancel
 
@@ -429,12 +506,12 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 - `A_RELOAD` on tick `T` fills the magazine `reload_ticks` ticks later: the first `A_FIRE` accepted is on
   tick `T + reload_ticks`. It is ignored when the magazine is full or a reload is already running (it does
   not restart). The weapon cannot fire while reloading.
-- `A_RELOAD` during a wind-up abandons the shot (the round stays in the magazine) and starts the reload.
-- `A_CANCEL` stops a wind-up or a reload. A cancelled wind-up costs nothing: no round, no recoil, no
-  cooldown, so it can be used as a feint. A cancelled reload leaves the magazine as it was.
-- Starting a plant or defuse cancels both, as does dying. A unit killed during its wind-up does not fire;
+- `A_RELOAD` during a startup abandons the shot (the round stays in the magazine) and starts the reload.
+- `A_CANCEL` stops a startup or a reload and breaks the brace. A cancelled startup costs nothing: no round,
+  no recoil, no cooldown, so it can be used as a feint. A cancelled reload leaves the magazine as it was.
+- Starting a plant or defuse cancels both, as does dying. A unit killed during its startup does not fire;
   bullets already in the air keep flying.
-- `A_SWAP(slot)` abandons the wind-up or reload of the weapon put away. The swap is the tick's action, so
+- `A_SWAP(slot)` abandons the startup or reload of the weapon put away. The swap is the tick's action, so
   the new weapon can fire from the next tick; a cooldown still running is kept, so swapping never lets you
   shoot sooner. Swapping to the slot already in hand does nothing.
 - Holding a weapon scales top speed by `move_pct`; with empty hands there is no penalty.
@@ -451,7 +528,7 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 - **A weapon on the ground holds no ammunition.** A weapon picked up has an empty magazine and must be
   reloaded. Dropping and picking up is therefore never a faster reload, and handing a teammate a weapon
   costs them one reload.
-- Dropping, or picking up into the slot in hand, cancels wind-up and reload, like a swap.
+- Dropping, or picking up into the slot in hand, cancels startup and reload, like a swap.
 - The displaced weapon lies at your feet, so it is the nearest drop for your next `A_PICKUP`: repeating the
   action swaps back and forth. Step away to reach something else.
 - Weapons are never created during a round, and only a dead unit's default sidearm disappears. The ground is cleared when the next round starts;
@@ -470,12 +547,11 @@ Values, straight from `rules/weapons.toml`:
 | `damage` | 26 | 22 | 17 | 15 | 75 | 16 |
 | `pellets` | 1 | 3 | 2 | 7 | 1 | 5 |
 | `spread` | 0 | 250 | 200 | 260 | 0 | 300 |
-| `move_spread` | 600 | 1200 | 150 | 300 | 2400 | 2000 |
 | `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 |
 | `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |
 | `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |
 | `windup` | 1 | 1 | 1 | 1 | 2 | 2 |
-| `cooldown` | 0 | 0 | 0 | 2 | 2 | 0 |
+| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 |
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
@@ -484,67 +560,73 @@ Values, straight from `rules/weapons.toml`:
 | `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |
+| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 |
+| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 |
+| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 |
+| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 |
 <!-- /generated:weapons -->
 
-What they add up to (fan width in angle units for a settled, standing shooter; top speed in units per tick
-with the standard kit; magazine time is holding the trigger from full):
+What they add up to (startup in ticks for a steady unit, one that has walked long enough to settle, and one
+that has run long enough to reach the cap; fan width in angle units for a settled shooter; top speed in units
+per tick with the standard kit; magazine time is holding the trigger braced from full):
 
 <!-- generated:derived -->
-| weapon | ticks per pull | damage per pull (close / at range) | full fan width | top speed | range (tiles) | bullet (tiles/tick) | ticks to empty + reload |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| pistol | 2 | 26 / 13 | 0 | 700 | 20.0 | 8.0 | 24 + 3 |
-| rifle | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
-| smg | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
-| shotgun | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 20 + 5 |
-| marksman | 5 | 75 / 75 | 0 | 560 | 40.0 | 20.0 | 25 + 5 |
-| lmg | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
+| weapon | startup (steady / walked / ran) | ticks per braced shot | damage per pull (close / at range) | full fan width | top speed | range (tiles) | bullet (tiles/tick) | ticks to empty + reload |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 20.0 | 8.0 | 24 + 3 |
+| rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
+| smg | 1 / 1 / 1 | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
+| shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
+| marksman | 2 / 6 / 6 | 5 | 75 / 75 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
+| lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
 <!-- /generated:derived -->
 
 Roles:
 
-- **pistol**: the free sidearm. Accurate single shots, fine on the move, falls off quickly.
-- **smg**: cheap run-and-gun. Hardly spreads when moving and carries at full speed; short reach.
+- **pistol**: the free sidearm. Exact single shots and a short startup even after running; falls off quickly.
+- **smg**: cheap run-and-gun. Running barely unsteadies it, so it starts as fast off a run as standing, and
+  it carries at full speed; short reach, and its two-pellet fan opens fast under sustained fire.
 - **shotgun**: seven pellets in a wide fan. One pull kills an unarmoured unit inside about three tiles and
   the fan is hard to sidestep; nearly harmless past six tiles. Slow pump, small magazine.
 - **rifle**: the all-rounder. A tight three-bullet burst that kills in two pulls while all three land and
   still reaches across the map, if you stand still and pace your fire.
-- **marksman**: one fast bullet, no falloff, two hits kill anything. Slow to cycle, and a two-tick wind-up
-  that the target can see. Cannot hit while moving.
+- **marksman**: one fast bullet, no falloff, two hits kill anything. Slow to cycle, and a two-tick startup
+  that the target can see, which grows the most of any weapon after moving.
 - **lmg**: heavy and slow. Five bullets a pull, a magazine that lasts sixty ticks and no recoil build-up, for
-  holding a lane; slow to carry, to start and above all to reload.
+  holding a lane; slow to carry, very slow to start after moving, and above all slow to reload.
 
 ## Time to kill
 
 Measured by `crates/engine/tests/combat_ttk.rs` in the engine, not computed: ticks from the first `A_FIRE`
-until a stationary target dies. The shooter fires whenever the weapon is ready and its recoil shift after
-the wind-up is no larger than the angle the target covers, and reloads when empty. "Running" means it also
-strafes across the line of fire at the weapon's top speed (turning round every four ticks) and aims from
-where it will be when the bullets leave. "no kill" means the target was still alive after 100 ticks.
+until a stationary target dies. The shooter stands, pulls whenever the weapon is ready and the pellets nearest
+the aim would still land on the target, and reloads when empty. "After running" means it strafed across the
+line of fire at the weapon's top speed for eight ticks just before the first pull, so that pull starts up
+unsteady. "no kill" means the target was still alive after 100 ticks.
 
 Target with 100 health and no armour:
 
 <!-- generated:ttk -->
-| weapon | 5 tiles standing | 5 tiles running | 10 tiles standing | 10 tiles running | 20 tiles standing | 20 tiles running |
+| weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|
-| pistol | 8 | 8 | 11 | no kill | 23 | no kill |
-| rifle | 4 | no kill | 8 | no kill | 18 | no kill |
-| smg | 6 | 6 | 11 | 16 | no kill | no kill |
-| shotgun | 6 | 10 | no kill | no kill | no kill | no kill |
-| marksman | 8 | no kill | 8 | no kill | 8 | no kill |
-| lmg | 6 | 21 | 9 | no kill | 25 | no kill |
+| pistol | 8 | 9 | 11 | 12 | 18 | 19 |
+| rifle | 6 | 9 | 6 | 9 | 11 | 14 |
+| smg | 6 | 6 | 9 | 9 | no kill | no kill |
+| shotgun | 6 | 8 | no kill | no kill | no kill | no kill |
+| marksman | 8 | 12 | 8 | 12 | 8 | 12 |
+| lmg | 6 | 10 | 9 | 13 | 25 | 29 |
 <!-- /generated:ttk -->
 
 Target with 100 health and the heaviest armour in the shop:
 
 <!-- generated:ttk-armor -->
-| weapon | 5 tiles standing | 5 tiles running | 10 tiles standing | 10 tiles running | 20 tiles standing | 20 tiles running |
+| weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|
-| pistol | 12 | 12 | 16 | no kill | 35 | no kill |
-| rifle | 10 | no kill | 16 | no kill | 30 | no kill |
-| smg | 10 | 10 | 21 | 27 | no kill | no kill |
-| shotgun | 10 | 18 | no kill | no kill | no kill | no kill |
-| marksman | 8 | no kill | 8 | no kill | 8 | no kill |
-| lmg | 6 | 30 | 12 | no kill | 37 | no kill |
+| pistol | 12 | 13 | 15 | 16 | 26 | 27 |
+| rifle | 10 | 13 | 10 | 13 | 17 | 20 |
+| smg | 10 | 10 | 15 | 15 | no kill | no kill |
+| shotgun | 10 | 12 | no kill | no kill | no kill | no kill |
+| marksman | 8 | 12 | 8 | 12 | 8 | 12 |
+| lmg | 6 | 10 | 12 | 16 | 37 | 41 |
 <!-- /generated:ttk-armor -->
 
 These are duels against a target that stands still. A target that strafes at range dodges any single shot
@@ -621,6 +703,11 @@ Details:
   light then heavy armour costs 1000 in total; buying the free `pistol` item returns the price of a sidearm
   upgrade bought this phase. Gear carried over from an earlier round has no trade-in value, and there is no way
   to sell a primary back to an empty slot. The refund is forgotten when the buy phase ends.
+- **Buying for a teammate.** `A_BUY_FOR` (a = item, b = the teammate's slot in the team) buys for a teammate.
+  The checks above are made against the teammate (what it holds, its side, its kit) except the funds check,
+  which is against the buyer: the buyer pays. A trade-in goes to whoever makes the replacing purchase, so credits
+  can move between teammates: A buys B a rifle, B replaces it with a cheaper primary and keeps the difference.
+  Transfers like this are allowed.
 
 ## Carry-over
 
@@ -646,8 +733,10 @@ At the start of a round every unit is revived at full health with full magazines
   during an overtime round is therefore never spent. Both rounds of a pair are always played. A team that wins
   both rounds of a pair wins the match (for example 8-6). If the pair is split, another pair is played, up to
   `overtime_max_pairs` (3).
-- **Tie-break.** If every overtime pair is split, or the match reaches `max_ticks`, the winner is the team with
-  more rounds, then more kills, then more damage dealt, then a coin flip on the match seed.
+- **Tie-break.** If every overtime pair is split, the winner is the team with more rounds, then more kills, then
+  more damage dealt. If all three are level the match is a **draw** (`winner: null` in the summary and the
+  replay). Detonation-blast deaths have no killer and are not kills here.
+- **Out of ticks.** A match that reaches `max_ticks` is a draw, whatever the score.
 - If regulation ends without a level score and without anyone reaching `rounds_to_win` (only possible with a
   non-default `rounds_to_win`), the team ahead wins without overtime.
 - **Tick bound.** A round lasts at most `buy_ticks + round_ticks + fuse_ticks + round_end_ticks` = 208 ticks, so
@@ -672,7 +761,9 @@ A full buy (rifle and heavy armour) is 3700; a defender adds a 400 kit.
 One unit from each team is followed: **a** (team A, attacks rounds 1 to 6) and **b** (team B). Both follow the same
 policy: full buy (rifle and heavy armour, 3700) when affordable; light armour in a pistol round; a force buy
 (rifle and light armour, 3100) from 3100 credits; otherwise save. In every round the winner's followed unit
-kills the loser's, so the loser always starts over and the winner carries its gear. This table is pinned by the
+kills the loser's, so the loser always starts over and the winner carries its gear. In the detonation rounds
+the followed attacker has run clear of the 12-tile blast; one caught inside it would die and start the next
+round with the sidearm like the loser. This table is pinned by the
 engine test `worked_example_matches_the_docs`.
 
 | Round | Result | a: credits, buy, left | b: credits, buy, left | a income | b income |
@@ -706,7 +797,10 @@ Team A wins 7-5. Points to notice:
 # Kits and abilities
 
 Each unit drafts a **kit** on tick 0 (`A_DRAFT`, a = kit id): base hit points, a speed percentage and two ability
-slots. A unit that never drafts plays kit 0, the plain one. Every number here lives in `rules/abilities.toml`;
+slots. A unit that never drafts plays kit 0, the plain one. Kits are unique within a team: drafting a kit a
+teammate already holds is refused with `ERR_NOT_ALLOWED` (kit 0 excepted; the other team's picks do not count).
+A draft applies at once, and teammates run in a fixed order, so one unit can draft for the whole team with
+`A_DRAFT_FOR` (a = kit id, b = the teammate's slot) without collisions. Every number here lives in `rules/abilities.toml`;
 bots read the live values from `T_KIT` and `T_ABILITY` and should not hard-code them.
 
 ## Kits
@@ -720,6 +814,9 @@ bots read the live values from `T_KIT` and `T_ABILITY` and should not hard-code 
 | 4 | bulwark | recon | barrier | 115 | 88% |
 | 5 | mender | heal | smoke | 100 | 95% |
 | 6 | kindler | dash | incendiary | 85 | 105% |
+| 7 | trapper | trap | concussion | 100 | 95% |
+| 8 | echo | sonar | incendiary | 95 | 100% |
+| 9 | breaker | decoy | concussion | 95 | 105% |
 
 `hp` is what the unit starts every round with (and the ceiling for healing). `speed` scales the run speed, on top
 of the weapon's `move_pct`.
@@ -728,27 +825,35 @@ of the weapon's `move_pct`.
 
 Distances are in tiles (1024 units), times in ticks.
 
-| id | ability | effect | price | max charges | cooldown | range | radius | duration | power | delay |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 0 | smoke | `EFFECT_SMOKE` (1) | 300 | 2 | 4 | 10 | 1.75 | 14 | 0 | 1 |
-| 1 | flash | `EFFECT_FLASH` (4) | 250 | 2 | 3 | 8 | 12 | 6 | 30 | 1 |
-| 2 | incendiary | `EFFECT_FIRE` (2) | 350 | 1 | 6 | 8 | 1.5 | 8 | 12 | 1 |
-| 3 | recon | `EFFECT_RECON` (5) | 0 | 1 | 0 | 12 | 6 | 5 | 3 | 1 |
-| 4 | barrier | `EFFECT_BARRIER` (3) | 300 | 1 | 8 | 2.5 | 1.5 | 20 | 120 | 0 |
-| 5 | dash | 8 (no constant yet) | 0 | 2 | 5 | 3 | 0 | 0 | 0 | 0 |
-| 6 | decoy | `EFFECT_DECOY` (7) | 0 | 1 | 0 | 10 | 2 | 12 | 3 | 0 |
-| 7 | heal | `EFFECT_HEAL` (6) | 0 | 2 | 6 | 4 | 1 | 6 | 7 | 0 |
+| id | ability | effect | price | max charges | cooldown | range | radius | duration | power | startup (`delay`) | speed |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | smoke | `EFFECT_SMOKE` (1) | 300 | 1 | 4 | 10 | 1.75 | 14 | 0 | 1 | 3 |
+| 1 | flash | `EFFECT_FLASH` (4) | 250 | 1 | 3 | 8 | 12 | 6 | 30 | 1 | 4 |
+| 2 | incendiary | `EFFECT_FIRE` (2) | 350 | 1 | 6 | 8 | 1.5 | 8 | 12 | 1 | 2.5 |
+| 3 | recon | `EFFECT_RECON` (5) | 0 | 1 | 0 | 12 | 6 | 5 | 3 | 1 | 0 |
+| 4 | barrier | `EFFECT_BARRIER` (3) | 300 | 1 | 8 | 2.5 | 1.5 | 20 | 120 | 1 | 0 |
+| 5 | dash | `EFFECT_DASH` (8) | 0 | 1 | 5 | 3 | 0 | 0 | 0 | 0 | 0 |
+| 6 | decoy | `EFFECT_DECOY` (7) | 0 | 1 | 0 | 10 | 2 | 12 | 3 | 1 | 0 |
+| 7 | heal | `EFFECT_HEAL` (6) | 0 | 1 | 6 | 4 | 1 | 6 | 7 | 1 | 0 |
+| 8 | trap | `EFFECT_TRAP` (9) | 0 | 1 | 0 | 3 | 0.75 | 300 | 4 | 3 | 0 |
+| 9 | sonar | `EFFECT_SONAR` (10) | 0 | 1 | 0 | 8 | 5 | 0 | 3 | 2 | 0 |
+| 10 | concussion | `EFFECT_CONCUSSION` (11) | 250 | 1 | 4 | 8 | 2 | 0 | 4 | 1 | 0 |
+
+`speed` is in tiles per tick; 0 means the device is not thrown but appears where it lands at once. The slowest
+bullet flies 8 tiles per tick.
 
 ## Charges and cooldowns
 
+- A unit holds at most one charge of each ability (`max_charges` = 1 throughout the shipped ruleset), so a unit
+  casts at most twice a round: its free signature and one bought charge.
 - An ability with `price` 0 is **free**: its charges are refilled to `max_charges` at the start of every round.
 - Any other ability starts with no charges. Charges are **bought** in the buy phase with a shop item of kind
   `ITEM_KIND_ABILITY_CHARGE` whose `value` is the slot. Buying costs the item's price plus the ability's own
   `price`, and fails with `ERR_NOT_ALLOWED` at `max_charges`, `ERR_INSUFFICIENT_FUNDS` if the unit cannot pay
   both, `ERR_UNSUPPORTED` if the kit has nothing in that slot. Bought charges are kept until
   used, through deaths and the side swap.
-- After a use the slot cannot be used again for `cooldown` ticks (`UnitInfo.cooldown` counts down to 0).
-  Cooldowns are cleared at the start of a round.
+- After an ability happens the slot cannot be used again for `cooldown` ticks (`UnitInfo.cooldown` counts down
+  to 0). Cooldowns are cleared at the start of a round.
 
 ## Using an ability
 
@@ -760,25 +865,46 @@ a wind-up or a reload already running. `act` validates against the current state
 |---|---|
 | `ERR_BAD_ARG` | slot is not 0 or 1, or the target point is outside the map |
 | `ERR_UNSUPPORTED` | the kit has no ability in that slot |
-| `ERR_NOT_READY` | no charges, or the slot is cooling down |
+| `ERR_NOT_READY` | no charges, the slot is cooling down, or a use is already in its startup |
 | `ERR_OUT_OF_RANGE` / `ERR_NOT_ALLOWED` | see the ability |
 
 Abilities resolve in the intent step of the tick, in unit id order, before weapons and movement. If a use has
 become impossible by then (a dash put a unit where a barrier was going), nothing happens and no charge is spent.
-Every successful use is heard by enemies within `step_sound_radius` of the user as `SOUND_ABILITY`.
 
-**Throwing.** Smoke, flash, incendiary, recon and decoy are devices thrown at the target point. They travel in
-a straight line and land at the target, or `range` away if the target is further, or 64 units short of the
-first wall or barrier in the way. Low cover does not stop them. A barrier's centre is placed by the same rule.
+**Startup.** Most abilities have a startup: `AbilityRules.delay` ticks between the use and the ability
+happening. A use on tick `T` with startup `d` happens on tick `T + d`, after that tick's intents and before
+weapons and movement: exactly where a use queued on `T + d` without a startup would happen. With `d` = 0 it
+happens in the intent step of tick `T`. During the `d` turns in between (ticks `T + 1` to `T + d`):
 
-**Arming.** A device or barrier lies in the world as an effect (`T_EFFECTS`) from the tick it is used. It does
-nothing for `delay` ticks, then it is active for `duration` ticks (a flash: for the one tick it pops).
-`EffectInfo.ticks_left` counts both, so an effect is still arming while `ticks_left` is greater than its
-`duration` (for a flash: greater than 1). With `delay` 1, enemies who can see where it landed get exactly one
-turn to react. All effects are removed when a round starts.
+- the unit has `S_CASTING` in its state, which enemies who see it can read too;
+- it can move and turn, but its hands are busy: `act` refuses every other primary action (fire, reload, swap,
+  plant, defuse, pickup, drop, another ability) with `ERR_NOT_READY`;
+- `A_CANCEL` abandons the use, and so does dying. Nothing is spent;
+- taking damage does not interrupt it.
+
+When the startup ends the use is checked again from where the unit then stands (charges, range, a barrier not
+touching anyone, a heal target still hurt and in reach); if it fails nothing happens and nothing is spent. When it
+happens the charge is spent, the cooldown starts and enemies within `step_sound_radius` of the user hear
+`SOUND_ABILITY`.
+
+**Throwing.** Smoke, flash, incendiary, recon, decoy, trap, sonar and concussion are devices aimed at the target point: at the target,
+or `range` away if the target is further. A device whose ability has `speed` > 0 (smoke, flash, incendiary) is
+thrown: it leaves the thrower's centre as a projectile and flies `speed` units per tick in a straight line on
+the same sub-stepped step as bullets. It flies over units, friend or foe, and through smoke; low cover does not
+stop it. It lands where its flight ends, or 64 units short of the first wall or barrier it meets, and its effect
+appears there in that sub-step and acts from that tick. In flight it is a row of `T_PROJECTILES` with
+`kind` = ability id + 1 and `weapon` = -1, visible to the thrower's team and to enemies who can see it. A
+device with `speed` 0 (recon, decoy, trap, sonar, concussion) appears at its landing point at once, which follows the same rule
+measured along the whole line. A barrier's centre is placed by that rule too.
+
+**Effects.** A device or barrier lies in the world as an effect (`T_EFFECTS`) from the moment it lands and is
+active at once for `duration` ticks (a flash, a sonar pulse and a concussion: for the one tick they pop, so a thrown flash pops in the tick it
+lands and never shows in `T_EFFECTS`; watch `T_PROJECTILES`). `EffectInfo.ticks_left` counts down the ticks
+it has left. All effects and devices in flight are removed when a round starts.
 
 `T_EFFECTS` lists your team's effects always, and an enemy effect when you can see its position (the cloud's
-centre, a barrier's first end, the unit being healed).
+centre, a barrier's first end, the unit being healed). An enemy **trap** is listed only when you can see it and
+it is within `sense_radius` of you: further away it is hidden even in plain view.
 
 ## The abilities
 
@@ -791,25 +917,26 @@ point of a cloud ignores that cloud, unless a unit stands on that very point).
 *Counters:* shoot through it, since sound still gives positions away; walk around; wait it out.
 
 ### Flash
-Pops `delay` ticks after it is thrown. Every living unit, **friend or foe, the thrower included**, is blinded if
+Pops in the tick it lands. Every living unit, **friend or foe, the thrower included**, is blinded if
 the pop is within `radius`, inside the unit's vision cone (`facing +/- fov_half`), and the line between them is
 clear of walls, smoke and barriers. A unit facing it head-on is blinded for `duration` turns; this falls
 linearly with the angle to `power` percent of that at the edge of the cone (rounded down, at least 1 turn).
 A unit with the pop outside its cone is not affected at all, however close. A blinded unit (`S_BLINDED`,
 `UnitInfo.blind` = turns left) sees only within `sense_radius`. A second flash does not add: the longer of the
 two applies.
-*Counters:* turn away. The device is visible while it arms and `turn_rate` is enough to put it outside the
-cone in one tick; the price is a tick spent not looking at the fight. Smoke or a barrier in between also works.
+*Counters:* turn away. The thrower is visible casting (`S_CASTING`) and the device in flight
+(`T_PROJECTILES`), and `turn_rate` is enough to put it outside the cone in one tick; the price is a tick spent
+not looking at the fight. Smoke or a barrier in between also works.
 
 ### Incendiary
-After `delay` ticks a circle of `radius` burns for `duration` ticks. Each tick, every living unit whose centre
+From the tick it lands a circle of `radius` burns for `duration` ticks. Each tick, every living unit whose centre
 is inside takes `power` damage through the normal damage path (armour absorbs its share), unless a wall or a
 barrier lies between it and the centre. Fire burns **both teams**. Damage to enemies counts for the thrower's
 statistics and kill reward; damage to teammates and to the thrower is not credited to anyone.
 *Counters:* leave, or do not enter; stand behind a wall or barrier.
 
 ### Recon
-A beacon that scans for `duration` ticks after its `delay`. Each tick, every enemy within `radius` that the
+A beacon that scans for `duration` ticks. Each tick, every enemy within `radius` that the
 beacon has a clear line to (no wall, smoke or barrier) is marked `S_REVEALED` for `power` turns. A revealed
 unit appears in `T_ENEMIES` of every unit of the other team, wherever they are and wherever they look.
 *Counters:* break the line to the beacon: walls, smoke, a barrier. The marked unit sees `S_REVEALED` in its own
@@ -824,15 +951,15 @@ both teams. It has `power` hit points: every bullet it stops deals its normal da
 the barrier breaks. Bullets that arrive in the same sub-step as the breaking shot are still stopped.
 Incendiary kills carry weapon id -1 in `EVENT_KILL`.
 It cannot be placed touching any living unit (`ERR_NOT_ALLOWED`) or on the user's own position
-(`ERR_OUT_OF_RANGE`). If the ruleset gives it a `delay`, it fails without effect when a unit is touching the
-line at the moment it would arm.
+(`ERR_OUT_OF_RANGE`); this is checked again when the startup ends, so a unit that steps into the line during
+it makes the use fail (no charge is spent).
 *Counters:* shoot it down, walk around it, wait for it to expire.
 
 ### Dash
 The unit moves instantly in a straight line towards the target point, `range` at most, and stops at the target
 or at the last position where its circle is clear of walls, low cover and barriers. It does not slide. If it
-cannot move at all the use fails with `ERR_OUT_OF_RANGE`. The dash happens before this tick's normal movement,
-so both add up; a wind-up in progress keeps running.
+cannot move at all the use fails with `ERR_OUT_OF_RANGE`. It has no startup: the dash happens before this tick's
+normal movement, so both add up; a wind-up in progress keeps running.
 *Counters:* it is loud (`SOUND_ABILITY` from where it started), and it ends in a straight line from there.
 
 ### Decoy
@@ -846,25 +973,60 @@ device gets it in `T_EFFECTS`. And a real runner's footsteps move from tile to t
 Targets the living teammate nearest to the target point, the user itself included; there must be one within
 `radius` of the point (`ERR_OUT_OF_RANGE` otherwise, also when that unit is further than `range` from the
 user). Fails with `ERR_NOT_ALLOWED` if the target is at full health or a wall or barrier lies between the two.
-The target then regains `power` hit points per tick for `duration` ticks, starting this tick, up to its kit's
-`hp`. The effect follows the target and ends if it dies. Heals stack. Armour is not restored.
+The target then regains `power` hit points per tick for `duration` ticks, starting the tick the heal happens,
+up to its kit's `hp`. The effect follows the target and ends if it dies. Heals stack. Armour is not restored.
 *Counters:* burst damage outpaces it; the heal is audible and is a tick the healer does not shoot.
+
+### Trap
+A hidden trigger placed like a device that is not thrown, at most `range` away, when its startup (`delay`) ends.
+It then lies armed for `duration` ticks. On every tick it is armed, it springs on **every living unit, friend or foe, the user
+included**, whose centre came within `radius` of it during that tick: the test is swept along the straight line
+from where the unit stood when effects last ticked to where it stands now, so running or dashing across it
+counts. A unit standing on it when it appears is caught too. Each caught unit is slowed (`S_SLOWED`, half speed) and
+revealed (`S_REVEALED`) for `power` turns, and the trap is spent. Enemies get it in `T_EFFECTS` only within
+`sense_radius` (see above); the owner's team always sees it.
+*Counters:* walk, and look: at walking speed a unit gets about two turns between seeing a trap and reaching it.
+Bullets do not touch it; it is cleared when the round ends.
+
+### Sonar
+A device that pulses once, where it lands when its startup (`delay`) ends. Every living unit within `radius` of it, **friend
+or foe, through walls, smoke and barriers**, is marked `S_REVEALED` for `power` turns, so the user's teammates
+standing in the pulse are shown to the enemy just as the enemies are shown to them.
+*Counters:* the user is `S_CASTING` for the startup; leave where it could land, or use the turns it shows you to
+reposition.
+
+### Concussion
+A device that pops once, where it lands when its startup (`delay`) ends. Every living unit within `radius` that no wall or
+barrier shelters from the centre (smoke does not), **both teams and the user included**, is slowed for `power`
+turns and loses what it was doing: a plant or defuse channel (all progress), a weapon startup and its brace (no
+shot, no ammunition used), a reload (the magazine keeps what it had) and an ability use in its startup (nothing
+spent).
+*Counters:* stand behind cover from where it lands; a defuser who sees the user casting can step off and
+restart after the pop.
 
 ## Timing, exactly
 
 Effects tick once per action tick, after movement and bullets and before the objective is checked. For a use
-on tick `T` with delay `d` and duration `n`:
+on tick `T` with startup `d` and duration `n`, an ability that is not thrown happens on tick `T + d` before
+movement, and then:
 
-- smoke and barrier block from the vision computed at the end of tick `T + d - 1` (so: from tick `T + d` as bots
-  see it; a barrier with delay 0 already stops this tick's bullets and movement) for `n` ticks;
+- smoke and barrier block from the vision computed at the end of tick `T + d` (so: from tick `T + d + 1` as bots
+  see it) for `n` ticks; a barrier already stops the bullets and movement of tick `T + d`;
 - fire burns, recon scans, the decoy plays and the heal mends on ticks `T + d` to `T + d + n - 1`;
-- the flash pops on tick `T + d`, after that tick's turning, and units are blind for their next turns.
+- a trap lies armed on ticks `T + d` to `T + d + n - 1` and tests the movement of each of those ticks;
+- the flash, the sonar pulse and the concussion pop on tick `T + d`, after that tick's turning and movement, and
+  the statuses they give last for the unit's next turns.
+
+A thrown device leaves the thrower on tick `T + d` before movement and lands in tick `T + d + k - 1`, where `k`
+is `ceil(distance / speed)` (fewer if a wall or barrier is in the way); read `T + d + k - 1` for `T + d` above.
+The SDK's `tactics::ticks_to_effect` computes this offset. The slot is ready again `cooldown + 1` ticks after the
+tick the ability happens in.
 
 ---
 
 <!-- part: docs/ABI.md -->
 
-# Bot ABI v0
+# Bot ABI v1
 
 The single source of truth is [`crates/abi/src/lib.rs`](../crates/abi/src/lib.rs): every id, record layout and
 error code is defined and documented there. This page explains the conventions.
@@ -884,11 +1046,11 @@ Imports come from module `ibc`:
 | `end_turn()` | Yield until this unit's next tick |
 | `fuel_remaining() -> i64` | Fuel left this tick |
 | `count(table) -> i32` | Rows in a table, or a negated error |
-| `get(table, index, out, cap) -> i32` | Copy one row; returns bytes written, or a negated error |
+| `get(table, index, out, cap) -> i32` | Copy one row, or as much of it as fits in `cap`; returns bytes written, or a negated error |
 | `act(kind, a, b, c) -> i32` | Queue an intent; returns 0 or an error code |
 | `los(x0, y0, x1, y1) -> i32` | 1 if no wall lies between the points (static map only) |
 | `raycast(x, y, angle, max) -> i32` | Distance to the first wall, capped at `max` |
-| `mem_read(scope, off, ptr, len) -> i32`, `mem_write(...)` | Team and draft memory |
+| `mem_read(scope, off, ptr, len) -> i32`, `mem_write(...)` | Team, draft and buy memory (`MEM_*`; each writable in one phase) |
 | `debug_draw(kind, x0, y0, x1, y1, color) -> i32` | Overlay in the replay viewer; free |
 | `log(ptr, len) -> i32` | Append to the unit's log |
 
@@ -898,15 +1060,62 @@ clock and random source, empty args and environment. There is no filesystem, net
 ## Conventions
 
 - **Tables, not functions.** Everything readable is a row in a table (`T_*`). Rows are `#[repr(C)]` records made
-  only of `i32`, little-endian, no padding. A buffer that is too small gets `ERR_BUFFER_TOO_SMALL`. Records only
+  only of `i32`, little-endian, no padding. `get` copies at most `cap` bytes of a record and returns the bytes
+  written; a `T_MAP_ROW` buffer shorter than the row gets `ERR_BUFFER_TOO_SMALL`. Records only
   ever grow at the end, so a bot built against an older ABI keeps working: it reads the prefix it knows.
-- **Fog is applied by the host.** `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS` and `T_DROPS` list only what the calling
-  unit can perceive. Enemy rows hide credits, ammo, charges and cooldowns.
+- **Fog is applied by the host, per team.** Vision and hearing are shared: `T_ENEMIES`, `T_PROJECTILES`,
+  `T_EFFECTS`, `T_DROPS` and `T_SOUNDS` list what the caller's **team** perceives (the union over its living
+  units), so every teammate reads the same rows. An enemy in `T_ENEMIES` may be behind a wall from where you
+  stand; use `los` before shooting. Enemy rows hide `hp`, `armor`, credits, ammo, charges, cooldowns, blindness
+  and the defuse kit; the weapon in hand is shown. Fog applies to what bots read, not to what replays record.
+  An enemy trap (`EFFECT_TRAP`) is listed only to a unit of the team within `sense_radius` of it (`docs/rules/abilities.md`).
+- **Events follow the fog.** `T_EVENTS` is filtered per team. A position is *known* to a team when one of its
+  living units sees it, when the event happened to one of its own units, or when it is the charge's position and
+  the team knows where the charge lies (both teams once it is planted, attackers when it is dropped). An event delivered
+  with an unknown position carries `POS_HIDDEN` (`i32::MIN`) in both `x` and `y`, never `(0, 0)`.
+
+  | Event | Delivered to a team | Position |
+  |---|---|---|
+  | `EVENT_KILL` (actor killer or -1, target victim, value weapon) | Always, both teams | `POS_HIDDEN` unless known |
+  | `EVENT_DAMAGE` (actor attacker or -1, target, value amount) | Only when the position is known | Always real |
+  | `EVENT_PLANT` (actor planter, value site) | Always | Real (the planted charge is public) |
+  | `EVENT_DEFUSE` (actor defuser) | Always | Real |
+  | `EVENT_DETONATE` | Always | Real |
+  | `EVENT_ROUND_END` (actor winner, value `ROUND_WIN_*`) | Always | The charge position if known; `POS_HIDDEN` while it is carried |
+  | Any later kind | Only when the position is known | Always real |
+
+  Sounds are separate from events: a shot heard through a wall is a `T_SOUNDS` row, not a damage event.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
   resolves with everyone else's when the tick is stepped. One move, one facing and one primary action per tick.
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;
   balance patches change them without changing the ABI.
+- **Reserved fields.** A field whose meaning is retired keeps its slot, is renamed `_reservedN` and always reads 0,
+  so compiled bots keep their layout. `WeaponRules._reserved0` was `move_spread` (movement no longer adds spread).
 - **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed.
+
+## Additions in v1
+
+`ABI_VERSION` is 1 (engine 0.2.0). Every change is additive, at the end of its group or record, so a v0 bot
+still loads and reads the prefix of each record it knows; what changed is what some tables mean. In order:
+
+- `get` copies the prefix of a record that fits in `cap` (a `T_MAP_ROW` row must still fit).
+- Detonation: `CoreRules.blast_radius`; blast deaths are `EVENT_KILL` with actor -1 and weapon -1. A match that
+  reaches `max_ticks`, or a tie-break that stays level, is a draw. Team memory is zeroed at every round start.
+- Fog per team: `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS`, `T_DROPS`, `T_SOUNDS` and `T_EVENTS` are the
+  team's (see Conventions); `POS_HIDDEN`; enemy `hp` and `armor` read 0.
+- Firing: `UnitInfo.unsteadiness`; `WeaponRules.unsteady_gain`, `unsteady_decay`, `unsteady_max`,
+  `startup_per_point`; `S_BRACED` (`1 << 11`); `WeaponRules._reserved0` (was `move_spread`).
+- Team play: `A_BUY_FOR` (14), `A_DRAFT_FOR` (15), `MEM_BUY` (2), `T_ROSTER` (18), `T_ROUNDS` (19),
+  `UnitInfo.other_weapon` and `fire_cooldown`, `CoreRules.buy_mem_bytes`. Kits other than 0 are unique within a
+  team.
+- `S_CASTING` (`1 << 12`): the unit is in an ability's startup (`AbilityRules.delay` ticks). Meanwhile `act`
+  refuses every primary action except `A_CANCEL` with `ERR_NOT_READY`; moving and turning still work.
+- `AbilityRules.speed`: units per tick a thrown device flies; 0 = it is not thrown and appears at once.
+  `AbilityRules.delay` keeps its name and is the ability's startup.
+- `ProjectileInfo.kind` (already in v0) is now used: 0 = a bullet, otherwise a thrown ability device with
+  `kind` = ability id + 1 and `weapon` = -1. Devices hit nobody; they land at a wall, a barrier or their range.
+- `EFFECT_TRAP` (9), `EFFECT_SONAR` (10), `EFFECT_CONCUSSION` (11); abilities 8-10 and kits 7-9 in the
+  ruleset. Every ability has one charge.
 
 ## For engine and SDK authors
 
@@ -923,7 +1132,7 @@ clock and random source, empty args and environment. There is no filesystem, net
 
 # Ruleset reference
 
-Ruleset hash `0304dfc448350cca`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -957,16 +1166,22 @@ Ruleset hash `0304dfc448350cca`. Every value as the engine loads it, defaults an
 | `pickup_reach` | 900 |  |
 | `interact_reach` | 1200 |  |
 | `weapons` | 6 | *(not a key in rules/core.toml: set by the loader)* |
-| `abilities` | 8 | *(not a key in rules/core.toml: set by the loader)* |
+| `abilities` | 11 | *(not a key in rules/core.toml: set by the loader)* |
 | `items` | 11 | *(not a key in rules/core.toml: set by the loader)* |
-| `kits` | 7 | *(not a key in rules/core.toml: set by the loader)* |
+| `kits` | 10 | *(not a key in rules/core.toml: set by the loader)* |
 | `max_ticks` | 4000 |  |
+| `blast_radius` | 12288 | On detonation every living unit within this distance of the charge dies, through walls. |
+| `buy_mem_bytes` | 256 |  |
 | `round_end_ticks` | 2 | Pause after a round is decided. Not part of `T_RULES_CORE`. |
 
 Notes from `rules/core.toml`:
 
 ```text
 Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full turn, times are ticks.
+
+Buy-phase team memory (MEM_BUY), cleared every round.
+
+On detonation every living unit within this distance of the charge dies, both teams, through walls.
 ```
 
 ## Weapons
@@ -978,12 +1193,12 @@ Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full
 | `damage` | 26 | 22 | 17 | 15 | 75 | 16 |  |
 | `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | Bullets per trigger pull. |
 | `spread` | 0 | 250 | 200 | 260 | 0 | 300 | Angle between adjacent pellets when standing still and settled. |
-| `move_spread` | 600 | 1200 | 150 | 300 | 2400 | 2000 | Extra spread per unit of speed (per 1024 units/tick), and per recoil point. |
-| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 |  |
+| `_reserved0` | 0 | 0 | 0 | 0 | 0 | 0 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
+| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 | Extra spread between pellets per recoil point. |
 | `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |  |
 | `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |  |
-| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving. |
-| `cooldown` | 0 | 0 | 0 | 2 | 2 | 0 | Ticks after a shot before the next wind-up may start. |
+| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
+| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 | Ticks after a shot before the next pull is accepted. |
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |  |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |  |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | Units per tick. |
@@ -993,52 +1208,59 @@ Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | Percent of max run speed while holding this weapon. |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |  |
 | `slot` | 1 | 0 | 0 | 0 | 0 | 0 |  |
+| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 | Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered. |
+| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 | Unsteadiness lost per tick without moving. |
+| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 | Unsteadiness never exceeds this. |
+| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 | Startup added per point of unsteadiness, in hundredths of a tick (rounded half up). |
 
 Notes from `rules/weapons.toml`:
 
 ```text
 Weapons. id = position in this list (rules/economy.toml refers to these ids: append, never reorder).
 slot 0 = primary, slot 1 = sidearm.
-One trigger pull releases `pellets` bullets after `windup` ticks, fanned `spread` apart; the fan widens by
-move_spread per 1024 units/tick of speed and by recoil_spread per recoil point. One pull takes
-windup + 1 + cooldown ticks. Formulas, a table of these values and measured time-to-kill figures are in
-docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
+A trigger pull by a unit that is not braced starts a startup of windup + unsteadiness * startup_per_point / 100
+ticks, then releases `pellets` bullets fanned `spread` apart (wider by recoil_spread per recoil point) and
+braces the unit: while it stands and keeps pulling, it fires once every 1 + cooldown ticks. Unsteadiness
+falls by unsteady_decay every tick and rises by unsteady_gain per 1024 units/tick actually moved, up to
+unsteady_max. Movement adds no spread. Formulas, a table of these values and measured time-to-kill figures are
+in docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
 
 (above [[weapon]] "pistol")
-Free sidearm everyone carries: single accurate shots, usable on the move, weak at range.
+Free sidearm everyone carries: exact single shots and a short startup even off a run, weak at range.
 
 (above [[weapon]] "rifle")
 All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
 
 (above [[weapon]] "smg")
-Run-and-gun: barely spreads on the move and carries at full speed, but short reach and steep falloff.
+Run-and-gun: running barely unsteadies it and it carries at full speed, but short reach and steep falloff.
 
 (above [[weapon]] "shotgun")
 Close quarters: a wide seven-bullet fan that kills in one pull inside three tiles and tickles beyond six.
 
 (above [[weapon]] "marksman")
-Long range: one fast bullet with no falloff, two hits kill. Slow to cycle and useless on the move, and the
-two-tick wind-up warns the target.
+Long range: one fast bullet with no falloff, two hits kill. Slow to cycle, very slow to start after moving,
+and the two-tick startup warns the target.
 
 (above [[weapon]] "lmg")
 Heavy and slow: a five-bullet wall every pull, a deep magazine and almost no recoil, for holding a lane.
-Slow to carry, slow to start firing and very slow to reload.
+Slow to carry, very slow to start firing after moving and very slow to reload.
 ```
 
 ## Abilities
 
-| Field | smoke | flash | incendiary | recon | barrier | dash | decoy | heal | Meaning |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `id` | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |  |
-| `effect` | 1 (SMOKE) | 4 (FLASH) | 2 (FIRE) | 5 (RECON) | 3 (BARRIER) | 8 (DASH) | 7 (DECOY) | 6 (HEAL) |  |
-| `price` | 300 | 250 | 350 | 0 | 300 | 0 | 0 | 0 |  |
-| `max_charges` | 2 | 2 | 1 | 1 | 1 | 2 | 1 | 2 |  |
-| `cooldown` | 4 | 3 | 6 | 0 | 8 | 5 | 0 | 6 |  |
-| `range` | 10240 | 8192 | 8192 | 12288 | 2560 | 3072 | 10240 | 4096 |  |
-| `radius` | 1792 | 12288 | 1536 | 6144 | 1536 | 0 | 2048 | 1024 |  |
-| `duration` | 14 | 6 | 8 | 5 | 20 | 0 | 12 | 6 |  |
-| `power` | 0 | 30 | 12 | 3 | 120 | 0 | 3 | 7 |  |
-| `delay` | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | Ticks between use and the effect starting. |
+| Field | smoke | flash | incendiary | recon | barrier | dash | decoy | heal | trap | sonar | concussion | Meaning |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `id` | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |  |
+| `effect` | 1 (SMOKE) | 4 (FLASH) | 2 (FIRE) | 5 (RECON) | 3 (BARRIER) | 8 (DASH) | 7 (DECOY) | 6 (HEAL) | 9 (TRAP) | 10 (SONAR) | 11 (CONCUSSION) |  |
+| `price` | 300 | 250 | 350 | 0 | 300 | 0 | 0 | 0 | 0 | 0 | 250 |  |
+| `max_charges` | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |  |
+| `cooldown` | 4 | 3 | 6 | 0 | 8 | 5 | 0 | 6 | 0 | 0 | 4 |  |
+| `range` | 10240 | 8192 | 8192 | 12288 | 2560 | 3072 | 10240 | 4096 | 3072 | 8192 | 8192 |  |
+| `radius` | 1792 | 12288 | 1536 | 6144 | 1536 | 0 | 2048 | 1024 | 768 | 5120 | 2048 |  |
+| `duration` | 14 | 6 | 8 | 5 | 20 | 0 | 12 | 6 | 300 | 0 | 0 |  |
+| `power` | 0 | 30 | 12 | 3 | 120 | 0 | 3 | 7 | 4 | 3 | 4 |  |
+| `delay` | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 3 | 2 | 1 | Startup: ticks between `A_ABILITY` and the ability happening (0 = in the tick it is used). See `S_CASTING`. |
+| `speed` | 3072 | 4096 | 2560 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | Units per tick a thrown device flies (a projectile in `T_PROJECTILES`); 0 = it appears where it lands at once. Only smoke, flash, incendiary, recon and decoy are thrown. |
 
 ## Kits
 
@@ -1053,6 +1275,9 @@ Slow to carry, slow to start firing and very slow to reload.
 | 4 | `bulwark` | recon (3) | barrier (4) | 115 | 88 |
 | 5 | `mender` | heal (7) | smoke (0) | 100 | 95 |
 | 6 | `kindler` | dash (5) | incendiary (2) | 85 | 105 |
+| 7 | `trapper` | trap (8) | concussion (10) | 100 | 95 |
+| 8 | `echo` | sonar (9) | incendiary (2) | 95 | 100 |
+| 9 | `breaker` | decoy (6) | concussion (10) | 95 | 105 |
 
 Notes from `rules/abilities.toml`:
 
@@ -1061,7 +1286,7 @@ Abilities and kits. Ids = position in each list. Distances are fixed-point (1024
 Exact behaviour: docs/rules/abilities.md.
 
 [[ability]] name, effect (EFFECT_* id; 8 = dash), price, max_charges, cooldown, range, radius, duration,
-power, delay. What each field means per effect:
+power, delay, speed. What each field means per effect:
   smoke (1)       radius = cloud radius, duration = ticks it blocks sight
   incendiary (2)  radius = fire radius, duration = ticks it burns, power = damage per tick
   barrier (3)     range = how far in front it is placed, radius = half its length, duration = ticks it stands,
@@ -1075,8 +1300,14 @@ power, delay. What each field means per effect:
   decoy (7)       radius = inside it the decoy is heard as a decoy, duration = ticks it plays,
                   power = ticks between fake shots
   dash (8)        range = distance
-delay = ticks between the use and the effect arming. price 0 = refilled to max_charges every round;
-otherwise charges are bought (up to max_charges) and kept until used.
+  trap (9)        range = how far it is placed, radius = trigger radius, duration = ticks it lies armed,
+                  power = turns a caught unit stays slowed and revealed
+  sonar (10)      radius = pulse radius (through walls), power = turns every unit in it stays revealed
+  concussion (11) radius = pop radius, power = turns a hit unit stays slowed
+delay = startup: ticks between A_ABILITY and the ability happening (the unit's hands are busy meanwhile).
+speed = units per tick a thrown device flies (slower than any bullet); 0 = it appears where it lands at once.
+price 0 = refilled to max_charges every round; otherwise charges are bought (up to max_charges) and kept until
+used.
 
 (above [[kit]] "standard")
 [[kit]] name, abilities = [slot 0, slot 1] (ability ids, -1 = none), hp, speed_pct.
@@ -1145,7 +1376,8 @@ Replacing a weapon or armour bought earlier in the same buy phase returns this s
 
 Overtime, when regulation ends level: pairs of rounds, one per side. Every overtime round starts fresh with
 overtime_credits each. Taking both rounds of a pair wins; after overtime_max_pairs split pairs the tie-break
-(kills, damage, seed coin flip) decides. rules/core.toml max_ticks must cover regulation plus these rounds.
+(kills, then damage) decides, and a level tie-break is a draw. rules/core.toml max_ticks must cover
+regulation plus these rounds; running out of ticks is a draw.
 
 (above [[item]] "rifle")
 The shop. Item ids = position in this list and are append-only: never reorder or remove, add new items at the
@@ -1176,7 +1408,7 @@ Wasm bots import these functions from module `"ibc"`:
 end_turn()                                            yield until the next tick
 fuel_remaining() -> i64                               fuel left in this tick's budget
 count(table: u32) -> i32                              rows in a table (>= 0) or -error
-get(table: u32, index: u32, out: *mut u8, cap: u32) -> i32   bytes written (>= 0) or -error
+get(table: u32, index: u32, out: *mut u8, cap: u32) -> i32   bytes written (>= 0, at most cap) or -error
 act(kind: u32, a: i32, b: i32, c: i32) -> i32         0 or error code (positive)
 los(x0: i32, y0: i32, x1: i32, y1: i32) -> i32        1 if no wall between the points
 raycast(x: i32, y: i32, angle: i32, max: i32) -> i32  distance to the first wall, capped at max
@@ -1196,7 +1428,7 @@ Records are `#[repr(C)]`, little-endian, made only of `i32`, so they have no pad
 
 | Name | Value | Type | Meaning |
 | --- | --- | --- | --- |
-| `ABI_VERSION` | `0` | `u32` |  |
+| `ABI_VERSION` | `1` | `u32` | 1: the batch of additions listed in docs/ABI.md ("Additions in v1"). Every v0 bot still loads and reads the prefix of each record it knows; the version says what the tables mean now (team fog, startup, ...). |
 | `IMPORT_MODULE` | `"ibc"` | `&str` |  |
 | `TILE` | `1024` | `i32` | Fixed-point units per tile. |
 | `FULL_TURN` | `65536` | `i32` | Angle units per full turn. |
@@ -1225,10 +1457,10 @@ The `table` argument of `count` and `get`.
 | --- | --- | --- | --- |
 | `T_SELF` | `1` | `u32` | One `UnitInfo`: this unit, full detail. |
 | `T_ALLIES` | `2` | `u32` | `UnitInfo` per teammate (always known, like a radar), excluding self. |
-| `T_ENEMIES` | `3` | `u32` | `UnitInfo` per enemy currently visible to THIS unit. |
-| `T_SOUNDS` | `4` | `u32` | `SoundInfo` heard by this unit during the previous tick. |
-| `T_PROJECTILES` | `5` | `u32` | `ProjectileInfo` visible to this unit. |
-| `T_EFFECTS` | `6` | `u32` | `EffectInfo` visible to this unit (smoke, fire, barriers, ...). |
+| `T_ENEMIES` | `3` | `u32` | `UnitInfo` per living enemy currently seen by THIS unit's team (vision is shared by the team). Enemy rows hide hp, armour, credits, ammo, charges, cooldowns and the defuse kit; the weapon in hand is shown. |
+| `T_SOUNDS` | `4` | `u32` | `SoundInfo` heard by any living unit of THIS unit's team during the previous tick (shared by the team). |
+| `T_PROJECTILES` | `5` | `u32` | `ProjectileInfo` seen by this unit's team (own team's bullets always). |
+| `T_EFFECTS` | `6` | `u32` | `EffectInfo` seen by this unit's team (smoke, fire, barriers, ...; own team's effects always). |
 | `T_MATCH` | `7` | `u32` | One `MatchInfo`. |
 | `T_MAP` | `8` | `u32` | One `MapInfo`. |
 | `T_MAP_ROW` | `9` | `u32` | Row `index` of the tile grid: `width` bytes, one `TILE_*` value each. |
@@ -1237,9 +1469,11 @@ The `table` argument of `count` and `get`.
 | `T_ABILITY` | `12` | `u32` | `AbilityRules` per ability id. |
 | `T_ITEM` | `13` | `u32` | `ItemRules` per shop item id. |
 | `T_SITES` | `14` | `u32` | `SiteInfo` per plant site. |
-| `T_DROPS` | `15` | `u32` | `DropInfo` per dropped item visible to this unit (the charge is always visible to attackers). |
+| `T_DROPS` | `15` | `u32` | `DropInfo` per dropped item seen by this unit's team (the charge is always visible to attackers). |
 | `T_KIT` | `16` | `u32` | `KitRules` per kit id. |
-| `T_EVENTS` | `17` | `u32` | `EventInfo` per public event of the previous tick (kills, plant, defuse, round end). |
+| `T_EVENTS` | `17` | `u32` | `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight; kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the team does not know the position. See docs/ABI.md for each kind. |
+| `T_ROSTER` | `18` | `u32` | `RosterInfo` per unit of both teams, in unit id order. Readable in every phase. |
+| `T_ROUNDS` | `19` | `u32` | `RoundInfo` per finished round of the match, oldest first. |
 
 ### Actions
 
@@ -1249,7 +1483,7 @@ The `kind` argument of `act(kind, a, b, c)`.
 | --- | --- | --- | --- |
 | `A_MOVE` | `1` | `u32` | a = angle, b = speed in units/tick (clamped to the unit's max). Speed above `walk_speed` is a run (noisy). |
 | `A_FACE` | `2` | `u32` | a = desired facing angle (turn rate limited). |
-| `A_FIRE` | `3` | `u32` | a = aim angle. Starts the weapon's wind-up; bullets leave when it ends. |
+| `A_FIRE` | `3` | `u32` | a = aim angle. Starts the weapon's startup (`windup` plus the unit's unsteadiness); bullets leave when it ends and the unit is then braced: while it keeps firing and stays put, each pull leaves on the tick it is made. Refused with `ERR_NOT_ALLOWED` on a tick the unit also moves: a move cancels a startup and the brace. |
 | `A_RELOAD` | `4` | `u32` |  |
 | `A_PLANT` | `5` | `u32` |  |
 | `A_DEFUSE` | `6` | `u32` |  |
@@ -1260,6 +1494,8 @@ The `kind` argument of `act(kind, a, b, c)`.
 | `A_PICKUP` | `11` | `u32` | Pick up the nearest drop in reach. |
 | `A_DRAFT` | `12` | `u32` | a = kit id. Draft phase only. |
 | `A_CANCEL` | `13` | `u32` | Cancel the current channel (plant, defuse, reload, wind-up). |
+| `A_BUY_FOR` | `14` | `u32` | a = item id, b = slot of the teammate who gets it (`MatchInfo.unit_slot`; your own slot works too). Buy phase only. The caller pays. |
+| `A_DRAFT_FOR` | `15` | `u32` | a = kit id, b = slot of the teammate it is drafted for. Draft phase only. |
 
 ### Memory scopes
 
@@ -1267,8 +1503,9 @@ The `scope` argument of `mem_read` and `mem_write`.
 
 | Name | Value | Type | Meaning |
 | --- | --- | --- | --- |
-| `MEM_TEAM` | `0` | `u32` | Team scratchpad, read/write all match. Later-running teammates see writes in the same tick. |
+| `MEM_TEAM` | `0` | `u32` | Team scratchpad, kept all match. Readable always, writable only in the action phases (`PHASE_ACTION`, `PHASE_PLANTED`). Later-running teammates see writes in the same tick. |
 | `MEM_DRAFT` | `1` | `u32` | Written in the draft phase, read-only afterwards. |
+| `MEM_BUY` | `2` | `u32` | Buy-phase team scratchpad: zeroed at every round start, writable only in the buy phase, readable always. |
 
 ### Teams
 
@@ -1328,6 +1565,8 @@ Bits of `UnitInfo.state`.
 | `S_HAS_KIT` | `1 << 8` = 256 | `i32` |  |
 | `S_SLOWED` | `1 << 9` = 512 | `i32` |  |
 | `S_REVEALED` | `1 << 10` = 1024 | `i32` |  |
+| `S_BRACED` | `1 << 11` = 2048 | `i32` | Startup done and still firing: the next pull leaves on the tick it is made. |
+| `S_CASTING` | `1 << 12` = 4096 | `i32` | An ability use is in its startup (`AbilityRules.delay`): it happens when the startup ends unless `A_CANCEL` or death stops it. Until then every primary action except `A_CANCEL` is refused with `ERR_NOT_READY`. |
 
 ### Sounds
 
@@ -1356,6 +1595,9 @@ Bits of `UnitInfo.state`.
 | `EFFECT_HEAL` | `6` | `i32` |  |
 | `EFFECT_DECOY` | `7` | `i32` |  |
 | `EFFECT_DASH` | `8` | `i32` | Ability effect id only (an instant move); never appears in `T_EFFECTS`. |
+| `EFFECT_TRAP` | `9` | `i32` | A hidden trigger area. Enemies get it in `T_EFFECTS` only within `sense_radius` of it. |
+| `EFFECT_SONAR` | `10` | `i32` | A pulse that marks every unit around it, friend or foe, through walls. |
+| `EFFECT_CONCUSSION` | `11` | `i32` | A pop that slows every unit around it and interrupts what it was doing. |
 
 ### Drops
 
@@ -1372,7 +1614,7 @@ Bits of `UnitInfo.state`.
 
 | Name | Value | Type | Meaning |
 | --- | --- | --- | --- |
-| `EVENT_KILL` | `1` | `i32` |  |
+| `EVENT_KILL` | `1` | `i32` | actor = killer, or -1 for a death nobody caused (the detonation blast); target = victim; value = weapon id, or -1 when no weapon did it. |
 | `EVENT_PLANT` | `2` | `i32` |  |
 | `EVENT_DEFUSE` | `3` | `i32` |  |
 | `EVENT_DETONATE` | `4` | `i32` |  |
@@ -1422,15 +1664,21 @@ Charged on top of the WebAssembly instructions the call itself runs.
 | `FUEL_MEM` | `20` | `u64` |  |
 | `FUEL_DEBUG` | `0` | `u64` |  |
 
+### Other constants
+
+| Name | Value | Type | Meaning |
+| --- | --- | --- | --- |
+| `POS_HIDDEN` | `-2147483648` | `i32` | `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real position: check for it before using the coordinates. |
+
 ## Records
 
 Rows returned by `get`: `#[repr(C)]`, little-endian, fields at the offsets below. A record only ever grows at the end, so a bot built against an older ABI reads the prefix it knows.
 
 ### UnitInfo
 
-A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `ammo`, `reserve` are 0.
+A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, `cooldown`, `ammo`, `reserve`, `blind`, `other_weapon` and `fire_cooldown` are 0.
 
-96 bytes, 22 fields.
+108 bytes, 25 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -1442,7 +1690,7 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 20 | `x` | `i32` | 4 |  |
 | 24 | `y` | `i32` | 4 |  |
 | 28 | `facing` | `i32` | 4 |  |
-| 32 | `vx` | `i32` | 4 | Velocity of the previous tick in units/tick. |
+| 32 | `vx` | `i32` | 4 | Velocity of the previous tick in units/tick: the distance actually moved, so a move into a wall reads 0. |
 | 36 | `vy` | `i32` | 4 |  |
 | 40 | `hp` | `i32` | 4 |  |
 | 44 | `armor` | `i32` | 4 |  |
@@ -1456,6 +1704,9 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 80 | `cooldown` | `[i32; 2]` | 8 |  |
 | 88 | `recoil` | `i32` | 4 | Recoil heat, 0 = settled. |
 | 92 | `blind` | `i32` | 4 |  |
+| 96 | `unsteadiness` | `i32` | 4 | Unsteadiness heat, 0 = steady: builds while moving, decays standing, lengthens the next startup. |
+| 100 | `other_weapon` | `i32` | 4 | Weapon id in the slot not in hand, -1 if that slot is empty. |
+| 104 | `fire_cooldown` | `i32` | 4 | Ticks before the weapon in hand may start a new wind-up (0 = ready, unless reloading or empty). |
 
 ### SoundInfo
 
@@ -1474,7 +1725,7 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
-| 0 | `kind` | `i32` | 4 |  |
+| 0 | `kind` | `i32` | 4 | 0 = a bullet (`weapon` says whose); otherwise a thrown ability device, `kind` = ability id + 1 (`T_ABILITY`) and `weapon` = -1. A thrown device hits nobody: it lands at the first wall or barrier, or after `range`. |
 | 4 | `team` | `i32` | 4 |  |
 | 8 | `x` | `i32` | 4 |  |
 | 12 | `y` | `i32` | 4 |  |
@@ -1572,13 +1823,13 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 0 | `kind` | `i32` | 4 |  |
 | 4 | `actor` | `i32` | 4 | Acting unit id or -1. |
 | 8 | `target` | `i32` | 4 | Target unit id or -1. |
-| 12 | `x` | `i32` | 4 |  |
+| 12 | `x` | `i32` | 4 | Where it happened, or `POS_HIDDEN` in both `x` and `y` when the receiving team does not know. |
 | 16 | `y` | `i32` | 4 |  |
 | 20 | `value` | `i32` | 4 |  |
 
 ### CoreRules
 
-128 bytes, 32 fields.
+136 bytes, 34 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -1614,10 +1865,12 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 116 | `items` | `i32` | 4 |  |
 | 120 | `kits` | `i32` | 4 |  |
 | 124 | `max_ticks` | `i32` | 4 |  |
+| 128 | `blast_radius` | `i32` | 4 | On detonation every living unit within this distance of the charge dies, through walls. |
+| 132 | `buy_mem_bytes` | `i32` | 4 |  |
 
 ### WeaponRules
 
-80 bytes, 20 fields.
+96 bytes, 24 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -1626,12 +1879,12 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 8 | `damage` | `i32` | 4 |  |
 | 12 | `pellets` | `i32` | 4 | Bullets per trigger pull. |
 | 16 | `spread` | `i32` | 4 | Angle between adjacent pellets when standing still and settled. |
-| 20 | `move_spread` | `i32` | 4 | Extra spread per unit of speed (per 1024 units/tick), and per recoil point. |
-| 24 | `recoil_spread` | `i32` | 4 |  |
+| 20 | `_reserved0` | `i32` | 4 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
+| 24 | `recoil_spread` | `i32` | 4 | Extra spread between pellets per recoil point. |
 | 28 | `recoil_per_shot` | `i32` | 4 |  |
 | 32 | `recoil_recovery` | `i32` | 4 |  |
-| 36 | `windup` | `i32` | 4 | Ticks between `A_FIRE` and the bullets leaving. |
-| 40 | `cooldown` | `i32` | 4 | Ticks after a shot before the next wind-up may start. |
+| 36 | `windup` | `i32` | 4 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
+| 40 | `cooldown` | `i32` | 4 | Ticks after a shot before the next pull is accepted. |
 | 44 | `magazine` | `i32` | 4 |  |
 | 48 | `reload_ticks` | `i32` | 4 |  |
 | 52 | `bullet_speed` | `i32` | 4 | Units per tick. |
@@ -1641,10 +1894,14 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 68 | `move_pct` | `i32` | 4 | Percent of max run speed while holding this weapon. |
 | 72 | `kill_reward` | `i32` | 4 |  |
 | 76 | `slot` | `i32` | 4 |  |
+| 80 | `unsteady_gain` | `i32` | 4 | Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered. |
+| 84 | `unsteady_decay` | `i32` | 4 | Unsteadiness lost per tick without moving. |
+| 88 | `unsteady_max` | `i32` | 4 | Unsteadiness never exceeds this. |
+| 92 | `startup_per_point` | `i32` | 4 | Startup added per point of unsteadiness, in hundredths of a tick (rounded half up). |
 
 ### AbilityRules
 
-40 bytes, 10 fields.
+44 bytes, 11 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -1657,7 +1914,8 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 24 | `radius` | `i32` | 4 |  |
 | 28 | `duration` | `i32` | 4 |  |
 | 32 | `power` | `i32` | 4 |  |
-| 36 | `delay` | `i32` | 4 | Ticks between use and the effect starting. |
+| 36 | `delay` | `i32` | 4 | Startup: ticks between `A_ABILITY` and the ability happening (0 = in the tick it is used). See `S_CASTING`. |
+| 40 | `speed` | `i32` | 4 | Units per tick a thrown device flies (a projectile in `T_PROJECTILES`); 0 = it appears where it lands at once. Only smoke, flash, incendiary, recon and decoy are thrown. |
 
 ### ItemRules
 
@@ -1680,6 +1938,113 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 4 | `abilities` | `[i32; 2]` | 8 |  |
 | 12 | `hp` | `i32` | 4 |  |
 | 16 | `speed_pct` | `i32` | 4 |  |
+
+### RosterInfo
+
+One unit in `T_ROSTER`. Public to both teams: kits and round-start credits, not equipment.
+
+20 bytes, 5 fields.
+
+| Offset | Field | Type | Bytes | Meaning |
+| --- | --- | --- | --- | --- |
+| 0 | `id` | `i32` | 4 |  |
+| 4 | `team` | `i32` | 4 |  |
+| 8 | `kit` | `i32` | 4 |  |
+| 12 | `credits` | `i32` | 4 | Credits when this round's buy phase began (0 during the draft). |
+| 16 | `alive` | `i32` | 4 | 1 if the unit is alive. |
+
+### RoundInfo
+
+One finished round in `T_ROUNDS`.
+
+28 bytes, 7 fields.
+
+| Offset | Field | Type | Bytes | Meaning |
+| --- | --- | --- | --- | --- |
+| 0 | `round` | `i32` | 4 |  |
+| 4 | `winner` | `i32` | 4 | Winning team (`TEAM_A` / `TEAM_B`). |
+| 8 | `reason` | `i32` | 4 | How it ended: `ROUND_WIN_*`. |
+| 12 | `attackers` | `i32` | 4 | Team that attacked in this round. |
+| 16 | `ticks` | `i32` | 4 | Ticks from the start of the buy phase to the end of the round. |
+| 20 | `score_a` | `i32` | 4 | Score after this round. |
+| 24 | `score_b` | `i32` | 4 |  |
+
+---
+
+<!-- part: docs/PARTICIPANTS.md -->
+
+# Participant quickstart
+
+Everything runs through one binary, `ibc`. A match is a pure function of (patch, map, bots, seed), so a game
+you play locally is the game the servers would play.
+
+## 1. Install
+
+```sh
+pip install imperial-battlecode            # puts `ibc` on PATH; or download a release binary
+ibc version                                # the patch: engine, ruleset hash, wasmtime, ABI
+```
+
+Rust bots need Rust and the wasm target: `rustup target add wasm32-wasip1`.
+C++ bots need wasi-sdk, which `ibc` fetches for you: `ibc toolchain install` (then `ibc toolchain status`).
+
+## 2. Make a workspace
+
+```sh
+ibc init mybots          # or `ibc init` in an empty directory; --lang cpp for a C++ starter bot
+cd mybots
+```
+
+| Path | What it is | Yours to edit? |
+|---|---|---|
+| `bots/` | Your bots, one directory each. `ibc init` adds `bots/starter` to an empty workspace | Yes |
+| `maps/` | The map pool of this patch. Add your own `.ibcmap` files here | Yes |
+| `ibc.toml` | The ibc version this workspace is pinned to, and `ibc run` defaults (map, opponent) | Yes |
+| `docs/` | Rules, ABI, SDK reference, this page | Refreshed by `ibc init` |
+| `rules/` | The ruleset of this patch, for reading (the engine uses its built-in copy) | Refreshed by `ibc init` |
+| `.ibc/` | The SDK the bots build against (Rust crates, C++ headers), from the `ibc` binary itself | No: refreshed by `ibc init` |
+
+After updating `ibc`, run `ibc init` again in the workspace: it refreshes `.ibc/` and `docs/`, adds new maps,
+moves the version pin, and leaves your bots and custom maps alone. `ibc build` warns when the workspace and
+the binary disagree. `.ibc/` is in `.gitignore`; a teammate who clones the workspace runs `ibc init` once.
+
+## 3. Write a bot
+
+```sh
+ibc new mybot                              # Rust starter: bots/mybot/src/lib.rs
+ibc new mybot2 --lang cpp                  # C++ starter: bots/mybot2/src/main.cpp
+ibc new ref --template example             # a complete reference bot to read or start from
+```
+
+Every unit runs its own copy of your bot. Each tick it reads its fogged view and queues actions; read every
+number from the rules tables instead of hard-coding it. Start with `docs/RULES.md` (the game), then
+`docs/SDK-RUST.md` or `docs/SDK-CPP.md` (the API) and `docs/ABI.md` (the exact contract and fuel costs).
+
+## 4. Build, run, watch
+
+```sh
+ibc build bots/mybot                       # -> bots/mybot/.ibc/bot.wasm
+ibc run bots/mybot                         # against `opponent` on `map` from ibc.toml
+ibc run bots/mybot bots/starter --map maps/tunnels.ibcmap --seed 7 -o out/t7
+ibc view out/t7/replay.ibcr                # replay viewer on localhost
+```
+
+`ibc run` writes `replay.ibcr`, `summary.json` and each team's log under `-o` (default `out/run`). Games are
+deterministic: rerunning the same seed proves nothing, so compare across seeds, maps and both sides.
+`ibc replay verify FILE` re-simulates a replay and checks every state hash.
+
+## 5. Submit
+
+Once the platform commands are in your `ibc` (`ibc --help` lists them): sign in with `ibc login`, upload with
+`ibc submit bots/mybot`, and pick which upload plays ranked games in `ibc submissions`. The server compiles
+nothing: it runs the same `bot.wasm` you tested.
+
+## Working with an AI agent
+
+`ibc init` writes `AGENTS.md`, which points an agent at the docs and the SDK source in `.ibc/`. Give the agent
+the whole `docs/` folder (rules, ABI, SDK reference); everything there matches your `ibc` version because it
+came out of the same binary. Ask it to check its work with `ibc build` and a few `ibc run` seeds, and to read
+the team logs in the run's output directory when a bot misbehaves.
 
 ---
 
@@ -1711,13 +2076,15 @@ Every constant and record of the frozen ABI (`ibc-abi`) is re-exported at the cr
 - `pub fn total(&self) -> usize` (`Rows`): Rows in the table (one cheap host call was already made for this).
 - `pub fn me() -> UnitInfo`: This unit, full detail.
 - `pub fn allies() -> Rows<UnitInfo>`: Teammates (always known), excluding this unit. Includes dead ones: check `alive()`.
-- `pub fn enemies() -> Rows<UnitInfo>`: Enemies THIS unit can see right now.
-- `pub fn sounds() -> Rows<SoundInfo>`: Sounds heard during the previous tick.
+- `pub fn enemies() -> Rows<UnitInfo>`: Living enemies THIS unit's team sees right now (vision is shared). One may be behind a wall from here: check `los` before shooting.
+- `pub fn sounds() -> Rows<SoundInfo>`: Sounds the team heard during the previous tick (hearing is shared).
 - `pub fn projectiles() -> Rows<ProjectileInfo>`
 - `pub fn effects() -> Rows<EffectInfo>`
 - `pub fn drops() -> Rows<DropInfo>`
-- `pub fn events() -> Rows<EventInfo>`: Public events of the previous tick.
+- `pub fn events() -> Rows<EventInfo>`: Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN` when the team did not see it. Damage arrives only when seen.
 - `pub fn sites() -> Rows<SiteInfo>`
+- `pub fn roster() -> Rows<RosterInfo>`: Every unit of both teams, by id: kit, credits at the start of this round's buy phase, alive.
+- `pub fn rounds() -> Rows<RoundInfo>`: Every finished round so far, oldest first: winner, how it ended, who attacked, score after it.
 - `pub fn match_info() -> MatchInfo`
 - `pub fn map_info() -> MapInfo`
 - `pub fn core_rules() -> CoreRules`: Global numbers. Constant for the whole match: fetch once in `Bot::new`.
@@ -1732,7 +2099,7 @@ Every constant and record of the frozen ABI (`ibc-abi`) is re-exported at the cr
 - `fn has(&self, state_flag: i32) -> bool` (`UnitExt`)
 - `fn alive(&self) -> bool` (`UnitExt`)
 - `fn pos(&self) -> (i32, i32)` (`UnitExt`)
-- `fn busy(&self) -> bool` (`UnitExt`): Winding up, reloading, planting or defusing.
+- `fn busy(&self) -> bool` (`UnitExt`): Winding up, reloading, planting, defusing or in an ability's startup.
 - `pub fn act(kind: u32, a: i32, b: i32, c: i32) -> Result<(), Error>`: Raw `act` call for action kinds without a wrapper.
 - `pub fn move_dir(angle: i32, speed: i32) -> Result<(), Error>`: Move in direction `angle` at `speed` units/tick (clamped). Above `walk_speed` is a noisy run.
 - `pub fn move_towards(x: i32, y: i32, speed: i32) -> Result<(), Error>`: Move straight towards a point (no pathfinding; see `Navigator`). Costs one extra `me()` call.
@@ -1745,19 +2112,23 @@ Every constant and record of the frozen ABI (`ibc-abi`) is re-exported at the cr
 - `pub fn defuse() -> Result<(), Error>`: Defender within `interact_reach` of the planted charge.
 - `pub fn pickup() -> Result<(), Error>`: Pick up the nearest drop within `pickup_reach`.
 - `pub fn buy(item: i32) -> Result<(), Error>`: Buy a shop item (buy phase only).
+- `pub fn buy_for(item: i32, slot: i32) -> Result<(), Error>`: Buy a shop item for the teammate in `slot` (`MatchInfo::unit_slot`); this unit pays. Buy phase only.
 - `pub fn use_ability(slot: i32, x: i32, y: i32) -> Result<(), Error>`: Use the ability in `slot` (0 or 1) at a target point.
 - `pub fn swap(slot: i32) -> Result<(), Error>`
 - `pub fn drop_item(kind: i32) -> Result<(), Error>`: Drop something (`DROP_*`).
-- `pub fn draft(kit: i32) -> Result<(), Error>`
+- `pub fn draft(kit: i32) -> Result<(), Error>`: Pick a kit (draft phase only). Kits other than 0 are unique within a team: `Error::NOT_ALLOWED` if taken.
+- `pub fn draft_for(kit: i32, slot: i32) -> Result<(), Error>`: Pick a kit for the teammate in `slot` (draft phase only). Same uniqueness rule as `draft`.
 - `pub fn cancel() -> Result<(), Error>`: Cancel the current channel (plant, defuse, reload, wind-up).
 - `pub fn los(a: (i32, i32), b: (i32, i32)) -> bool`: True if no wall lies between the two points.
 - `pub fn raycast(x: i32, y: i32, angle: i32, max: i32) -> i32`: Distance from (x, y) along `angle` to the first wall, capped at `max`.
 - `pub fn team_mem_read(off: u32, out: &mut [u8]) -> Result<(), Error>`: Fill `out` from the team scratchpad starting at byte `off`.
-- `pub fn team_mem_write(off: u32, data: &[u8]) -> Result<(), Error>`: Write to the team scratchpad. Teammates running later this tick already see it.
+- `pub fn team_mem_write(off: u32, data: &[u8]) -> Result<(), Error>`: Write to the team scratchpad (action phases only). Teammates running later this tick already see it.
 - `pub fn mem_read(scope: u32, off: u32, out: &mut [u8]) -> Result<(), Error>`: Fill `out` from any memory scope (`MEM_*`).
 - `pub fn mem_write(scope: u32, off: u32, data: &[u8]) -> Result<(), Error>`
+- `pub fn mem_get<const N: usize>(scope: u32, off: u32) -> [i32; N]`: Read `N` little-endian i32s from a memory scope (`MEM_*`; zeros if the read fails).
+- `pub fn mem_set<const N: usize>(scope: u32, off: u32, v: [i32; N]) -> Result<(), Error>`: Write `N` little-endian i32s to a memory scope (`MEM_*`).
 - `pub fn team_mem_get<const N: usize>(off: u32) -> [i32; N]`: Read `N` little-endian i32s from team memory (zeros if the read fails).
-- `pub fn team_mem_set<const N: usize>(off: u32, v: [i32; N]) -> Result<(), Error>`: Write `N` little-endian i32s to team memory.
+- `pub fn team_mem_set<const N: usize>(off: u32, v: [i32; N]) -> Result<(), Error>`: Write `N` little-endian i32s to team memory (action phases only).
 - `pub const DEBUG_LINE: u32 = 1`: `debug_draw` kinds.
 - `pub const DEBUG_DOT: u32 = 2`
 - `pub fn log(msg: &str)`: Write a line to the match log (shown in the viewer; ignored in tournaments).
@@ -1809,13 +2180,14 @@ Optional building blocks shared by the reference bots: shooting, shopping, readi
 Nothing here is privileged: it is all written against the public SDK, copy and change it freely.
 
 - `pub fn target_half_angle(radius: i32, distance: i32) -> i32`: Half the angle a unit of `radius` covers when seen from `distance`.
-- `pub fn aim_error(w: &WeaponRules, speed: i32, recoil: i32) -> i32`: How far the centre of the bullet fan is pushed off the aim line when shooting while moving at `speed` with `recoil` heat (see `WeaponRules::move_spread` / `recoil_spread`).
+- `pub fn startup_ticks(w: &WeaponRules, unsteadiness: i32) -> i32`: Ticks from a pull to the bullets leaving for a unit that is not braced, holding `w` with `unsteadiness` (`UnitInfo::unsteadiness`): `windup + round(unsteadiness * startup_per_point / 100)`, halves rounded up. A braced unit (`S_BRACED`) fires on the tick it pulls.
 - `pub struct Shot`: The result of `Gunner::engage`.
 - `pub struct Gunner`: Aims and shoots at what this unit can see. Caches the held weapon's rules.
-- `pub fn new(core: &CoreRules) -> Gunner` (`Gunner`)
+- `pub fn new() -> Gunner` (`Gunner`)
 - `pub fn weapon(&mut self, me: &UnitInfo) -> WeaponRules` (`Gunner`): Rules of the weapon `me` holds (one host call when it changes).
-- `pub fn engage(&mut self, me: &UnitInfo, speed: i32) -> Option<Shot>` (`Gunner`): Face the nearest visible enemy and shoot it if the weapon is ready and settled enough to hit (reload if it is empty). `speed` is how fast the caller intends to move this tick. Returns `None` when no enemy is visible.
+- `pub fn engage(&mut self, me: &UnitInfo) -> Option<Shot>` (`Gunner`): Face the nearest enemy in sight with no wall in between and shoot it whenever the weapon is ready and the enemy in range (reload if it is empty). `T_ENEMIES` is the team's sight, so an enemy only a teammate sees behind a wall is skipped: there is no shot at it from here. Returns `None` when there is no such enemy. Shooting roots the unit: while `Shot::hold` is set, do not move.
 - `pub fn top_up(&mut self, me: &UnitInfo)` (`Gunner`): Call when no enemy is in sight: reloads once the magazine is at most half full.
 - `pub fn shop(me: &UnitInfo) -> Option<i32>`: Buy one thing: the most expensive affordable weapon better than the one held, else the best affordable armour, else (defenders) a defuse kit. Returns the item bought. Call once per buy tick.
 - `pub fn approach_point(nav: &mut Navigator, site: (i32, i32), origin: (i32, i32)) -> (i32, i32)`: Where will someone walking from `origin` come into view of `site`? Walks the shortest path from `site` towards `origin` and returns the last point on it that `site` still has line of sight to. A unit standing near `site` should watch this point. Runs a full path search: call it in the buy phase.
 - `pub fn hold_spot(nav: &Navigator, anchor: (i32, i32), watch: (i32, i32), radius_tiles: i32, skip: usize) -> (i32, i32)`: The tile centre within `radius_tiles` of `anchor` with the longest clear line through `watch`, i.e. a spot to hold an angle from. `skip` picks the n-th best so teammates spread out.
+- `pub fn ticks_to_effect(a: &AbilityRules, from: (i32, i32), target: (i32, i32)) -> i32`: Ticks from using ability `a` at `from` towards `target` until it takes effect: its startup, then for a thrown device the flight (it acts in the tick it lands). Walls on the way only make it sooner.

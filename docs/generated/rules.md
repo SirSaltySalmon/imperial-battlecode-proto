@@ -2,7 +2,7 @@
 
 # Ruleset reference
 
-Ruleset hash `0304dfc448350cca`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -36,16 +36,22 @@ Ruleset hash `0304dfc448350cca`. Every value as the engine loads it, defaults an
 | `pickup_reach` | 900 |  |
 | `interact_reach` | 1200 |  |
 | `weapons` | 6 | *(not a key in rules/core.toml: set by the loader)* |
-| `abilities` | 8 | *(not a key in rules/core.toml: set by the loader)* |
+| `abilities` | 11 | *(not a key in rules/core.toml: set by the loader)* |
 | `items` | 11 | *(not a key in rules/core.toml: set by the loader)* |
-| `kits` | 7 | *(not a key in rules/core.toml: set by the loader)* |
+| `kits` | 10 | *(not a key in rules/core.toml: set by the loader)* |
 | `max_ticks` | 4000 |  |
+| `blast_radius` | 12288 | On detonation every living unit within this distance of the charge dies, through walls. |
+| `buy_mem_bytes` | 256 |  |
 | `round_end_ticks` | 2 | Pause after a round is decided. Not part of `T_RULES_CORE`. |
 
 Notes from `rules/core.toml`:
 
 ```text
 Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full turn, times are ticks.
+
+Buy-phase team memory (MEM_BUY), cleared every round.
+
+On detonation every living unit within this distance of the charge dies, both teams, through walls.
 ```
 
 ## Weapons
@@ -57,12 +63,12 @@ Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full
 | `damage` | 26 | 22 | 17 | 15 | 75 | 16 |  |
 | `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | Bullets per trigger pull. |
 | `spread` | 0 | 250 | 200 | 260 | 0 | 300 | Angle between adjacent pellets when standing still and settled. |
-| `move_spread` | 600 | 1200 | 150 | 300 | 2400 | 2000 | Extra spread per unit of speed (per 1024 units/tick), and per recoil point. |
-| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 |  |
+| `_reserved0` | 0 | 0 | 0 | 0 | 0 | 0 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
+| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 | Extra spread between pellets per recoil point. |
 | `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |  |
 | `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |  |
-| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving. |
-| `cooldown` | 0 | 0 | 0 | 2 | 2 | 0 | Ticks after a shot before the next wind-up may start. |
+| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
+| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 | Ticks after a shot before the next pull is accepted. |
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |  |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |  |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | Units per tick. |
@@ -72,52 +78,59 @@ Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | Percent of max run speed while holding this weapon. |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |  |
 | `slot` | 1 | 0 | 0 | 0 | 0 | 0 |  |
+| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 | Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered. |
+| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 | Unsteadiness lost per tick without moving. |
+| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 | Unsteadiness never exceeds this. |
+| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 | Startup added per point of unsteadiness, in hundredths of a tick (rounded half up). |
 
 Notes from `rules/weapons.toml`:
 
 ```text
 Weapons. id = position in this list (rules/economy.toml refers to these ids: append, never reorder).
 slot 0 = primary, slot 1 = sidearm.
-One trigger pull releases `pellets` bullets after `windup` ticks, fanned `spread` apart; the fan widens by
-move_spread per 1024 units/tick of speed and by recoil_spread per recoil point. One pull takes
-windup + 1 + cooldown ticks. Formulas, a table of these values and measured time-to-kill figures are in
-docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
+A trigger pull by a unit that is not braced starts a startup of windup + unsteadiness * startup_per_point / 100
+ticks, then releases `pellets` bullets fanned `spread` apart (wider by recoil_spread per recoil point) and
+braces the unit: while it stands and keeps pulling, it fires once every 1 + cooldown ticks. Unsteadiness
+falls by unsteady_decay every tick and rises by unsteady_gain per 1024 units/tick actually moved, up to
+unsteady_max. Movement adds no spread. Formulas, a table of these values and measured time-to-kill figures are
+in docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
 
 (above [[weapon]] "pistol")
-Free sidearm everyone carries: single accurate shots, usable on the move, weak at range.
+Free sidearm everyone carries: exact single shots and a short startup even off a run, weak at range.
 
 (above [[weapon]] "rifle")
 All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
 
 (above [[weapon]] "smg")
-Run-and-gun: barely spreads on the move and carries at full speed, but short reach and steep falloff.
+Run-and-gun: running barely unsteadies it and it carries at full speed, but short reach and steep falloff.
 
 (above [[weapon]] "shotgun")
 Close quarters: a wide seven-bullet fan that kills in one pull inside three tiles and tickles beyond six.
 
 (above [[weapon]] "marksman")
-Long range: one fast bullet with no falloff, two hits kill. Slow to cycle and useless on the move, and the
-two-tick wind-up warns the target.
+Long range: one fast bullet with no falloff, two hits kill. Slow to cycle, very slow to start after moving,
+and the two-tick startup warns the target.
 
 (above [[weapon]] "lmg")
 Heavy and slow: a five-bullet wall every pull, a deep magazine and almost no recoil, for holding a lane.
-Slow to carry, slow to start firing and very slow to reload.
+Slow to carry, very slow to start firing after moving and very slow to reload.
 ```
 
 ## Abilities
 
-| Field | smoke | flash | incendiary | recon | barrier | dash | decoy | heal | Meaning |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `id` | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |  |
-| `effect` | 1 (SMOKE) | 4 (FLASH) | 2 (FIRE) | 5 (RECON) | 3 (BARRIER) | 8 (DASH) | 7 (DECOY) | 6 (HEAL) |  |
-| `price` | 300 | 250 | 350 | 0 | 300 | 0 | 0 | 0 |  |
-| `max_charges` | 2 | 2 | 1 | 1 | 1 | 2 | 1 | 2 |  |
-| `cooldown` | 4 | 3 | 6 | 0 | 8 | 5 | 0 | 6 |  |
-| `range` | 10240 | 8192 | 8192 | 12288 | 2560 | 3072 | 10240 | 4096 |  |
-| `radius` | 1792 | 12288 | 1536 | 6144 | 1536 | 0 | 2048 | 1024 |  |
-| `duration` | 14 | 6 | 8 | 5 | 20 | 0 | 12 | 6 |  |
-| `power` | 0 | 30 | 12 | 3 | 120 | 0 | 3 | 7 |  |
-| `delay` | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | Ticks between use and the effect starting. |
+| Field | smoke | flash | incendiary | recon | barrier | dash | decoy | heal | trap | sonar | concussion | Meaning |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `id` | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |  |
+| `effect` | 1 (SMOKE) | 4 (FLASH) | 2 (FIRE) | 5 (RECON) | 3 (BARRIER) | 8 (DASH) | 7 (DECOY) | 6 (HEAL) | 9 (TRAP) | 10 (SONAR) | 11 (CONCUSSION) |  |
+| `price` | 300 | 250 | 350 | 0 | 300 | 0 | 0 | 0 | 0 | 0 | 250 |  |
+| `max_charges` | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |  |
+| `cooldown` | 4 | 3 | 6 | 0 | 8 | 5 | 0 | 6 | 0 | 0 | 4 |  |
+| `range` | 10240 | 8192 | 8192 | 12288 | 2560 | 3072 | 10240 | 4096 | 3072 | 8192 | 8192 |  |
+| `radius` | 1792 | 12288 | 1536 | 6144 | 1536 | 0 | 2048 | 1024 | 768 | 5120 | 2048 |  |
+| `duration` | 14 | 6 | 8 | 5 | 20 | 0 | 12 | 6 | 300 | 0 | 0 |  |
+| `power` | 0 | 30 | 12 | 3 | 120 | 0 | 3 | 7 | 4 | 3 | 4 |  |
+| `delay` | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 3 | 2 | 1 | Startup: ticks between `A_ABILITY` and the ability happening (0 = in the tick it is used). See `S_CASTING`. |
+| `speed` | 3072 | 4096 | 2560 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | Units per tick a thrown device flies (a projectile in `T_PROJECTILES`); 0 = it appears where it lands at once. Only smoke, flash, incendiary, recon and decoy are thrown. |
 
 ## Kits
 
@@ -132,6 +145,9 @@ Slow to carry, slow to start firing and very slow to reload.
 | 4 | `bulwark` | recon (3) | barrier (4) | 115 | 88 |
 | 5 | `mender` | heal (7) | smoke (0) | 100 | 95 |
 | 6 | `kindler` | dash (5) | incendiary (2) | 85 | 105 |
+| 7 | `trapper` | trap (8) | concussion (10) | 100 | 95 |
+| 8 | `echo` | sonar (9) | incendiary (2) | 95 | 100 |
+| 9 | `breaker` | decoy (6) | concussion (10) | 95 | 105 |
 
 Notes from `rules/abilities.toml`:
 
@@ -140,7 +156,7 @@ Abilities and kits. Ids = position in each list. Distances are fixed-point (1024
 Exact behaviour: docs/rules/abilities.md.
 
 [[ability]] name, effect (EFFECT_* id; 8 = dash), price, max_charges, cooldown, range, radius, duration,
-power, delay. What each field means per effect:
+power, delay, speed. What each field means per effect:
   smoke (1)       radius = cloud radius, duration = ticks it blocks sight
   incendiary (2)  radius = fire radius, duration = ticks it burns, power = damage per tick
   barrier (3)     range = how far in front it is placed, radius = half its length, duration = ticks it stands,
@@ -154,8 +170,14 @@ power, delay. What each field means per effect:
   decoy (7)       radius = inside it the decoy is heard as a decoy, duration = ticks it plays,
                   power = ticks between fake shots
   dash (8)        range = distance
-delay = ticks between the use and the effect arming. price 0 = refilled to max_charges every round;
-otherwise charges are bought (up to max_charges) and kept until used.
+  trap (9)        range = how far it is placed, radius = trigger radius, duration = ticks it lies armed,
+                  power = turns a caught unit stays slowed and revealed
+  sonar (10)      radius = pulse radius (through walls), power = turns every unit in it stays revealed
+  concussion (11) radius = pop radius, power = turns a hit unit stays slowed
+delay = startup: ticks between A_ABILITY and the ability happening (the unit's hands are busy meanwhile).
+speed = units per tick a thrown device flies (slower than any bullet); 0 = it appears where it lands at once.
+price 0 = refilled to max_charges every round; otherwise charges are bought (up to max_charges) and kept until
+used.
 
 (above [[kit]] "standard")
 [[kit]] name, abilities = [slot 0, slot 1] (ability ids, -1 = none), hp, speed_pct.
@@ -224,7 +246,8 @@ Replacing a weapon or armour bought earlier in the same buy phase returns this s
 
 Overtime, when regulation ends level: pairs of rounds, one per side. Every overtime round starts fresh with
 overtime_credits each. Taking both rounds of a pair wins; after overtime_max_pairs split pairs the tie-break
-(kills, damage, seed coin flip) decides. rules/core.toml max_ticks must cover regulation plus these rounds.
+(kills, then damage) decides, and a level tie-break is a draw. rules/core.toml max_ticks must cover
+regulation plus these rounds; running out of ticks is a draw.
 
 (above [[item]] "rifle")
 The shop. Item ids = position in this list and are append-only: never reorder or remove, add new items at the

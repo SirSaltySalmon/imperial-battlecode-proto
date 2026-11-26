@@ -15,7 +15,7 @@ Wasm bots import these functions from module `"ibc"`:
 end_turn()                                            yield until the next tick
 fuel_remaining() -> i64                               fuel left in this tick's budget
 count(table: u32) -> i32                              rows in a table (>= 0) or -error
-get(table: u32, index: u32, out: *mut u8, cap: u32) -> i32   bytes written (>= 0) or -error
+get(table: u32, index: u32, out: *mut u8, cap: u32) -> i32   bytes written (>= 0, at most cap) or -error
 act(kind: u32, a: i32, b: i32, c: i32) -> i32         0 or error code (positive)
 los(x0: i32, y0: i32, x1: i32, y1: i32) -> i32        1 if no wall between the points
 raycast(x: i32, y: i32, angle: i32, max: i32) -> i32  distance to the first wall, capped at max
@@ -35,7 +35,7 @@ Records are `#[repr(C)]`, little-endian, made only of `i32`, so they have no pad
 
 | Name | Value | Type | Meaning |
 | --- | --- | --- | --- |
-| `ABI_VERSION` | `0` | `u32` |  |
+| `ABI_VERSION` | `1` | `u32` | 1: the batch of additions listed in docs/ABI.md ("Additions in v1"). Every v0 bot still loads and reads the prefix of each record it knows; the version says what the tables mean now (team fog, startup, ...). |
 | `IMPORT_MODULE` | `"ibc"` | `&str` |  |
 | `TILE` | `1024` | `i32` | Fixed-point units per tile. |
 | `FULL_TURN` | `65536` | `i32` | Angle units per full turn. |
@@ -64,10 +64,10 @@ The `table` argument of `count` and `get`.
 | --- | --- | --- | --- |
 | `T_SELF` | `1` | `u32` | One `UnitInfo`: this unit, full detail. |
 | `T_ALLIES` | `2` | `u32` | `UnitInfo` per teammate (always known, like a radar), excluding self. |
-| `T_ENEMIES` | `3` | `u32` | `UnitInfo` per enemy currently visible to THIS unit. |
-| `T_SOUNDS` | `4` | `u32` | `SoundInfo` heard by this unit during the previous tick. |
-| `T_PROJECTILES` | `5` | `u32` | `ProjectileInfo` visible to this unit. |
-| `T_EFFECTS` | `6` | `u32` | `EffectInfo` visible to this unit (smoke, fire, barriers, ...). |
+| `T_ENEMIES` | `3` | `u32` | `UnitInfo` per living enemy currently seen by THIS unit's team (vision is shared by the team). Enemy rows hide hp, armour, credits, ammo, charges, cooldowns and the defuse kit; the weapon in hand is shown. |
+| `T_SOUNDS` | `4` | `u32` | `SoundInfo` heard by any living unit of THIS unit's team during the previous tick (shared by the team). |
+| `T_PROJECTILES` | `5` | `u32` | `ProjectileInfo` seen by this unit's team (own team's bullets always). |
+| `T_EFFECTS` | `6` | `u32` | `EffectInfo` seen by this unit's team (smoke, fire, barriers, ...; own team's effects always). |
 | `T_MATCH` | `7` | `u32` | One `MatchInfo`. |
 | `T_MAP` | `8` | `u32` | One `MapInfo`. |
 | `T_MAP_ROW` | `9` | `u32` | Row `index` of the tile grid: `width` bytes, one `TILE_*` value each. |
@@ -76,9 +76,11 @@ The `table` argument of `count` and `get`.
 | `T_ABILITY` | `12` | `u32` | `AbilityRules` per ability id. |
 | `T_ITEM` | `13` | `u32` | `ItemRules` per shop item id. |
 | `T_SITES` | `14` | `u32` | `SiteInfo` per plant site. |
-| `T_DROPS` | `15` | `u32` | `DropInfo` per dropped item visible to this unit (the charge is always visible to attackers). |
+| `T_DROPS` | `15` | `u32` | `DropInfo` per dropped item seen by this unit's team (the charge is always visible to attackers). |
 | `T_KIT` | `16` | `u32` | `KitRules` per kit id. |
-| `T_EVENTS` | `17` | `u32` | `EventInfo` per public event of the previous tick (kills, plant, defuse, round end). |
+| `T_EVENTS` | `17` | `u32` | `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight; kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the team does not know the position. See docs/ABI.md for each kind. |
+| `T_ROSTER` | `18` | `u32` | `RosterInfo` per unit of both teams, in unit id order. Readable in every phase. |
+| `T_ROUNDS` | `19` | `u32` | `RoundInfo` per finished round of the match, oldest first. |
 
 ### Actions
 
@@ -88,7 +90,7 @@ The `kind` argument of `act(kind, a, b, c)`.
 | --- | --- | --- | --- |
 | `A_MOVE` | `1` | `u32` | a = angle, b = speed in units/tick (clamped to the unit's max). Speed above `walk_speed` is a run (noisy). |
 | `A_FACE` | `2` | `u32` | a = desired facing angle (turn rate limited). |
-| `A_FIRE` | `3` | `u32` | a = aim angle. Starts the weapon's wind-up; bullets leave when it ends. |
+| `A_FIRE` | `3` | `u32` | a = aim angle. Starts the weapon's startup (`windup` plus the unit's unsteadiness); bullets leave when it ends and the unit is then braced: while it keeps firing and stays put, each pull leaves on the tick it is made. Refused with `ERR_NOT_ALLOWED` on a tick the unit also moves: a move cancels a startup and the brace. |
 | `A_RELOAD` | `4` | `u32` |  |
 | `A_PLANT` | `5` | `u32` |  |
 | `A_DEFUSE` | `6` | `u32` |  |
@@ -99,6 +101,8 @@ The `kind` argument of `act(kind, a, b, c)`.
 | `A_PICKUP` | `11` | `u32` | Pick up the nearest drop in reach. |
 | `A_DRAFT` | `12` | `u32` | a = kit id. Draft phase only. |
 | `A_CANCEL` | `13` | `u32` | Cancel the current channel (plant, defuse, reload, wind-up). |
+| `A_BUY_FOR` | `14` | `u32` | a = item id, b = slot of the teammate who gets it (`MatchInfo.unit_slot`; your own slot works too). Buy phase only. The caller pays. |
+| `A_DRAFT_FOR` | `15` | `u32` | a = kit id, b = slot of the teammate it is drafted for. Draft phase only. |
 
 ### Memory scopes
 
@@ -106,8 +110,9 @@ The `scope` argument of `mem_read` and `mem_write`.
 
 | Name | Value | Type | Meaning |
 | --- | --- | --- | --- |
-| `MEM_TEAM` | `0` | `u32` | Team scratchpad, read/write all match. Later-running teammates see writes in the same tick. |
+| `MEM_TEAM` | `0` | `u32` | Team scratchpad, kept all match. Readable always, writable only in the action phases (`PHASE_ACTION`, `PHASE_PLANTED`). Later-running teammates see writes in the same tick. |
 | `MEM_DRAFT` | `1` | `u32` | Written in the draft phase, read-only afterwards. |
+| `MEM_BUY` | `2` | `u32` | Buy-phase team scratchpad: zeroed at every round start, writable only in the buy phase, readable always. |
 
 ### Teams
 
@@ -167,6 +172,8 @@ Bits of `UnitInfo.state`.
 | `S_HAS_KIT` | `1 << 8` = 256 | `i32` |  |
 | `S_SLOWED` | `1 << 9` = 512 | `i32` |  |
 | `S_REVEALED` | `1 << 10` = 1024 | `i32` |  |
+| `S_BRACED` | `1 << 11` = 2048 | `i32` | Startup done and still firing: the next pull leaves on the tick it is made. |
+| `S_CASTING` | `1 << 12` = 4096 | `i32` | An ability use is in its startup (`AbilityRules.delay`): it happens when the startup ends unless `A_CANCEL` or death stops it. Until then every primary action except `A_CANCEL` is refused with `ERR_NOT_READY`. |
 
 ### Sounds
 
@@ -195,6 +202,9 @@ Bits of `UnitInfo.state`.
 | `EFFECT_HEAL` | `6` | `i32` |  |
 | `EFFECT_DECOY` | `7` | `i32` |  |
 | `EFFECT_DASH` | `8` | `i32` | Ability effect id only (an instant move); never appears in `T_EFFECTS`. |
+| `EFFECT_TRAP` | `9` | `i32` | A hidden trigger area. Enemies get it in `T_EFFECTS` only within `sense_radius` of it. |
+| `EFFECT_SONAR` | `10` | `i32` | A pulse that marks every unit around it, friend or foe, through walls. |
+| `EFFECT_CONCUSSION` | `11` | `i32` | A pop that slows every unit around it and interrupts what it was doing. |
 
 ### Drops
 
@@ -211,7 +221,7 @@ Bits of `UnitInfo.state`.
 
 | Name | Value | Type | Meaning |
 | --- | --- | --- | --- |
-| `EVENT_KILL` | `1` | `i32` |  |
+| `EVENT_KILL` | `1` | `i32` | actor = killer, or -1 for a death nobody caused (the detonation blast); target = victim; value = weapon id, or -1 when no weapon did it. |
 | `EVENT_PLANT` | `2` | `i32` |  |
 | `EVENT_DEFUSE` | `3` | `i32` |  |
 | `EVENT_DETONATE` | `4` | `i32` |  |
@@ -261,15 +271,21 @@ Charged on top of the WebAssembly instructions the call itself runs.
 | `FUEL_MEM` | `20` | `u64` |  |
 | `FUEL_DEBUG` | `0` | `u64` |  |
 
+### Other constants
+
+| Name | Value | Type | Meaning |
+| --- | --- | --- | --- |
+| `POS_HIDDEN` | `-2147483648` | `i32` | `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real position: check for it before using the coordinates. |
+
 ## Records
 
 Rows returned by `get`: `#[repr(C)]`, little-endian, fields at the offsets below. A record only ever grows at the end, so a bot built against an older ABI reads the prefix it knows.
 
 ### UnitInfo
 
-A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `ammo`, `reserve` are 0.
+A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, `cooldown`, `ammo`, `reserve`, `blind`, `other_weapon` and `fire_cooldown` are 0.
 
-96 bytes, 22 fields.
+108 bytes, 25 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -281,7 +297,7 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 20 | `x` | `i32` | 4 |  |
 | 24 | `y` | `i32` | 4 |  |
 | 28 | `facing` | `i32` | 4 |  |
-| 32 | `vx` | `i32` | 4 | Velocity of the previous tick in units/tick. |
+| 32 | `vx` | `i32` | 4 | Velocity of the previous tick in units/tick: the distance actually moved, so a move into a wall reads 0. |
 | 36 | `vy` | `i32` | 4 |  |
 | 40 | `hp` | `i32` | 4 |  |
 | 44 | `armor` | `i32` | 4 |  |
@@ -295,6 +311,9 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 80 | `cooldown` | `[i32; 2]` | 8 |  |
 | 88 | `recoil` | `i32` | 4 | Recoil heat, 0 = settled. |
 | 92 | `blind` | `i32` | 4 |  |
+| 96 | `unsteadiness` | `i32` | 4 | Unsteadiness heat, 0 = steady: builds while moving, decays standing, lengthens the next startup. |
+| 100 | `other_weapon` | `i32` | 4 | Weapon id in the slot not in hand, -1 if that slot is empty. |
+| 104 | `fire_cooldown` | `i32` | 4 | Ticks before the weapon in hand may start a new wind-up (0 = ready, unless reloading or empty). |
 
 ### SoundInfo
 
@@ -313,7 +332,7 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
-| 0 | `kind` | `i32` | 4 |  |
+| 0 | `kind` | `i32` | 4 | 0 = a bullet (`weapon` says whose); otherwise a thrown ability device, `kind` = ability id + 1 (`T_ABILITY`) and `weapon` = -1. A thrown device hits nobody: it lands at the first wall or barrier, or after `range`. |
 | 4 | `team` | `i32` | 4 |  |
 | 8 | `x` | `i32` | 4 |  |
 | 12 | `y` | `i32` | 4 |  |
@@ -411,13 +430,13 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 0 | `kind` | `i32` | 4 |  |
 | 4 | `actor` | `i32` | 4 | Acting unit id or -1. |
 | 8 | `target` | `i32` | 4 | Target unit id or -1. |
-| 12 | `x` | `i32` | 4 |  |
+| 12 | `x` | `i32` | 4 | Where it happened, or `POS_HIDDEN` in both `x` and `y` when the receiving team does not know. |
 | 16 | `y` | `i32` | 4 |  |
 | 20 | `value` | `i32` | 4 |  |
 
 ### CoreRules
 
-128 bytes, 32 fields.
+136 bytes, 34 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -453,10 +472,12 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 116 | `items` | `i32` | 4 |  |
 | 120 | `kits` | `i32` | 4 |  |
 | 124 | `max_ticks` | `i32` | 4 |  |
+| 128 | `blast_radius` | `i32` | 4 | On detonation every living unit within this distance of the charge dies, through walls. |
+| 132 | `buy_mem_bytes` | `i32` | 4 |  |
 
 ### WeaponRules
 
-80 bytes, 20 fields.
+96 bytes, 24 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -465,12 +486,12 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 8 | `damage` | `i32` | 4 |  |
 | 12 | `pellets` | `i32` | 4 | Bullets per trigger pull. |
 | 16 | `spread` | `i32` | 4 | Angle between adjacent pellets when standing still and settled. |
-| 20 | `move_spread` | `i32` | 4 | Extra spread per unit of speed (per 1024 units/tick), and per recoil point. |
-| 24 | `recoil_spread` | `i32` | 4 |  |
+| 20 | `_reserved0` | `i32` | 4 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
+| 24 | `recoil_spread` | `i32` | 4 | Extra spread between pellets per recoil point. |
 | 28 | `recoil_per_shot` | `i32` | 4 |  |
 | 32 | `recoil_recovery` | `i32` | 4 |  |
-| 36 | `windup` | `i32` | 4 | Ticks between `A_FIRE` and the bullets leaving. |
-| 40 | `cooldown` | `i32` | 4 | Ticks after a shot before the next wind-up may start. |
+| 36 | `windup` | `i32` | 4 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
+| 40 | `cooldown` | `i32` | 4 | Ticks after a shot before the next pull is accepted. |
 | 44 | `magazine` | `i32` | 4 |  |
 | 48 | `reload_ticks` | `i32` | 4 |  |
 | 52 | `bullet_speed` | `i32` | 4 | Units per tick. |
@@ -480,10 +501,14 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 68 | `move_pct` | `i32` | 4 | Percent of max run speed while holding this weapon. |
 | 72 | `kill_reward` | `i32` | 4 |  |
 | 76 | `slot` | `i32` | 4 |  |
+| 80 | `unsteady_gain` | `i32` | 4 | Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered. |
+| 84 | `unsteady_decay` | `i32` | 4 | Unsteadiness lost per tick without moving. |
+| 88 | `unsteady_max` | `i32` | 4 | Unsteadiness never exceeds this. |
+| 92 | `startup_per_point` | `i32` | 4 | Startup added per point of unsteadiness, in hundredths of a tick (rounded half up). |
 
 ### AbilityRules
 
-40 bytes, 10 fields.
+44 bytes, 11 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -496,7 +521,8 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 24 | `radius` | `i32` | 4 |  |
 | 28 | `duration` | `i32` | 4 |  |
 | 32 | `power` | `i32` | 4 |  |
-| 36 | `delay` | `i32` | 4 | Ticks between use and the effect starting. |
+| 36 | `delay` | `i32` | 4 | Startup: ticks between `A_ABILITY` and the ability happening (0 = in the tick it is used). See `S_CASTING`. |
+| 40 | `speed` | `i32` | 4 | Units per tick a thrown device flies (a projectile in `T_PROJECTILES`); 0 = it appears where it lands at once. Only smoke, flash, incendiary, recon and decoy are thrown. |
 
 ### ItemRules
 
@@ -519,4 +545,34 @@ A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `am
 | 4 | `abilities` | `[i32; 2]` | 8 |  |
 | 12 | `hp` | `i32` | 4 |  |
 | 16 | `speed_pct` | `i32` | 4 |  |
+
+### RosterInfo
+
+One unit in `T_ROSTER`. Public to both teams: kits and round-start credits, not equipment.
+
+20 bytes, 5 fields.
+
+| Offset | Field | Type | Bytes | Meaning |
+| --- | --- | --- | --- | --- |
+| 0 | `id` | `i32` | 4 |  |
+| 4 | `team` | `i32` | 4 |  |
+| 8 | `kit` | `i32` | 4 |  |
+| 12 | `credits` | `i32` | 4 | Credits when this round's buy phase began (0 during the draft). |
+| 16 | `alive` | `i32` | 4 | 1 if the unit is alive. |
+
+### RoundInfo
+
+One finished round in `T_ROUNDS`.
+
+28 bytes, 7 fields.
+
+| Offset | Field | Type | Bytes | Meaning |
+| --- | --- | --- | --- | --- |
+| 0 | `round` | `i32` | 4 |  |
+| 4 | `winner` | `i32` | 4 | Winning team (`TEAM_A` / `TEAM_B`). |
+| 8 | `reason` | `i32` | 4 | How it ended: `ROUND_WIN_*`. |
+| 12 | `attackers` | `i32` | 4 | Team that attacked in this round. |
+| 16 | `ticks` | `i32` | 4 | Ticks from the start of the buy phase to the end of the round. |
+| 20 | `score_a` | `i32` | 4 | Score after this round. |
+| 24 | `score_b` | `i32` | 4 |  |
 
