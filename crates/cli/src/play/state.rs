@@ -27,7 +27,8 @@ pub fn fogged_frame(game: &Match, team: i32) -> Value {
     let w = &game.world;
     let mut frame: Value = serde_json::from_str(&game.frame_json()).unwrap_or(Value::Null);
     let eyes: Vec<usize> = (0..w.units.len()).filter(|&i| w.units[i].team == team && w.units[i].alive).collect();
-    let seen = eyes.iter().fold(0u64, |m, &i| m | w.units[i].seen);
+    // The team's shared view (engine `vision.rs`): every unit any teammate sees.
+    let seen = w.views[team as usize & 1].units;
     let sees = |x: i32, y: i32| eyes.iter().any(|&i| w.can_see_point(i, (x, y)));
     let attacking = w.side_of(team) == SIDE_ATTACK;
 

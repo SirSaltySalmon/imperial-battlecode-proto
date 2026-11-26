@@ -48,10 +48,17 @@ the earlier one.
 
 - A unit sees an enemy when it is within `vision_range`, inside the cone `facing +/- fov_half`, and the straight
   line between them is not blocked. Within `sense_radius` it senses in every direction (still needs line of sight).
-- You only get your **own** vision. Teammates' positions and state are always known. What a teammate sees is not
-  shared: use team memory.
+- **Vision is shared by the team.** A team sees the union of what its living units see, and every unit reads
+  that same picture. You can therefore fire at an enemy only a teammate sees, but your shot is still clamped to
+  your own cone and stopped by walls. Teammates' positions and state are always known.
+- Enemies in sight show their position, movement, state flags and the weapon in hand. Their health, armour,
+  credits, ammunition and ability charges are hidden.
 - Running (speed above `walk_speed`) makes footsteps that enemies within `step_sound_radius` hear. Shots are heard
   within `shot_sound_radius`. Plant and defuse starts are audible. Heard positions are snapped to the tile centre.
+  **Hearing is shared too:** a sound reaches the whole team when any living unit of it is in range.
+- **Events follow the fog.** Damage is reported only where the team sees it (or to the unit's own team). Kills
+  are always reported, with the position hidden when the team did not see it. Plant, defuse, detonation and
+  round end are always reported. Fog is applied to what bots read; replays record everything.
 
 ## Shooting
 

@@ -102,24 +102,25 @@ fn ping(w: &mut World, e: &Effect, r: &AbilityRules) {
 }
 
 /// Decoy: enemies hear a footstep every tick and a shot every `power` ticks, exactly as real ones sound.
-/// Inside `radius` the device is recognisable and is heard as `SOUND_DECOY` instead.
+/// Inside `radius` the device is recognisable and is heard as `SOUND_DECOY` instead. Hearing is shared by the
+/// team, so once any listener is that close the whole team knows it is a decoy.
 fn fake_sounds(w: &mut World, e: &Effect, r: &AbilityRules) {
     let at = centre(e);
     let core = w.rules.core;
-    let snapped = (at.0.div_euclid(TILE) * TILE + TILE / 2, at.1.div_euclid(TILE) * TILE + TILE / 2);
     let shot = r.power > 0 && e.info.ticks_left % r.power == 0;
-    for u in w.units.iter_mut().filter(|u| u.alive && u.team != e.info.team) {
-        let mut hear = |kind: i32| u.sounds.push(SoundInfo { kind, x: snapped.0, y: snapped.1, team: e.info.team });
-        if within(u.pos, at, e.info.radius) {
-            hear(SOUND_DECOY);
-            continue;
-        }
-        if within(u.pos, at, core.step_sound_radius) {
-            hear(SOUND_STEP);
-        }
-        if shot && within(u.pos, at, core.shot_sound_radius) {
-            hear(SOUND_SHOT);
-        }
+    let source = e.info.team;
+    let listener = 1 - source;
+    let near =
+        |w: &World, radius: i32| w.units.iter().any(|u| u.alive && u.team == listener && within(u.pos, at, radius));
+    if near(w, e.info.radius) {
+        w.hear(listener, SOUND_DECOY, at, source);
+        return;
+    }
+    if near(w, core.step_sound_radius) {
+        w.hear(listener, SOUND_STEP, at, source);
+    }
+    if shot && near(w, core.shot_sound_radius) {
+        w.hear(listener, SOUND_SHOT, at, source);
     }
 }
 

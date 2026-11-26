@@ -1,7 +1,7 @@
 //! `ibc-bench dump` and `ibc-bench why`: look inside one replay.
 //!
 //! `dump` writes a compact per-tick JSONL and a per-round CSV for ad-hoc analysis. `why` prints a readable
-//! timeline of one unit in one round: what it saw (from its `seen` mask), what it heard, what it asked
+//! timeline of one unit in one round: what its team saw and heard (vision and sound are shared), what it asked
 //! for (with the engine's answer to every action) and what happened to it.
 
 use crate::balance::reason_name;
@@ -198,16 +198,17 @@ fn describe_act(m: &Match, kind: u32, a: i32, b: i32, c: i32) -> (String, bool) 
     }
 }
 
-/// What the unit could perceive at the start of a tick: the enemies in its `seen` mask and its sounds.
+/// What the unit could perceive at the start of a tick: the enemies its team sees and the sounds its team heard.
 fn perception(m: &Match, unit: usize) -> (Vec<u32>, String, String) {
     let w = &m.world;
     let me = &w.units[unit];
+    let view = &w.views[me.team as usize];
     let mut ids = Vec::new();
     let mut sees = Vec::new();
     for o in w
         .units
         .iter()
-        .filter(|o| o.alive && o.team != me.team && me.seen & (1u64 << o.id) != 0)
+        .filter(|o| o.alive && o.team != me.team && view.units & (1u64 << o.id) != 0)
     {
         ids.push(o.id);
         let mut flags = String::new();
@@ -225,8 +226,7 @@ fn perception(m: &Match, unit: usize) -> (Vec<u32>, String, String) {
             o.hp
         ));
     }
-    let hears: Vec<String> = me
-        .sounds
+    let hears: Vec<String> = w.team_sounds[me.team as usize]
         .iter()
         .map(|s| format!("{} at {}", sound_name(s.kind), tiles((s.x, s.y))))
         .collect();

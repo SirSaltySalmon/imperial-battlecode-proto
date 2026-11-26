@@ -353,21 +353,32 @@ fn decoy_sounds_real_from_afar_and_fake_up_close() {
     let mut m = setup("shroud");
     let decoy = ability("decoy");
     place(&mut m, 0, c(2, 3), EAST);
-    place(&mut m, 2, c(14, 3), WEST); // 4 tiles from the decoy
-    place(&mut m, 3, c(11, 3), WEST); // 1 tile from it
+    place(&mut m, 2, c(14, 3), WEST); // 4 tiles from the decoy; unit 3 stays parked out of earshot of steps
     assert_eq!(use_at(&mut m, 0, 0, c(10, 3)), OK);
-    let mut shots = 0;
-    for _ in 0..decoy.duration {
+    let far_ticks = decoy.duration - 4;
+    let (mut shots, mut fired) = (0, 0);
+    for _ in 0..far_ticks {
         m.step();
         let far = sounds(&m, 2);
+        assert_eq!(far, sounds(&m, 3), "hearing is shared by the team");
         assert!(far.iter().all(|s| (s.x, s.y, s.team) == (c(10, 3).0, c(10, 3).1, TEAM_A)));
         assert_eq!(far.iter().filter(|s| s.kind == SOUND_STEP).count(), 1, "a footstep every tick");
         assert!(far.iter().all(|s| s.kind == SOUND_STEP || s.kind == SOUND_SHOT), "indistinguishable from afar");
         shots += far.iter().filter(|s| s.kind == SOUND_SHOT).count() as i32;
-        let near = sounds(&m, 3);
-        assert_eq!(near.iter().map(|s| s.kind).collect::<Vec<_>>(), vec![SOUND_DECOY], "recognised up close");
+        // The decoy sounds before its timer ticks down: it fired this tick if that value was a multiple of power.
+        fired += ((m.world.effects[0].info.ticks_left + 1) % decoy.power == 0) as i32;
     }
-    assert_eq!(shots, decoy.duration / decoy.power);
+    assert!(fired >= far_ticks / decoy.power, "a shot every {} ticks", decoy.power);
+    assert_eq!(shots, fired, "every fake shot is heard once by the team");
+    // One listener 1 tile from it recognises it, and the whole team hears what that unit hears.
+    place(&mut m, 3, c(11, 3), WEST);
+    for _ in far_ticks..decoy.duration {
+        m.step();
+        for unit in [2, 3] {
+            let kinds: Vec<i32> = sounds(&m, unit).iter().map(|s| s.kind).collect();
+            assert_eq!(kinds, vec![SOUND_DECOY], "recognised up close");
+        }
+    }
     m.step();
     assert!(sounds(&m, 2).is_empty() && m.world.effects.is_empty());
 }

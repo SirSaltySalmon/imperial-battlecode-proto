@@ -144,11 +144,10 @@ impl Collector {
         }
 
         if in_action && self.current.first_contact.is_none() {
-            let sees_enemy = w.units.iter().any(|u| {
-                u.alive
-                    && w.units
-                        .iter()
-                        .any(|o| o.alive && o.team != u.team && u.seen & (1u64 << o.id) != 0)
+            let sees_enemy = (0..2).any(|t| {
+                w.units
+                    .iter()
+                    .any(|o| o.alive && o.team != t && w.views[t as usize].units & (1u64 << o.id) != 0)
             });
             if sees_enemy {
                 self.current.first_contact = Some(self.current.action_ticks);

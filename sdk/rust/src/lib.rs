@@ -182,11 +182,12 @@ pub fn me() -> UnitInfo {
 pub fn allies() -> Rows<UnitInfo> {
     rows(T_ALLIES)
 }
-/// Enemies THIS unit can see right now.
+/// Living enemies THIS unit's team sees right now (vision is shared). One may be behind a wall from here:
+/// check `los` before shooting.
 pub fn enemies() -> Rows<UnitInfo> {
     rows(T_ENEMIES)
 }
-/// Sounds heard during the previous tick.
+/// Sounds the team heard during the previous tick (hearing is shared).
 pub fn sounds() -> Rows<SoundInfo> {
     rows(T_SOUNDS)
 }
@@ -199,7 +200,8 @@ pub fn effects() -> Rows<EffectInfo> {
 pub fn drops() -> Rows<DropInfo> {
     rows(T_DROPS)
 }
-/// Public events of the previous tick.
+/// Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN`
+/// when the team did not see it. Damage arrives only when seen.
 pub fn events() -> Rows<EventInfo> {
     rows(T_EVENTS)
 }

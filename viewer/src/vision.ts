@@ -1,5 +1,6 @@
 // What a unit can see, for drawing cones and for fogging things that carry no `seen` bit (bullets, effects,
-// drops). Mirrors `World::can_see_point` in the engine, in floats.
+// drops). Mirrors `World::can_see_point` in the engine, in floats; a team sees the union over its living units
+// (`World::team_sees_point`).
 //
 // The numbers and names the viewer needs come from the engine build that plays the replay (`Engine.rules`).
 // The table below is only the fallback for a build that predates that export.

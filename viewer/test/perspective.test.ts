@@ -37,12 +37,14 @@ describe("perspective", () => {
     expect(unitVisibility(f, { kind: "team", team: 1 })).toEqual([true, false, true, true]);
   });
 
-  it("a single unit sees its team and only what it sees itself", () => {
+  it("a single unit sees what its whole team sees", () => {
     const f = frame({ units: units() });
-    expect(unitVisibility(f, { kind: "unit", id: 0 })).toEqual([true, true, true, false]);
-    expect(unitVisibility(f, { kind: "unit", id: 1 })).toEqual([true, true, false, true]);
-    expect(unitVisibility(f, { kind: "unit", id: 3 })).toEqual([false, false, true, true]);
-    expect(viewers(f, { kind: "unit", id: 1 }).map((u) => u.id)).toEqual([1]);
+    expect(unitVisibility(f, { kind: "unit", id: 0 })).toEqual([true, true, true, true]);
+    expect(unitVisibility(f, { kind: "unit", id: 1 })).toEqual([true, true, true, true]);
+    expect(unitVisibility(f, { kind: "unit", id: 3 })).toEqual([true, false, true, true]);
+    expect(viewers(f, { kind: "unit", id: 1 }).map((u) => u.id)).toEqual([0, 1]);
+    f.units[1].seen = "1";
+    expect(unitVisibility(f, { kind: "unit", id: 1 })).toEqual([true, true, true, false]);
   });
 
   it("keeps dead enemies as markers and treats an unknown unit as everyone", () => {
@@ -88,8 +90,10 @@ describe("perspective", () => {
     const f = frame({ units: units(), attackers: 1 });
     f.units[3].state |= S_HAS_CHARGE;
     const me = { kind: "unit", id: 0 } as const;
-    expect(viewOf(f, me, map, rules).chargeVisible).toBe(false); // carrier (unit 3) is not seen by unit 0
-    expect(viewOf(f, { kind: "unit", id: 1 }, map, rules).chargeVisible).toBe(true);
+    expect(viewOf(f, me, map, rules).chargeVisible).toBe(true); // unit 0 does not see the carrier, unit 1 does
+    f.units[1].seen = "1";
+    expect(viewOf(f, me, map, rules).chargeVisible).toBe(false); // nobody on team A sees unit 3
+    expect(viewOf(f, { kind: "unit", id: 1 }, map, rules).chargeVisible).toBe(false);
     const dropped = { ...f, charge: { state: CHARGE_DROPPED, x: 7680, y: 4608 } };
     expect(viewOf(dropped, me, map, rules).chargeVisible).toBe(false);
     expect(viewOf(dropped, { kind: "team", team: 1 }, map, rules).chargeVisible).toBe(true);
@@ -97,7 +101,7 @@ describe("perspective", () => {
     expect(viewOf(planted, me, map, rules).chargeVisible).toBe(true);
   });
 
-  it("shows only the viewers' sounds and debug drawings", () => {
+  it("shows the team's sounds, and debug drawings of the viewers only", () => {
     const f = frame({ units: units(), debug: [[0, 2, 1, 1, 0, 0, 0xff0000], [2, 2, 1, 1, 0, 0, 0x00ff00]] });
     f.units[0].sounds = [[2, 100, 100]];
     f.units[1].sounds = [[2, 100, 100], [1, 5, 5]];
@@ -105,6 +109,9 @@ describe("perspective", () => {
     const a = viewOf(f, { kind: "team", team: 0 }, map, rules);
     expect(a.sounds).toEqual([[2, 100, 100], [1, 5, 5]]);
     expect(a.debug.map((d) => d[0])).toEqual([0]);
+    const one = viewOf(f, { kind: "unit", id: 1 }, map, rules);
+    expect(one.sounds).toEqual(a.sounds);
+    expect(one.debug).toEqual([]);
     expect(viewOf(f, { kind: "all" }, map, rules).sounds).toHaveLength(3);
   });
 });
