@@ -24,7 +24,7 @@ services:
       IBC_LISTEN: 0.0.0.0:8080
       # The ranked scheduler: a round every IBC_RANKED_INTERVAL_SECS, IBC_RANKED_GAMES games per series.
       IBC_RANKED_INTERVAL_SECS: ${IBC_RANKED_INTERVAL_SECS:-300}
-      IBC_RANKED_GAMES: ${IBC_RANKED_GAMES:-2}
+      IBC_RANKED_GAMES: ${IBC_RANKED_GAMES:-3}
       # What `ibc update` offers participants: a distribution.json from `cargo xtask dist` in ./release.
       IBC_DISTRIBUTION: ${IBC_DISTRIBUTION:-}
     ports:

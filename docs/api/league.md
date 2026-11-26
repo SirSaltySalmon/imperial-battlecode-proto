@@ -48,7 +48,8 @@ One row per team with a live submission, computed from the stored ratings on eac
 ## How a ranked series is rated
 
 A ranked series is `IBC_RANKED_GAMES` maps (default 3), each a full first-to-7 match, between both teams'
-live bots at the time it is queued. The scheduler runs every `IBC_RANKED_INTERVAL_SECS` (default 600; 0 turns
+live bots at the time it is queued. Each map swaps attack and defence at half-time, and the A/B slot
+alternates map by map from a coin flip on the series id, so an odd count is as fair as an even one. The scheduler runs every `IBC_RANKED_INTERVAL_SECS` (default 600; 0 turns
 it off; `POST admin/ranked-batch` runs a round by hand).
 
 When the series finishes, each map's Weng-Lin update is computed from the **pre-series** ratings and the
