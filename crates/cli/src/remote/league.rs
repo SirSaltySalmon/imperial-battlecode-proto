@@ -1,6 +1,6 @@
 //! `ibc ladder`, `ibc matches`, `ibc scrim`, `ibc replay download`.
 
-use super::client::{encode, query, CliError, CliResult};
+use super::client::{encode, query, CliError, CliResult, Client};
 use super::{auth, missing, s, safe_name, t, Opts};
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -157,6 +157,29 @@ pub fn scrim(opts: &Opts, a: ScrimArgs) -> CliResult<()> {
     Ok(())
 }
 
+/// Fetches a replay. With no `--view` and a stored token, asks for the team view first (your own team's
+/// memory and logs kept) and falls back to the public view when the server refuses it, which it does for a
+/// match your team did not play.
+fn fetch_replay(
+    client: &Client,
+    match_id: &str,
+    view: Option<String>,
+) -> CliResult<(Vec<u8>, String)> {
+    let get = |v: &str| {
+        let q = query(&[("view", Some(v.to_string()))]);
+        client.get_bytes(&format!("matches/{}/replay{q}", encode(match_id)))
+    };
+    match view {
+        Some(v) => Ok((get(&v)?, v)),
+        None if client.token.is_some() => match get("team") {
+            Ok(bytes) => Ok((bytes, "team".into())),
+            Err(e) if matches!(e.status, Some(401 | 403)) => Ok((get("public")?, "public".into())),
+            Err(e) => Err(e),
+        },
+        None => Ok((get("public")?, "public".into())),
+    }
+}
+
 pub fn replay_download(
     opts: &Opts,
     match_id: &str,
@@ -169,8 +192,7 @@ pub fn replay_download(
         )));
     }
     let client = opts.client()?;
-    let q = query(&[("view", view.clone())]);
-    let bytes = client.get_bytes(&format!("matches/{}/replay{q}", encode(match_id)))?;
+    let (bytes, view) = fetch_replay(&client, match_id, view)?;
     let path = out.unwrap_or_else(|| {
         PathBuf::from("out")
             .join("replays")

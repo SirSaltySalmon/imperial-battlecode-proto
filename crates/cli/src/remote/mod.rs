@@ -170,7 +170,8 @@ pub struct ReplayDownload {
     /// Where to write it (default: out/replays/<MATCH_ID>.ibcr)
     #[arg(short, long)]
     out: Option<PathBuf>,
-    /// public, or team (your own team's memory and logs kept)
+    /// public, or team (your own team's memory and logs kept). Default: team when signed in and your team
+    /// played the match, else public
     #[arg(long, value_parser = ["public", "team"])]
     view: Option<String>,
     #[command(flatten)]
