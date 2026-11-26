@@ -44,10 +44,11 @@ docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
 `deploy/Dockerfile` has two targets: `worker` (`ibc` + `ibc-worker`) and `coordinator` (`ibc-coordinator`
-plus the built replay viewer and, if the checkout has `web/`, the web front end, at `/srv/viewer` and
-`/srv/web`, announced to the coordinator through `IBC_VIEWER_DIR` and `IBC_WEB_DIR`; the coordinator in
-this tree does not serve static files yet and ignores both). The coordinator's data
-is the `coordinator-data` volume, mounted at `/data`.
+plus the built replay viewer and web front end, at `/srv/viewer` and `/srv/web`, announced to the coordinator
+through `IBC_VIEWER_DIR` and `IBC_WEB_DIR`: it serves the web front end at `/` and the viewer at `/viewer/`;
+unknown `/v1/...` paths stay a JSON 404). The coordinator's data is the `coordinator-data` volume, mounted
+at `/data`. The release archives carry the same two sites as `viewer/` and `web/` beside the binaries,
+where the coordinator finds them without the variables.
 
 **systemd** (no containers): unpack the Linux release archive and install the units it contains.
 
@@ -75,7 +76,7 @@ Every flag has an `IBC_*` variable (`ibc-coordinator --help`). The ones a deploy
 | `IBC_RANKED_INTERVAL_SECS` | seconds between ranked rounds; 0 (default) = off, rounds only by `POST /v1/admin/ranked-batch` |
 | `IBC_RANKED_GAMES` | games per ranked series (keep it even: sides alternate) |
 | `IBC_DISTRIBUTION` | `distribution.json` served at `GET /v1/distribution` (below) |
-| `IBC_WEB_DIR`, `IBC_VIEWER_DIR` | built static sites, served by the coordinator when it supports them |
+| `IBC_WEB_DIR`, `IBC_VIEWER_DIR` | built web front end (served at `/`) and replay viewer (at `/viewer/`); default `web/` and `viewer/` (or their `dist/`) beside the binary, then under the working directory |
 
 ### First start
 

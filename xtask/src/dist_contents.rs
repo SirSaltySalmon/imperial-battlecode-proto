@@ -61,6 +61,11 @@ pub fn manifest(src: &Sources) -> Result<Vec<Entry>> {
             }
         }
     }
+    // The web front end the coordinator serves at `/` (it looks for `web/` beside its binary).
+    let web = src.root.join("web/dist");
+    if src.bins.iter().any(|b| b == "ibc-coordinator") && web.join("index.html").is_file() {
+        rest.extend(walk(&web, "web")?);
+    }
     rest.sort_by(|a, b| a.to.cmp(&b.to));
     entries.extend(rest);
     Ok(entries)
