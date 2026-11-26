@@ -1,9 +1,10 @@
 //! Ratings, their event ledger and the ladder.
 //!
 //! `rating_events` is the history every rating is a fold of: one `series` event per rated series (in the
-//! order the series were rated; `outcome` lists its map results in game order, e.g. `a,draw,b`) and one
-//! `submission` event per change of a team's live submission. A ledger written before ratings moved per
-//! series holds `game` events instead, one map each; they replay as one-map series. The `ratings` table
+//! order the series were rated; `outcome` lists its map results in game order, e.g. `a,draw,b`), one
+//! `submission` event per change of a team's live submission and one `balance` event per team whose
+//! uncertainty a balance patch widened (`outcome` holds the factor). A ledger written before ratings moved
+//! per series holds `game` events instead, one map each; they replay as one-map series. The `ratings` table
 //! holds the result, computed once, as each event happens, and stored: ratings are `f64` and may differ in
 //! the last bit across platforms, so they are never recomputed on read. They are recomputed from the ledger,
 //! here, in two cases only: a quarantine invalidated results that were already rated (their events are
@@ -196,6 +197,39 @@ pub fn submission_changed(
     save(tx, team_id, &s, now)
 }
 
+/// A balance patch went live: widen the uncertainty of every rated team by `factor`
+/// (`RatingSystem::on_balance_patch`) and record one `balance` event per team that changed. Returns how
+/// many teams changed.
+pub fn balance_patch(
+    tx: &Transaction,
+    hook: &dyn RatingHook,
+    factor: f64,
+    now: i64,
+) -> ApiResult<usize> {
+    let teams: Vec<String> = {
+        let mut st = tx.prepare("SELECT team_id FROM ratings ORDER BY team_id")?;
+        let rows = st.query_map([], |r| r.get(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    let mut changed = 0;
+    for team_id in &teams {
+        let mut s = load(tx, hook, team_id)?;
+        let widened = hook.on_balance_patch(&s.rating, factor);
+        if widened.mu == s.rating.mu && widened.sigma == s.rating.sigma {
+            continue;
+        }
+        // `f64`'s `Display` is the shortest text that parses back to the same value.
+        tx.execute(
+            "INSERT INTO rating_events(kind, team_a, outcome, created_at) VALUES ('balance', ?1, ?2, ?3)",
+            params![team_id, factor.to_string(), now],
+        )?;
+        s.rating = widened;
+        save(tx, team_id, &s, now)?;
+        changed += 1;
+    }
+    Ok(changed)
+}
+
 /// Drop the rating events of these series (their results were invalidated). Call `recompute` afterwards.
 pub fn forget_series(tx: &Transaction, series_ids: &[String]) -> ApiResult<usize> {
     let mut st = tx.prepare_cached(
@@ -252,6 +286,13 @@ pub fn recompute(tx: &Transaction, hook: &dyn RatingHook, now: i64) -> ApiResult
                 let mut s = standing(&e.team_a);
                 s.rating = hook.on_new_submission(&s.rating);
                 teams.insert(e.team_a.clone(), s);
+            }
+            ("balance", _, _) => {
+                if let Some(factor) = e.outcome.as_deref().and_then(|f| f.parse().ok()) {
+                    let mut s = standing(&e.team_a);
+                    s.rating = hook.on_balance_patch(&s.rating, factor);
+                    teams.insert(e.team_a.clone(), s);
+                }
             }
             _ => {}
         }

@@ -407,7 +407,9 @@ async fn level_pairings_go_to_rounds_then_seed() {
 }
 
 #[tokio::test]
-async fn a_patch_change_replays_the_pairing() {
+async fn a_patch_change_leaves_a_started_tournament_on_its_patch() {
+    // A tournament plays out on the patch it started on (the patch lifecycle never re-plans or drains
+    // tournament series), so the pairing keeps its series and its games run on the old patch.
     let h = Harness::new(|_| {});
     setup(&h, &["alpha", "beta"]).await;
     let id = create(&h, "single", json!({"kind": "all"})).await;
@@ -423,11 +425,11 @@ async fn a_patch_change_replays_the_pairing() {
     let view = public_view(&h, &id).await;
     let p = pairings(&view).remove(0);
     assert_eq!(p["state"], "running");
-    assert_ne!(p["series_id"], first_series, "replayed as a new series");
+    assert_eq!(p["series_id"], first_series, "the same series");
     let w = MockWorker::register(&h, "w", false).await;
     let jobs = w.lease(&h, 16, 0).await;
     assert_eq!(jobs.len(), 3);
-    assert!(jobs.iter().all(|j| j["patch"]["engine"] == "0.2.0"));
+    assert!(jobs.iter().all(|j| j["patch"]["engine"] == "0.1.0"));
     for job in &jobs {
         w.complete(&h, job).await;
     }

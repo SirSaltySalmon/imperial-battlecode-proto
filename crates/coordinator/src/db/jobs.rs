@@ -137,6 +137,43 @@ pub fn enqueue(tx: &Transaction, class: Class, spec: &JobSpec, now: i64) -> ApiR
     })
 }
 
+/// Move the games of `series_id` that point at the queued job `job_id` onto the same match on `patch`
+/// (docs/JOBS.md, "Patch boundary"). The new job keeps the old one's class and its place in the queue
+/// (`created_at`, which aging counts from); it may also be an existing job, or a finished one (a cache hit,
+/// returned in `result`). The old job is deleted once no game points at it.
+pub fn repin_queued(
+    tx: &Transaction,
+    job_id: &str,
+    series_id: &str,
+    patch: &Patch,
+    now: i64,
+) -> ApiResult<Enqueued> {
+    let (payload, class, created_at, queued_at): (String, i64, i64, i64) = tx.query_row(
+        "SELECT payload, class, created_at, queued_at FROM jobs WHERE id = ?1 AND state = 'queued'",
+        [job_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )?;
+    let mut spec: JobSpec = serde_json::from_str(&payload).map_err(ApiError::internal)?;
+    spec.patch = patch.clone();
+    let moved = enqueue(tx, Class::from_i64(class), &spec, now)?;
+    if moved.created {
+        tx.execute(
+            "UPDATE jobs SET created_at = ?2, queued_at = ?3 WHERE id = ?1",
+            params![moved.job_id, created_at, queued_at],
+        )?;
+    }
+    tx.execute(
+        "UPDATE games SET job_id = ?2 WHERE job_id = ?1 AND series_id = ?3",
+        params![job_id, moved.job_id, series_id],
+    )?;
+    tx.execute(
+        "DELETE FROM jobs WHERE id = ?1 AND state = 'queued'
+           AND NOT EXISTS (SELECT 1 FROM games WHERE job_id = ?1)",
+        [job_id],
+    )?;
+    Ok(moved)
+}
+
 // ---- lease ----
 
 /// A lease's length in seconds, as sent in `lease_secs` (docs/JOBS.md).
@@ -191,6 +228,10 @@ pub fn lease(
          WHERE state = 'queued' AND class = ?1
            AND (require_label IS NULL OR require_label IN (SELECT value FROM json_each(?2)))
            AND (avoid_worker IS NULL OR avoid_worker != ?3 OR queued_at <= ?4)
+           AND NOT EXISTS (SELECT 1 FROM patch_misses m WHERE m.worker_id = ?3 AND m.until > ?5
+                             AND m.engine = json_extract(jobs.payload, '$.patch.engine')
+                             AND m.ruleset_hash = json_extract(jobs.payload, '$.patch.ruleset_hash')
+                             AND m.wasmtime = json_extract(jobs.payload, '$.patch.wasmtime'))
          ORDER BY created_at, rowid LIMIT 1",
     )?;
     while out.len() < max {
@@ -198,7 +239,7 @@ pub fn lease(
         for class in CLASSES {
             let found = head
                 .query_row(
-                    params![class as i64, labels, worker.id, now - cfg.retry_grace_ms],
+                    params![class as i64, labels, worker.id, now - cfg.retry_grace_ms, now],
                     |r| {
                         Ok((
                             r.get::<_, String>(0)?,
@@ -453,9 +494,12 @@ pub fn quarantine(
                 attempts = MAX(attempts - 1, 0) WHERE worker_id = ?1 AND state = 'leased'",
         params![worker_id, now],
     )?;
-    // Only results on the current patch can be re-run; older ones stay as they are (unverified).
+    // Results on the current patch are re-run, and so are those of series still finishing on an older patch
+    // (a worker of that patch re-runs them, or they drain out); other old results stay as they are.
     let suspect = format!(
-        "jobs.worker_id = ?1 AND jobs.state = 'done' AND jobs.verified = 0 AND jobs.kind = 'match' AND {ON_CURRENT_PATCH}"
+        "jobs.worker_id = ?1 AND jobs.state = 'done' AND jobs.verified = 0 AND jobs.kind = 'match'
+         AND ({ON_CURRENT_PATCH} OR EXISTS (SELECT 1 FROM games rg JOIN series rs ON rs.id = rg.series_id
+                                            WHERE rg.job_id = jobs.id AND rs.state = 'running'))"
     );
     let reopen: Vec<String> = {
         let mut st = tx.prepare(&format!(
@@ -553,9 +597,14 @@ pub fn fail(
     }
 }
 
+/// After a "patch mismatch" release, a worker is offered no job of that patch for this long: after a patch
+/// switch the old patch's jobs drain for a while, and workers without its runner must not keep leasing them.
+pub const PATCH_MISS_MS: i64 = 600_000;
+
 /// Give a job back without spending an attempt: the worker cannot serve it (another patch, an unknown kind)
-/// or is shutting down. It is not offered to the same worker again for the retry grace period. Returns
-/// false for a repeat of a release that was already applied.
+/// or is shutting down. It is not offered to the same worker again for the retry grace period, and no job
+/// of its patch is for `PATCH_MISS_MS` if the reason is a patch mismatch. Returns false for a repeat of a
+/// release that was already applied.
 pub fn release(
     tx: &Transaction,
     job_id: &str,
@@ -581,6 +630,10 @@ pub fn release(
                 queued_at = ?2, error = ?3, avoid_worker = ?4 WHERE id = ?1",
         params![job.id, now, note, worker.id],
     )?;
+    if reason.contains("patch mismatch") {
+        let spec: JobSpec = serde_json::from_str(&job.payload).map_err(ApiError::internal)?;
+        super::patches::record_miss(tx, &worker.id, &spec.patch, now + PATCH_MISS_MS)?;
+    }
     Ok(true)
 }
 

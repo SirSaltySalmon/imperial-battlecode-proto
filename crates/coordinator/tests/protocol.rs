@@ -29,11 +29,11 @@ async fn release_gives_the_job_back_without_spending_an_attempt() {
     for _ in 0..5 {
         let job = old.lease_one(&h).await;
         assert_eq!(
-            old.release(&h, &job, "patch mismatch").await.0,
+            old.release(&h, &job, "worker shutting down").await.0,
             StatusCode::OK
         );
         assert_eq!(
-            old.release(&h, &job, "patch mismatch").await.0,
+            old.release(&h, &job, "worker shutting down").await.0,
             StatusCode::OK,
             "release is idempotent for the same lease token"
         );
@@ -45,7 +45,7 @@ async fn release_gives_the_job_back_without_spending_an_attempt() {
         assert!(state["error"]
             .as_str()
             .unwrap()
-            .ends_with(": patch mismatch"));
+            .ends_with(": worker shutting down"));
         // The releasing worker is not offered the job again for the retry grace period...
         assert!(old.lease(&h, 1, 0).await.is_empty());
         // ...so let it have it back for the next round.

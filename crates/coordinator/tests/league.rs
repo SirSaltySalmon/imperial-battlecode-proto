@@ -491,56 +491,6 @@ async fn unranked_series_respect_the_daily_quota_and_do_not_touch_ratings() {
 }
 
 #[tokio::test]
-async fn a_new_patch_dead_letters_old_jobs_and_voids_their_series() {
-    let h = Harness::new(|_| {});
-    h.league(&["alpha", "beta"]).await;
-    let batch = h
-        .admin(
-            "POST",
-            "/v1/admin/ranked-batch",
-            json!({"pairings": [["alpha", "beta"]]}),
-        )
-        .await;
-    let out = h
-        .admin(
-            "POST",
-            "/v1/admin/patch",
-            json!({"engine": "0.2.0", "ruleset_hash": "ffeeddccbbaa0099", "wasmtime": "51.0.0"}),
-        )
-        .await;
-    assert_eq!(
-        out["superseded_jobs"], 3,
-        "a default ranked series is three maps"
-    );
-    assert_eq!(
-        h.ok("GET", "/v1/patch", None, Value::Null).await["patch"]["engine"],
-        "0.2.0"
-    );
-    let series = h
-        .ok(
-            "GET",
-            &format!("/v1/series/{}", batch["series"][0].as_str().unwrap()),
-            None,
-            Value::Null,
-        )
-        .await;
-    assert_eq!(
-        (series["state"].as_str(), series["rated"].as_bool()),
-        (Some("void"), Some(false))
-    );
-    let w = MockWorker::register(&h, "w", true).await;
-    assert!(w.lease(&h, 4, 0).await.is_empty());
-    // New series run on the new patch.
-    h.admin(
-        "POST",
-        "/v1/admin/ranked-batch",
-        json!({"pairings": [["alpha", "beta"]]}),
-    )
-    .await;
-    assert_eq!(w.lease_one(&h).await["patch"]["engine"], "0.2.0");
-}
-
-#[tokio::test]
 async fn series_need_live_submissions_a_patch_and_a_map_pool() {
     let h = Harness::new(|_| {});
     let pair = json!({"pairings": [["alpha", "beta"]]});

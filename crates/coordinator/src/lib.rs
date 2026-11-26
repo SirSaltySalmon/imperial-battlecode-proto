@@ -10,6 +10,7 @@ pub mod db;
 pub mod error;
 pub mod model;
 pub mod ratelimit;
+pub mod patch;
 pub mod rating;
 pub mod util;
 pub mod wasmcheck;
@@ -143,21 +144,23 @@ impl App {
         Ok(())
     }
 
-    /// One pass of the sweeper: requeue (or dead-letter) expired leases, then close finished series.
+    /// One pass of the sweeper: requeue (or dead-letter) expired leases, dead-letter what superseded
+    /// patches failed to drain, then close finished series.
     pub fn sweep(&self) -> ApiResult<()> {
         let now = util::now_ms();
-        let (requeued, dead) = self.db.tx(|tx| {
-            let swept = db::jobs::sweep_expired(tx, now, &self.queue_cfg())?;
+        let (requeued, dead, drained) = self.db.tx(|tx| {
+            let (requeued, dead) = db::jobs::sweep_expired(tx, now, &self.queue_cfg())?;
+            let drained = patch::expire_drained(self, tx, now)?;
             db::league::finalize_ready(
                 tx,
                 self.rating.as_ref(),
                 now,
                 self.cfg.ladder_snapshots_kept,
             )?;
-            Ok(swept)
+            Ok((requeued, dead, drained))
         })?;
         bump(&self.counters.leases_expired, requeued + dead);
-        bump(&self.counters.dead, dead);
+        bump(&self.counters.dead, dead + drained);
         if requeued > 0 {
             self.queue_changed.notify_waiters();
         }
@@ -258,7 +261,15 @@ impl App {
                 None => self.ranked_budget(tx, games, now)?,
             };
             let pool = db::league::matchmaking_pool(tx, self.rating.as_ref(), now)?;
-            let states: Vec<ibc_rating::TeamState> = pool.iter().map(|(_, s)| s.clone()).collect();
+            // A team whose live submission fails on the current patch past its grace is not paired.
+            let excluded = patch::excluded_teams(self, tx, now)?;
+            let states: Vec<ibc_rating::TeamState> = pool
+                .iter()
+                .map(|(t, s)| ibc_rating::TeamState {
+                    live: s.live && !excluded.contains(&t.id),
+                    ..s.clone()
+                })
+                .collect();
             let pairings = ibc_rating::plan_batch(
                 self.rating.system(),
                 &states,

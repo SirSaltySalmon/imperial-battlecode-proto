@@ -213,7 +213,11 @@ pub fn check_upload(tx: &Transaction, team_id: &str, per_hour: i64, now: i64) ->
 
 /// Tables and columns that pin a submission against retention. A unit adding a table that refers to
 /// submissions (tournament entries, ...) adds it here; tables that do not exist are skipped.
-const PINS: &[(&str, &str)] = &[("series", "sub_a"), ("series", "sub_b")];
+const PINS: &[(&str, &str)] = &[
+    ("series", "sub_a"),
+    ("series", "sub_b"),
+    ("tournament_entrants", "submission_id"),
+];
 
 fn table_exists(tx: &Transaction, table: &str) -> ApiResult<bool> {
     Ok(tx.query_row(
@@ -266,6 +270,11 @@ pub fn prune_submissions(
     }
     let mut hashes = BTreeSet::new();
     for (id, sha, validated) in old.iter().filter(|(id, _, _)| !pinned.contains(id)) {
+        // Per-patch validation results (db/patches.rs) go with the submission.
+        tx.execute(
+            "DELETE FROM submission_checks WHERE submission_id = ?1",
+            [id],
+        )?;
         tx.execute("DELETE FROM submissions WHERE id = ?1", [id])?;
         if *validated {
             hashes.insert(sha.clone());

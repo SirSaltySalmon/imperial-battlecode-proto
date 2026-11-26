@@ -55,7 +55,8 @@ pub struct Config {
     /// every rating from the event ledger at start.
     pub rating_system: String,
 
-    /// Language name -> fuel multiplier applied to submissions in that language.
+    /// Language name -> fuel multiplier applied to submissions in that language. The only source of a
+    /// submission's multiplier: an upload names its language, never its multiplier.
     pub languages: Vec<(String, f64)>,
     /// A worker counts as live in `/metrics` if it called within this window.
     pub worker_live_ms: i64,
@@ -73,6 +74,15 @@ pub struct Config {
     pub tournament_pause_ms: i64,
     /// Rate limits, submission retention and moderation flags (`docs/MODERATION.md`).
     pub moderation: crate::ratelimit::ModerationCfg,
+
+    /// A live submission that stops validating at a patch switch keeps playing this long; then its team is
+    /// left out of ranked pairing until it makes a valid submission live.
+    pub invalid_grace_ms: i64,
+    /// After a patch switch, jobs of the old patch still queued this long are dead-lettered (tournament
+    /// jobs excepted): workers that kept the old runner have this long to finish the series that started.
+    pub patch_drain_ms: i64,
+    /// A balance patch widens every rating's uncertainty by this factor (`on_balance_patch`).
+    pub balance_sigma_factor: f64,
 }
 
 /// Ladder tiers, lowest first. Iron is everything below `tier_floors[0]`.
@@ -120,7 +130,7 @@ impl Default for Config {
             ranked_series_budget: 16,
             ranked_games: 3,
             rating_system: "weng-lin".to_string(),
-            languages: vec![("rust".to_string(), 1.0)],
+            languages: vec![("rust".to_string(), 1.0), ("cpp".to_string(), 1.0)],
             worker_live_ms: 90_000,
             ladder_snapshots_kept: 200,
             auth: crate::accounts::AuthConfig::default(),
@@ -128,6 +138,9 @@ impl Default for Config {
             tier_floors: DEFAULT_TIER_FLOORS,
             tournament_pause_ms: 3_600_000,
             moderation: Default::default(),
+            invalid_grace_ms: 86_400_000,
+            patch_drain_ms: 3_600_000,
+            balance_sigma_factor: 1.5,
         }
     }
 }
