@@ -58,6 +58,11 @@ pub struct Config {
     pub worker_live_ms: i64,
     /// Ladder snapshots kept (older ones are pruned; they can be recomputed from the series table).
     pub ladder_snapshots_kept: i64,
+
+    /// The web platform's built files (`web/dist`), served at `/`. `None`: no pages, the API only.
+    pub web_dir: Option<std::path::PathBuf>,
+    /// The replay viewer's built files (`viewer/dist`), served at `/viewer/`.
+    pub viewer_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for Config {
@@ -87,6 +92,8 @@ impl Default for Config {
             languages: vec![("rust".to_string(), 1.0)],
             worker_live_ms: 90_000,
             ladder_snapshots_kept: 200,
+            web_dir: None,
+            viewer_dir: None,
         }
     }
 }

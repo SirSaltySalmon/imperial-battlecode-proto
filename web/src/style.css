@@ -1,0 +1,320 @@
+/* Placeholder styling: readable and plain. The real theme comes later. */
+
+:root {
+  --bg: #ffffff;
+  --fg: #1b1d21;
+  --muted: #6b7078;
+  --line: #d9dce1;
+  --panel: #f5f6f8;
+  --accent: #2f5bd3;
+  --ok: #1d7a3a;
+  --warn: #9a6200;
+  --bad: #b3261e;
+  --flag: #fff1c2;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171b;
+    --fg: #e6e8eb;
+    --muted: #9aa0a8;
+    --line: #2c3037;
+    --panel: #1d2026;
+    --accent: #7aa2ff;
+    --ok: #5fcf83;
+    --warn: #e0b050;
+    --bad: #ff7b72;
+    --flag: #4a3d10;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+a {
+  color: var(--accent);
+}
+
+code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+#top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+#nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+#nav a {
+  text-decoration: none;
+}
+
+#nav a.active {
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.spacer {
+  flex: 1;
+}
+
+#page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 8px 16px 48px;
+}
+
+.narrow {
+  max-width: 520px;
+}
+
+section {
+  margin: 20px 0;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 5px 10px 5px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+th {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  background: var(--panel);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0;
+}
+
+.field > span {
+  font-weight: 500;
+}
+
+.check {
+  display: block;
+  margin: 6px 0;
+}
+
+input:not([type="checkbox"]),
+select {
+  font: inherit;
+  padding: 5px 7px;
+  max-width: 100%;
+}
+
+button {
+  font: inherit;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.bad {
+  color: var(--bad);
+}
+
+.notice,
+.error {
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+}
+
+.notice.ok {
+  border-color: var(--ok);
+}
+
+.notice.warn {
+  border-color: var(--warn);
+}
+
+.error {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.status:empty {
+  display: none;
+}
+
+.action {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 8px 0 12px;
+}
+
+.mine {
+  font-weight: 600;
+}
+
+.tier.provisional {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.join-code {
+  font-size: 1.2em;
+  font-weight: 700;
+}
+
+.steps li {
+  margin: 4px 0;
+}
+
+.maps {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: 8px 0;
+}
+
+.overview {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 16px;
+}
+
+.overview dd {
+  margin: 0;
+}
+
+.admin-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.bracket {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.round {
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.round h3 {
+  margin: 0;
+  font-size: 1em;
+  color: var(--muted);
+}
+
+.pairing {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--panel);
+}
+
+.pairing.flagged {
+  background: var(--flag);
+  border-color: var(--warn);
+}
+
+.side {
+  display: grid;
+  grid-template-columns: 2em 1fr 2em;
+  gap: 4px;
+}
+
+.side.winner {
+  font-weight: 700;
+}
+
+.seed,
+.maps-won {
+  color: var(--muted);
+  text-align: right;
+}
+
+.decided {
+  font-size: 0.85em;
+  color: var(--muted);
+  margin-top: 2px;
+}

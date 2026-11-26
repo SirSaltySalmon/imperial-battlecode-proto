@@ -67,6 +67,13 @@ struct Args {
     /// Largest accepted blob (replay), in bytes
     #[arg(long, env = "IBC_MAX_BLOB_BYTES", default_value_t = 64 << 20)]
     max_blob_bytes: usize,
+    /// Built web platform served at `/`. Default: `web/dist` beside the binary, else under the working directory
+    #[arg(long, env = "IBC_WEB_DIR")]
+    web_dir: Option<PathBuf>,
+    /// Built replay viewer served at `/viewer/`. Default: `viewer/dist` beside the binary, else under the
+    /// working directory
+    #[arg(long, env = "IBC_VIEWER_DIR")]
+    viewer_dir: Option<PathBuf>,
     /// Language fuel multipliers, e.g. `--language rust=1.0 --language python=3.0`
     #[arg(long = "language", value_parser = parse_language)]
     languages: Vec<(String, f64)>,
@@ -80,6 +87,29 @@ fn parse_language(s: &str) -> Result<(String, f64), String> {
     let mult = ibc_coordinator::model::normalize_fuel_mult(mult)
         .ok_or("multiplier out of range (0.001 ..= 1000)")?;
     Ok((name.to_string(), mult))
+}
+
+/// A page directory: the one given, else `<name>/dist` (or `<name>`) beside the binary, else `<name>/dist` under
+/// the working directory. Only a directory that holds an `index.html` counts.
+fn page_dir(given: &Option<PathBuf>, name: &str) -> anyhow::Result<Option<PathBuf>> {
+    if let Some(dir) = given {
+        if !dir.join("index.html").is_file() {
+            anyhow::bail!("{} has no index.html", dir.display());
+        }
+        return Ok(Some(dir.clone()));
+    }
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.to_path_buf()));
+    let mut candidates = Vec::new();
+    if let Some(bin) = beside {
+        candidates.push(bin.join(name).join("dist"));
+        candidates.push(bin.join(name));
+    }
+    candidates.push(PathBuf::from(name).join("dist"));
+    Ok(candidates
+        .into_iter()
+        .find(|dir| dir.join("index.html").is_file()))
 }
 
 fn config(args: &Args) -> anyhow::Result<Config> {
@@ -127,6 +157,8 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         } else {
             args.languages.clone()
         },
+        web_dir: page_dir(&args.web_dir, "web")?,
+        viewer_dir: page_dir(&args.viewer_dir, "viewer")?,
         ..defaults
     })
 }
@@ -141,6 +173,15 @@ async fn main() -> anyhow::Result<()> {
         listener.local_addr()?,
         args.data.display()
     );
+    for (what, dir) in [("web", &app.cfg.web_dir), ("viewer", &app.cfg.viewer_dir)] {
+        match dir {
+            Some(dir) => eprintln!("serving {what} pages from {}", dir.display()),
+            None => eprintln!(
+                "no {what} pages found (set IBC_{}_DIR)",
+                what.to_uppercase()
+            ),
+        }
+    }
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
         eprintln!("shutting down");

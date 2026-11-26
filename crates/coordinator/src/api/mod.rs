@@ -5,6 +5,7 @@
 
 mod manage;
 mod public;
+mod static_files;
 mod worker;
 
 use crate::db::{self, TeamRow, WorkerRow};
@@ -80,6 +81,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/patch", get(public::patch))
         .route("/metrics", get(public::metrics))
         .route("/healthz", get(public::healthz))
+        .fallback(static_files::serve)
         .layer(DefaultBodyLimit::max(limit))
         .with_state(app)
 }
