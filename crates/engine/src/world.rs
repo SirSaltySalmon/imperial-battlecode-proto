@@ -129,6 +129,9 @@ pub struct World {
     pub charge_pos: V2,
     pub team_mem: [Vec<u8>; 2],
     pub draft_mem: [Vec<u8>; 2],
+    /// `MEM_BUY` per team, and each unit's credits as the buy phase opened (`T_ROSTER`). See `teamplay`.
+    pub buy_mem: [Vec<u8>; 2],
+    pub round_credits: Vec<i32>,
     /// Events of the tick that was just resolved, unfogged. Bots read them through `views`.
     pub events: Vec<EventInfo>,
     /// Sounds each team heard during the tick that was just resolved.
@@ -178,6 +181,7 @@ impl World {
         }
         let tm = rules.core.team_mem_bytes.max(0) as usize;
         let dm = rules.core.draft_mem_bytes.max(0) as usize;
+        let bm = rules.core.buy_mem_bytes.max(0) as usize;
         let mut w = World {
             rules,
             map,
@@ -197,6 +201,8 @@ impl World {
             charge_pos: (0, 0),
             team_mem: [vec![0; tm], vec![0; tm]],
             draft_mem: [vec![0; dm], vec![0; dm]],
+            buy_mem: [vec![0; bm], vec![0; bm]],
+            round_credits: Vec::new(),
             events: Vec::new(),
             team_sounds: Default::default(),
             views: Default::default(),
@@ -330,6 +336,7 @@ impl World {
         combat::on_round_start(self);
         abilities::on_round_start(self);
         economy::on_round_start(self, &survived);
+        crate::teamplay::on_round_start(self);
         self.phase = PHASE_BUY;
         self.phase_left = self.rules.core.buy_ticks;
     }
@@ -838,12 +845,13 @@ impl World {
         crate::StateHashes { world: self.world_hash(), memory: [self.memory_hash(0), self.memory_hash(1)] }
     }
 
-    /// Hash of one team's private memory (team and draft scratchpads). Kept apart from `world_hash` so a replay
-    /// without that team's memory writes still verifies: memory is read by bots, never by the simulation.
+    /// Hash of one team's private memory (team, draft and buy scratchpads). Kept apart from `world_hash` so a
+    /// replay without that team's memory writes still verifies: memory is read by bots, never by the simulation.
     pub fn memory_hash(&self, team: usize) -> u64 {
         let mut h = crate::Fnv::new();
         h.bytes(&self.team_mem[team]);
         h.bytes(&self.draft_mem[team]);
+        h.bytes(&self.buy_mem[team]);
         h.finish()
     }
 
@@ -912,6 +920,7 @@ impl World {
                 h.bytes(bytes_of(s));
             }
         }
+        crate::teamplay::hash(self, &mut h);
         h.finish()
     }
 }

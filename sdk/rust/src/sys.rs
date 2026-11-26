@@ -57,7 +57,7 @@ mod imp {
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use crate::native::{with_current, STATS};
-    use ibc_abi::ERR_NOT_ALLOWED;
+    use ibc_abi::{ERR_BUFFER_TOO_SMALL, ERR_NOT_ALLOWED, T_MAP_ROW};
 
     pub fn sys_end_turn() {}
     pub fn sys_fuel_remaining() -> i64 {
@@ -73,10 +73,14 @@ mod imp {
             if n < 0 {
                 return n;
             }
-            // Records only grow at the end: the caller gets the prefix that fits, as from the wasm host.
-            buf.truncate(out.len());
-            out[..buf.len()].copy_from_slice(&buf);
-            buf.len() as i32
+            // As the wasm runner: records are cut to the buffer (older, shorter records read the prefix they
+            // know); a map row must fit.
+            if buf.len() > out.len() && table == T_MAP_ROW {
+                return -ERR_BUFFER_TOO_SMALL;
+            }
+            let n = buf.len().min(out.len());
+            out[..n].copy_from_slice(&buf[..n]);
+            n as i32
         })
         .unwrap_or(-ERR_NOT_ALLOWED)
     }

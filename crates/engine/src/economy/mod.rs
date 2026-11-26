@@ -8,7 +8,7 @@ use crate::Fnv;
 use ibc_abi::*;
 use toml::Table;
 
-pub use shop::buy;
+pub use shop::{buy, buy_for};
 
 /// Units per team whose buy-phase purchases are tracked for trade-in refunds. Units beyond this (no shipped map
 /// has that many) can still buy; they just get no refund when replacing something bought in the same phase.

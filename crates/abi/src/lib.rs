@@ -81,6 +81,10 @@ pub const T_KIT: u32 = 16;
 /// kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the
 /// team does not know the position. See docs/ABI.md for each kind.
 pub const T_EVENTS: u32 = 17;
+/// `RosterInfo` per unit of both teams, in unit id order. Readable in every phase.
+pub const T_ROSTER: u32 = 18;
+/// `RoundInfo` per finished round of the match, oldest first.
+pub const T_ROUNDS: u32 = 19;
 
 // ---- actions for `act(kind, a, b, c)` ----
 /// a = angle, b = speed in units/tick (clamped to the unit's max). Speed above `walk_speed` is a run (noisy).
@@ -108,6 +112,11 @@ pub const A_PICKUP: u32 = 11;
 pub const A_DRAFT: u32 = 12;
 /// Cancel the current channel (plant, defuse, reload, wind-up).
 pub const A_CANCEL: u32 = 13;
+/// a = item id, b = slot of the teammate who gets it (`MatchInfo.unit_slot`; your own slot works too).
+/// Buy phase only. The caller pays.
+pub const A_BUY_FOR: u32 = 14;
+/// a = kit id, b = slot of the teammate it is drafted for. Draft phase only.
+pub const A_DRAFT_FOR: u32 = 15;
 
 // ---- enums ----
 pub const TEAM_A: i32 = 0;
@@ -183,10 +192,13 @@ pub const ROUND_WIN_DEFUSE: i32 = 3;
 pub const ROUND_WIN_TIMEOUT: i32 = 4;
 
 // mem scopes
-/// Team scratchpad, read/write all match. Later-running teammates see writes in the same tick.
+/// Team scratchpad, kept all match. Readable always, writable only in the action phases (`PHASE_ACTION`,
+/// `PHASE_PLANTED`). Later-running teammates see writes in the same tick.
 pub const MEM_TEAM: u32 = 0;
 /// Written in the draft phase, read-only afterwards.
 pub const MEM_DRAFT: u32 = 1;
+/// Buy-phase team scratchpad: zeroed at every round start, writable only in the buy phase, readable always.
+pub const MEM_BUY: u32 = 2;
 
 // debug_draw kinds
 /// Line from (x0, y0) to (x1, y1).
@@ -210,8 +222,8 @@ pub const FUEL_DEBUG: u64 = 0;
 
 // ---- records ----
 
-/// A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, `cooldown`, `ammo`, `reserve`
-/// and `blind` are 0.
+/// A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, `cooldown`, `ammo`, `reserve`,
+/// `blind`, `other_weapon` and `fire_cooldown` are 0.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UnitInfo {
@@ -243,6 +255,10 @@ pub struct UnitInfo {
     pub blind: i32,
     /// Unsteadiness heat, 0 = steady: builds while moving, decays standing, lengthens the next startup.
     pub unsteadiness: i32,
+    /// Weapon id in the slot not in hand, -1 if that slot is empty.
+    pub other_weapon: i32,
+    /// Ticks before the weapon in hand may start a new wind-up (0 = ready, unless reloading or empty).
+    pub fire_cooldown: i32,
 }
 
 #[repr(C)]
@@ -399,6 +415,7 @@ pub struct CoreRules {
     pub max_ticks: i32,
     /// On detonation every living unit within this distance of the charge dies, through walls.
     pub blast_radius: i32,
+    pub buy_mem_bytes: i32,
 }
 
 #[repr(C)]
@@ -476,6 +493,37 @@ pub struct KitRules {
     pub abilities: [i32; 2],
     pub hp: i32,
     pub speed_pct: i32,
+}
+
+/// One unit in `T_ROSTER`. Public to both teams: kits and round-start credits, not equipment.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RosterInfo {
+    pub id: i32,
+    pub team: i32,
+    pub kit: i32,
+    /// Credits when this round's buy phase began (0 during the draft).
+    pub credits: i32,
+    /// 1 if the unit is alive.
+    pub alive: i32,
+}
+
+/// One finished round in `T_ROUNDS`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RoundInfo {
+    pub round: i32,
+    /// Winning team (`TEAM_A` / `TEAM_B`).
+    pub winner: i32,
+    /// How it ended: `ROUND_WIN_*`.
+    pub reason: i32,
+    /// Team that attacked in this round.
+    pub attackers: i32,
+    /// Ticks from the start of the buy phase to the end of the round.
+    pub ticks: i32,
+    /// Score after this round.
+    pub score_a: i32,
+    pub score_b: i32,
 }
 
 /// Bytes of a record. Sound only for the `repr(C)` all-`i32` records in this crate.

@@ -49,10 +49,10 @@ IBC_BOT(MyBot)
 
 | Area | API |
 |---|---|
-| Tables | `me()`, `allies()`, `enemies()`, `sounds()`, `projectiles()`, `effects()`, `drops()`, `events()`, `sites()`, `items()`, `weapons()` (lazy ranges, no allocation); `match_info()`, `map_info()`, `core_rules()`, `weapon(id)`, `ability(id)`, `item(id)`, `kit(id)` |
-| Actions | `move_dir`, `move_towards`, `face`, `fire`, `reload`, `plant`, `defuse`, `pickup`, `buy`, `use_ability`, `swap`, `drop_item`, `draft`, `cancel`: each returns an `Error` (`ok(e)`, `error_name(e)`) |
+| Tables | `me()`, `allies()`, `enemies()`, `sounds()`, `projectiles()`, `effects()`, `drops()`, `events()`, `sites()`, `roster()`, `rounds()`, `items()`, `weapons()` (lazy ranges, no allocation); `match_info()`, `map_info()`, `core_rules()`, `weapon(id)`, `ability(id)`, `item(id)`, `kit(id)` |
+| Actions | `move_dir`, `move_towards`, `face`, `fire`, `reload`, `plant`, `defuse`, `pickup`, `buy`, `buy_for`, `use_ability`, `swap`, `drop_item`, `draft`, `draft_for`, `cancel`: each returns an `Error` (`ok(e)`, `error_name(e)`) |
 | World | `los(a, b)`, `raycast(p, angle, max)` |
-| Memory | `team_mem_read/write`, `team_mem_get<N>/set<N>`, `mem_read/write(MEM_DRAFT, ...)` |
+| Memory | `team_mem_read/write`, `team_mem_get<N>/set<N>` (writes in action phases), `mem_read/write(scope, ...)`, `mem_get<N>/set<N>(scope, ...)` for `MEM_DRAFT` (draft tick) and `MEM_BUY` (buy phase) |
 | Geometry | `angle_to`, `angle_diff`, `norm_angle`, `dist`, `dist2`, `len`, `isqrt`, `cos_sin`, `offset`, `lead`, `tile_of`, `tile_centre`: integer only, `constexpr`, bit-for-bit equal to the Rust SDK |
 | Navigation | `Grid`, `Pathfinder` (cached distance fields, work capped per call), `Navigator::go` (path following with stuck recovery) |
 | Debug | `log`, `logf`, `debug_line`, `debug_dot` |

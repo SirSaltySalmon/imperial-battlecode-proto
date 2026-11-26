@@ -3,7 +3,7 @@
 
 use crate::fixed;
 use crate::world::*;
-use crate::{abilities, combat, economy, Input, Match};
+use crate::{abilities, combat, economy, teamplay, Input, Match};
 use ibc_abi::*;
 use serde_json::json;
 
@@ -11,6 +11,10 @@ fn push<T: Copy>(out: &mut Vec<u8>, v: &T) -> i32 {
     let b = bytes_of(v);
     out.extend_from_slice(b);
     b.len() as i32
+}
+
+fn push_row<T: Copy>(out: &mut Vec<u8>, v: Option<T>) -> i32 {
+    v.map_or(-ERR_OUT_OF_RANGE, |v| push(out, &v))
 }
 
 fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
@@ -58,6 +62,8 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
         recoil: u.combat.recoil,
         blind: if full { u.blind } else { 0 },
         unsteadiness: u.combat.unsteady,
+        other_weapon: if full { u.weapons[1 - u.slot.min(1)] } else { 0 },
+        fire_cooldown: if full { u.combat.cooldown } else { 0 },
     }
 }
 
@@ -125,6 +131,8 @@ impl Host for Match {
             T_KIT => w.rules.kits.len() as i32,
             T_SITES => w.map.sites.len() as i32,
             T_EVENTS => w.views[w.units[me].team as usize].events.len() as i32,
+            T_ROSTER => w.units.len() as i32,
+            T_ROUNDS => w.rounds.len() as i32,
             _ => -ERR_UNSUPPORTED,
         }
     }
@@ -220,6 +228,8 @@ impl Host for Match {
             T_KIT => row!(w.rules.kits),
             T_SITES => row!(w.map.sites),
             T_EVENTS => row!(w.views[w.units[me].team as usize].events),
+            T_ROSTER => push_row(out, teamplay::roster_row(w, ix)),
+            T_ROUNDS => push_row(out, teamplay::round_row(w, ix)),
             _ => -ERR_UNSUPPORTED,
         }
     }
@@ -237,10 +247,12 @@ impl Host for Match {
         match w.phase {
             PHASE_DRAFT => match kind {
                 A_DRAFT => abilities::draft(w, me, a),
+                A_DRAFT_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| abilities::draft(w, t, a)),
                 _ => ERR_NOT_ALLOWED,
             },
             PHASE_BUY => match kind {
                 A_BUY => economy::buy(w, me, a),
+                A_BUY_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| economy::buy_for(w, me, t, a)),
                 A_FACE => {
                     w.units[me].facing = a & 0xFFFF;
                     OK
@@ -317,6 +329,7 @@ impl Host for Match {
         let mem = match scope {
             MEM_TEAM => &w.team_mem[team],
             MEM_DRAFT => &w.draft_mem[team],
+            MEM_BUY => &w.buy_mem[team],
             _ => return ERR_BAD_ARG,
         };
         let off = off as usize;
@@ -335,9 +348,10 @@ impl Host for Match {
             _ => return ERR_BAD_ARG,
         };
         let mem = match scope {
-            MEM_TEAM => &mut w.team_mem[team],
+            MEM_TEAM if w.in_action() => &mut w.team_mem[team],
             MEM_DRAFT if w.phase == PHASE_DRAFT => &mut w.draft_mem[team],
-            MEM_DRAFT => return ERR_NOT_ALLOWED,
+            MEM_BUY if w.phase == PHASE_BUY => &mut w.buy_mem[team],
+            MEM_TEAM | MEM_DRAFT | MEM_BUY => return ERR_NOT_ALLOWED,
             _ => return ERR_BAD_ARG,
         };
         let off = off as usize;

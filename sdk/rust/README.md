@@ -66,12 +66,12 @@ ticks after `fire` (`windup` plus the unit's unsteadiness), or at once while bra
 | Area | Items |
 |---|---|
 | Entry | `trait Bot { new, turn }`, `bot!(Type)`, `end_turn()`, `fuel_remaining()` |
-| Self and others | `me()`, `allies()`, `enemies()` (visible only), `sounds()`, `projectiles()`, `effects()`, `drops()`, `events()`; `UnitExt`: `alive()`, `has(S_*)`, `pos()`, `busy()` |
+| Self and others | `me()`, `allies()`, `enemies()` (visible only), `sounds()`, `projectiles()`, `effects()`, `drops()`, `events()`, `roster()` (both teams: kit, round-start credits, alive), `rounds()` (finished rounds); `UnitExt`: `alive()`, `has(S_*)`, `pos()`, `busy()` |
 | Match and map | `match_info()`, `map_info()`, `sites()`, `map_row(y, buf)`, `Grid::load()` with `tile`, `tile_at`, `is_wall`, `is_blocked`, `can_step`; `tile_of`, `tile_centre` |
 | Rules | `core_rules()`, `weapon(id)`, `ability(id)`, `item(id)`, `kit(id)`, `weapons()`, `items()` |
-| Actions (`Result<(), Error>`) | `move_dir(angle, speed)`, `move_towards(x, y, speed)`, `face(angle)`, `face_point(x, y)`, `fire(angle)`, `fire_at(x, y)`, `reload()`, `plant()`, `defuse()`, `pickup()`, `buy(item)`, `use_ability(slot, x, y)`, `swap(slot)`, `drop_item(kind)`, `draft(kit)`, `cancel()`, raw `act(kind, a, b, c)` |
+| Actions (`Result<(), Error>`) | `move_dir(angle, speed)`, `move_towards(x, y, speed)`, `face(angle)`, `face_point(x, y)`, `fire(angle)`, `fire_at(x, y)`, `reload()`, `plant()`, `defuse()`, `pickup()`, `buy(item)`, `buy_for(item, slot)`, `use_ability(slot, x, y)`, `swap(slot)`, `drop_item(kind)`, `draft(kit)`, `draft_for(kit, slot)`, `cancel()`, raw `act(kind, a, b, c)` |
 | World queries | `los(a, b)`, `raycast(x, y, angle, max)` |
-| Team memory | `team_mem_read/write(off, bytes)`, `team_mem_get::<N>(off)` / `team_mem_set(off, [i32; N])`, `mem_read/write(scope, ..)` |
+| Team memory | `team_mem_read/write(off, bytes)`, `team_mem_get::<N>(off)` / `team_mem_set(off, [i32; N])` (writes in action phases), `mem_read/write(scope, ..)`, `mem_get::<N>(scope, off)` / `mem_set(scope, off, [i32; N])` for `MEM_DRAFT` (draft tick) and `MEM_BUY` (buy phase) |
 | Geometry (integer only) | `angle_to(dx, dy)`, `angle_diff(a, b)`, `norm_angle`, `dist`, `dist2`, `len`, `isqrt`, `cos_sin`, `offset(x, y, angle, d)`, `lead(from, target, vel, bullet_speed, windup)` |
 | Navigation | `Pathfinder` (`next_waypoint`, `path_len`; 8-connected, no corner cutting, one cached distance field per goal tile), `Navigator` (`go(&me, x, y, speed)`, `heading`, `path_len`; adds stuck detection) |
 | Tactics (optional) | `tactics::Gunner` (`engage`, `top_up`), `tactics::shop`, `tactics::approach_point`, `tactics::hold_spot`, `target_half_angle`, `startup_ticks` |

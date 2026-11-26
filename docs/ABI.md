@@ -22,7 +22,7 @@ Imports come from module `ibc`:
 | `act(kind, a, b, c) -> i32` | Queue an intent; returns 0 or an error code |
 | `los(x0, y0, x1, y1) -> i32` | 1 if no wall lies between the points (static map only) |
 | `raycast(x, y, angle, max) -> i32` | Distance to the first wall, capped at `max` |
-| `mem_read(scope, off, ptr, len) -> i32`, `mem_write(...)` | Team and draft memory |
+| `mem_read(scope, off, ptr, len) -> i32`, `mem_write(...)` | Team, draft and buy memory (`MEM_*`; each writable in one phase) |
 | `debug_draw(kind, x0, y0, x1, y1, color) -> i32` | Overlay in the replay viewer; free |
 | `log(ptr, len) -> i32` | Append to the unit's log |
 
@@ -32,9 +32,9 @@ clock and random source, empty args and environment. There is no filesystem, net
 ## Conventions
 
 - **Tables, not functions.** Everything readable is a row in a table (`T_*`). Rows are `#[repr(C)]` records made
-  only of `i32`, little-endian, no padding. `get` copies at most `cap` bytes and returns how many it
-  wrote. Records only ever grow at the end, so a bot built against an older ABI keeps working: it reads the
-  prefix it knows. (`ERR_BUFFER_TOO_SMALL` is kept in the ABI but `get` no longer returns it.)
+  only of `i32`, little-endian, no padding. `get` copies at most `cap` bytes of a record and returns the bytes
+  written; a `T_MAP_ROW` buffer shorter than the row gets `ERR_BUFFER_TOO_SMALL`. Records only
+  ever grow at the end, so a bot built against an older ABI keeps working: it reads the prefix it knows.
 - **Fog is applied by the host, per team.** Vision and hearing are shared: `T_ENEMIES`, `T_PROJECTILES`,
   `T_EFFECTS`, `T_DROPS` and `T_SOUNDS` list what the caller's **team** perceives (the union over its living
   units), so every teammate reads the same rows. An enemy in `T_ENEMIES` may be behind a wall from where you

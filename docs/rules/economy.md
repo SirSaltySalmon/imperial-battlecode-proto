@@ -65,6 +65,11 @@ Details:
   light then heavy armour costs 1000 in total; buying the free `pistol` item returns the price of a sidearm
   upgrade bought this phase. Gear carried over from an earlier round has no trade-in value, and there is no way
   to sell a primary back to an empty slot. The refund is forgotten when the buy phase ends.
+- **Buying for a teammate.** `A_BUY_FOR` (a = item, b = the teammate's slot in the team) buys for a teammate.
+  The checks above are made against the teammate (what it holds, its side, its kit) except the funds check,
+  which is against the buyer: the buyer pays. A trade-in goes to whoever makes the replacing purchase, so credits
+  can move between teammates: A buys B a rifle, B replaces it with a cheaper primary and keeps the difference.
+  Transfers like this are allowed.
 
 ## Carry-over
 

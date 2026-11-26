@@ -15,7 +15,8 @@ so never hard-code them. This file describes the mechanics; the TOML files are t
 
 ## Match flow
 
-- Tick 0 is the **draft**: each unit may pick a kit (`A_DRAFT`) and write draft memory. It has extra fuel.
+- Tick 0 is the **draft**: each unit may pick a kit (`A_DRAFT`), or pick one for a teammate (`A_DRAFT_FOR`), and
+  write draft memory. It has extra fuel. Kits are unique within a team (kit 0, the plain one, excepted).
 - Then rounds. Each round: **buy phase** (`buy_ticks`, units stand at spawn, `A_BUY` applies immediately), **action
   phase** (`round_ticks`), and after a plant the **planted phase** (`fuse_ticks`).
 - Attackers win a round by eliminating the defenders or by detonation. Defenders win by eliminating the attackers
@@ -63,6 +64,15 @@ the earlier one.
   are always reported, with the position hidden when the team did not see it. Plant, defuse, detonation and
   round end are always reported. Fog is applied to what bots read; replays record everything.
 
+## What a team knows
+
+- `T_ROSTER`: every unit of both teams with its kit, its credits as the round's buy phase began (a snapshot,
+  so enemy spending is not visible), and whether it is alive. Readable in every phase. Equipment is not in it.
+- `T_ROUNDS`: every finished round, with the winner, how it ended (`ROUND_WIN_*`), the attacking team, its length
+  and the score after it.
+- Your own and your teammates' `UnitInfo` include the weapon in the other slot (`other_weapon`) and the ticks
+  before the weapon in hand may fire again (`fire_cooldown`). Enemy rows read 0 there.
+
 ## Shooting
 
 - `A_FIRE(angle)` starts a startup of `windup + unsteadiness * startup_per_point / 100` ticks (halves round up).
@@ -106,7 +116,9 @@ the earlier one.
 
 - Everyone starts each half with `start_credits`. Round win and loss pay out, with a bonus for consecutive losses.
   Kills pay the weapon's `kill_reward`; a plant pays the whole attacking team.
-- The shop (`T_ITEM`) sells weapons, armour, ability charges and the defuse kit during the buy phase.
+- The shop (`T_ITEM`) sells weapons, armour, ability charges and the defuse kit during the buy phase. A unit can
+  buy for a teammate (`A_BUY_FOR`) and pays for it. Trade-ins go to whoever replaces the item, so credits can
+  move between teammates; that is allowed. Details in [rules/economy.md](rules/economy.md).
 - Survivors keep their weapons and armour into the next round; everyone gets a sidearm.
 
 ## Kits and abilities
@@ -120,8 +132,12 @@ barrier, dash, decoy, heal) are defined in `rules/abilities.toml`. The foundatio
   the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
   `memory.copy` and `memory.fill` cost fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
-- Team memory: `team_mem_bytes` shared by the team, readable and writable, **zeroed at the start of every
-  round**: nothing carries from one round to the next through it. Units run in an order that alternates teams
-  and rotates each tick; a teammate that runs later in the same tick sees your write.
-  Draft memory: `draft_mem_bytes`, written during the draft, read-only afterwards.
+- Memory is shared by the team and readable in every phase; each scope is writable in one phase only. Units run
+  in an order that alternates teams and rotates each tick; a teammate that runs later in the same tick sees
+  your write.
+  - Team memory (`MEM_TEAM`): `team_mem_bytes`, **zeroed at the start of every round** (nothing carries from one
+    round to the next through it), writable in the action phases only.
+  - Draft memory (`MEM_DRAFT`): `draft_mem_bytes`, written during the draft, read-only afterwards.
+  - Buy memory (`MEM_BUY`): `buy_mem_bytes`, zeroed at every round start, writable in the buy phase only.
+  Writing outside a scope's phase returns `ERR_NOT_ALLOWED`.
 - Units of a dead bot (crash or exit) idle for the rest of the match.

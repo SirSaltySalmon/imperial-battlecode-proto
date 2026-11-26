@@ -217,6 +217,7 @@ impl Ruleset {
             kits: kits.len() as i32,
             max_ticks: gi(&c, "max_ticks", 4000),
             blast_radius: gi(&c, "blast_radius", 12288),
+            buy_mem_bytes: gi(&c, "buy_mem_bytes", 256),
         };
         let econ = EconRules {
             start_credits: gi(&e, "start_credits", 800),

@@ -5,6 +5,10 @@
 //!
 //! Trade-in: replacing a weapon or armour that was itself bought in this buy phase refunds `refund_pct` of what
 //! was paid for it, so a unit can change its mind until the phase ends. Carried-over gear refunds nothing.
+//!
+//! `A_BUY_FOR`: one unit (the payer) buys for a teammate (the owner). Every ownership check is on the owner,
+//! the price comes out of the payer's credits, and the trade-in for what the owner held goes to the payer, who
+//! is the one replacing it. Credits can therefore move between teammates; that is allowed.
 
 use super::{give, Paid, MAX_TRACKED};
 use crate::world::World;
@@ -28,7 +32,7 @@ fn paid_mut(w: &mut World, u: usize) -> Option<&mut Paid> {
     tracked(w, u).map(|(t, s)| &mut w.econ[t].paid[s])
 }
 
-/// Take `price` minus the trade-in for `was_paid` from the unit, or report that it cannot pay.
+/// Take `price` minus the trade-in for `was_paid` from the paying unit, or report that it cannot pay.
 fn charge(w: &mut World, u: usize, price: i32, was_paid: i32) -> i32 {
     let cost = price - (was_paid as i64 * w.rules.flow.refund_pct as i64 / 100) as i32;
     if w.units[u].credits < cost {
@@ -40,6 +44,11 @@ fn charge(w: &mut World, u: usize, price: i32, was_paid: i32) -> i32 {
 
 /// SEAM: A_BUY in the buy phase. Applied immediately.
 pub fn buy(w: &mut World, u: usize, item: i32) -> i32 {
+    buy_for(w, u, u, item)
+}
+
+/// SEAM: A_BUY_FOR in the buy phase: `payer` buys `item` for its teammate `u`. Applied immediately.
+pub fn buy_for(w: &mut World, payer: usize, u: usize, item: i32) -> i32 {
     let it = match usize::try_from(item)
         .ok()
         .and_then(|i| w.rules.items.get(i))
@@ -60,7 +69,7 @@ pub fn buy(w: &mut World, u: usize, item: i32) -> i32 {
             if w.units[u].weapons[s] == wr.id {
                 return ERR_NOT_ALLOWED;
             }
-            let r = charge(w, u, it.price, paid(w, u).weapon[s]);
+            let r = charge(w, payer, it.price, paid(w, u).weapon[s]);
             if r != OK {
                 return r;
             }
@@ -76,7 +85,7 @@ pub fn buy(w: &mut World, u: usize, item: i32) -> i32 {
             if w.units[u].armor >= it.value {
                 return ERR_NOT_ALLOWED;
             }
-            let r = charge(w, u, it.price, paid(w, u).armor);
+            let r = charge(w, payer, it.price, paid(w, u).armor);
             if r != OK {
                 return r;
             }
@@ -89,7 +98,7 @@ pub fn buy(w: &mut World, u: usize, item: i32) -> i32 {
             if w.units[u].has_kit || w.side_of(w.units[u].team) != SIDE_DEFEND {
                 return ERR_NOT_ALLOWED;
             }
-            let r = charge(w, u, it.price, 0);
+            let r = charge(w, payer, it.price, 0);
             if r != OK {
                 return r;
             }
@@ -103,14 +112,14 @@ pub fn buy(w: &mut World, u: usize, item: i32) -> i32 {
                 None => return ERR_NOT_ALLOWED,
             };
             let price = it.price + ability.price.max(0);
-            if w.units[u].credits < price {
+            if w.units[payer].credits < price {
                 return ERR_INSUFFICIENT_FUNDS;
             }
             let r = crate::abilities::add_charge(w, u, it.value);
             if r != OK {
                 return r;
             }
-            give(w, u, -price);
+            give(w, payer, -price);
         }
         _ => return ERR_UNSUPPORTED,
     }
