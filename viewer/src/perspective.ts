@@ -63,7 +63,8 @@ export function seenMask(units: UnitFrame[]): bigint {
 
 /**
  * Per unit (same order as `frame.units`): is it drawn? Own team: always. Enemies: only while alive and in
- * the viewers' `seen` mask. A dead enemy stays as a marker: kills are public events.
+ * the viewers' `seen` mask. A dead enemy is kept here (kills are public events); `viewOf` then draws its
+ * body only where the viewers can see it, so an unseen kill does not give away the spot.
  */
 export function unitVisibility(frame: Frame, p: Perspective): boolean[] {
   const team = perspectiveTeam(frame, p);
@@ -112,6 +113,10 @@ export function viewOf(frame: Frame, p: Perspective, map: GameMap, rules: ViewRu
     };
   }
   const sees = (x: number, y: number) => eyes.some((u) => canSeePoint(map, rules, u, x, y));
+  // Kills are public, but not where they happened: a dead enemy is drawn only while its body is in sight.
+  frame.units.forEach((u, i) => {
+    if (!u.alive && u.team !== team) unitVisible[i] = sees(u.x, u.y);
+  });
   // An enemy trap shows only to a viewer within `sense_radius` of it (docs/rules/abilities.md).
   const near = (x: number, y: number) =>
     eyes.some((u) => (u.x - x) ** 2 + (u.y - y) ** 2 <= rules.sense_radius ** 2 && canSeePoint(map, rules, u, x, y));

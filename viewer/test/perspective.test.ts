@@ -54,6 +54,15 @@ describe("perspective", () => {
     expect(unitVisibility(f, { kind: "unit", id: 99 })).toEqual([true, true, true, true]);
   });
 
+  it("draws a dead enemy only where the viewers can see its body", () => {
+    const f = frame({ units: units() });
+    f.units[2] = { ...f.units[2], alive: false, x: 5632, y: 1536 }; // in unit 0's view
+    f.units[3] = { ...f.units[3], alive: false, x: 7680, y: 4608 }; // behind the wall
+    const v = viewOf(f, { kind: "team", team: 0 }, map, rules);
+    expect(v.unitVisible).toEqual([true, true, true, false]);
+    expect(viewOf(f, { kind: "all" }, map, rules).unitVisible).toEqual([true, true, true, true]);
+  });
+
   it("handles masks above 2^53", () => {
     const high = unit(0, 0, { seen: (1n << 63n).toString() });
     expect(seenMask([high, unit(1, 0, { seen: "5" })])).toBe((1n << 63n) | 5n);

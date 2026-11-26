@@ -117,8 +117,9 @@ diamond at each plant.
   kills, deaths and damage, with the score and the round history. A replay holds the full state, so this
   shows what neither team saw of the other during the match.
 - Perspectives: **Everyone** shows all and tints each unit's vision. **Team** and **unit** views fog the map
-  outside the viewers' vision and hide enemies that are not in the viewers' `seen` bitmask, enemy bullets,
-  effects and drops they cannot see, and other units' debug drawings and sounds. The side panel, kill feed
+  outside the viewers' vision and hide enemies that are not in the viewers' `seen` bitmask, dead enemies whose
+  bodies they cannot see, enemy bullets, effects and drops they cannot see, and other units' debug drawings
+  and sounds. The side panel, kill feed
   and banner always show the full public state.
 
 Between ticks, unit and bullet positions are interpolated for display only. Paused, the viewer shows exactly
