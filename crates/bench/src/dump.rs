@@ -253,6 +253,9 @@ fn consequences(m: &Match, unit: usize) -> Vec<String> {
                 e.value, e.actor, w.units[unit].hp
             )),
             EVENT_DAMAGE if e.actor == me => out.push(format!("hit #{} for {}", e.target, e.value)),
+            EVENT_KILL if e.target == me && e.actor < 0 => {
+                out.push("KILLED by the detonation blast".into())
+            }
             EVENT_KILL if e.target == me => {
                 out.push(format!("KILLED by #{} with {}", e.actor, weapon(e.value)))
             }

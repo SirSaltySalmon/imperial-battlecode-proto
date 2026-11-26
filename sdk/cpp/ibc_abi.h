@@ -147,6 +147,8 @@ inline constexpr int32_t EFFECT_DASH = 8;
 inline constexpr int32_t DROP_CHARGE = 1;
 inline constexpr int32_t DROP_WEAPON = 2;
 
+/// actor = killer, or -1 for a death nobody caused (the detonation blast); target = victim; value = weapon id,
+/// or -1 when no weapon did it.
 inline constexpr int32_t EVENT_KILL = 1;
 inline constexpr int32_t EVENT_PLANT = 2;
 inline constexpr int32_t EVENT_DEFUSE = 3;
@@ -359,8 +361,10 @@ struct CoreRules {
     int32_t items;
     int32_t kits;
     int32_t max_ticks;
+    /// On detonation every living unit within this distance of the charge dies, through walls.
+    int32_t blast_radius;
 };
-static_assert(sizeof(CoreRules) == 128);
+static_assert(sizeof(CoreRules) == 132);
 
 struct WeaponRules {
     int32_t id;

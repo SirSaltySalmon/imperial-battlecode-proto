@@ -212,6 +212,7 @@ impl Ruleset {
             items: items.len() as i32,
             kits: kits.len() as i32,
             max_ticks: gi(&c, "max_ticks", 4000),
+            blast_radius: gi(&c, "blast_radius", 12288),
         };
         let econ = EconRules {
             start_credits: gi(&e, "start_credits", 800),

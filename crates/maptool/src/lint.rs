@@ -242,6 +242,7 @@ fn check_map(map: &Map, rules: &Ruleset, issues: &mut Vec<Issue>) {
 
     for site in &map.sites {
         check_site(map, &g, &reach, site, r, issues);
+        check_blast_escape(map, &g, site, rules.core.blast_radius, issues);
     }
 
     for (side, label) in [(0usize, "attacker"), (1, "defender")] {
@@ -342,6 +343,51 @@ fn check_site(
                 return;
             }
         }
+    }
+}
+
+/// From every tile a charge can be planted on, a unit must be able to walk to a tile whose centre is outside
+/// the detonation blast wherever on the plant tile the charge lies. Otherwise a lost retake also costs every
+/// defender (and attacker) still near the site their gun.
+fn check_blast_escape(
+    map: &Map,
+    g: &TileGraph,
+    site: &crate::SiteInfo,
+    radius: i32,
+    issues: &mut Vec<Issue>,
+) {
+    let label = site.id + 1;
+    let r2 = (radius.max(0) as i64).pow(2);
+    // Closest a charge anywhere on tile `p` gets to the centre of tile `q`.
+    let clear = |p: usize, q: usize| {
+        let ((px, py), (qx, qy)) = (g.coords(p), g.coords(q));
+        let gap = |a: i32, b: i32| ((a - b).abs() as i64 * TILE as i64 - TILE as i64 / 2).max(0);
+        gap(px, qx).pow(2) + gap(py, qy).pow(2) > r2
+    };
+    let plantable: Vec<usize> = (0..map.site_of.len())
+        .filter(|&i| map.site_of[i] as i32 == label && g.stand[i])
+        .collect();
+    let mut flood: Option<Vec<bool>> = None;
+    let mut trapped = Vec::new();
+    for &p in &plantable {
+        if !flood.as_ref().is_some_and(|f| f[p]) {
+            flood = Some(g.flood(&[p]));
+        }
+        let reach = flood.as_ref().expect("flooded above");
+        if !(0..reach.len()).any(|q| reach[q] && clear(p, q)) {
+            trapped.push(p);
+        }
+    }
+    if let Some(&p) = trapped.first() {
+        let (x, y) = g.coords(p);
+        issues.push(error(
+            "blast-escape",
+            format!(
+                "site {label}: from {} plant tile(s), first ({x},{y}), no reachable tile is outside the {:.1}-tile blast radius",
+                trapped.len(),
+                radius as f64 / TILE as f64
+            ),
+        ));
     }
 }
 
