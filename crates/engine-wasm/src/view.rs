@@ -39,7 +39,7 @@ pub fn rules(r: &Ruleset) -> String {
             json!({
                 "id": a.id, "name": name, "effect": a.effect, "price": a.price, "max_charges": a.max_charges,
                 "cooldown": a.cooldown, "range": a.range, "radius": a.radius, "duration": a.duration,
-                "power": a.power, "delay": a.delay,
+                "power": a.power, "delay": a.delay, "speed": a.speed,
             })
         })
         .collect();
@@ -71,6 +71,8 @@ fn core(r: &Ruleset) -> Value {
         "vision_range": c.vision_range, "sense_radius": c.sense_radius, "max_hp": c.max_hp,
         "step_sound_radius": c.step_sound_radius, "shot_sound_radius": c.shot_sound_radius,
         "pickup_reach": c.pickup_reach, "interact_reach": c.interact_reach, "max_ticks": c.max_ticks,
+        "blast_radius": c.blast_radius, "buy_mem_bytes": c.buy_mem_bytes,
+        "team_mem_bytes": c.team_mem_bytes, "draft_mem_bytes": c.draft_mem_bytes,
     })
 }
 

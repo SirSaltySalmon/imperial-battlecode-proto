@@ -43,7 +43,7 @@ const WEAPON_ORDER = [
   "move_pct",
   "kill_reward",
 ];
-const ABILITY_ORDER = ["price", "max_charges", "cooldown", "range", "radius", "duration", "power", "delay"];
+const ABILITY_ORDER = ["price", "max_charges", "cooldown", "range", "radius", "duration", "power", "delay", "speed"];
 const KIT_ORDER = ["hp", "speed_pct"];
 
 /** Slot 0 of a kit is its signature (free) ability, slot 1 the one it buys charges of. */
