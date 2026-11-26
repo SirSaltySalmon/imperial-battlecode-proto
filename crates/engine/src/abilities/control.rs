@@ -50,8 +50,8 @@ pub(super) fn sonar(w: &mut World, e: &Effect, r: &AbilityRules) {
 }
 
 /// Concussion: one pop. Every living unit within `radius` that no wall or barrier shelters from it is slowed
-/// for `power` turns and loses what it was doing: a plant or defuse channel, a wind-up, a reload. Progress on
-/// any of them is lost.
+/// for `power` turns and loses what it was doing: a plant or defuse channel, a weapon startup and its brace, a
+/// reload, an ability use in its startup. Progress on any of them is lost.
 pub(super) fn concuss(w: &mut World, e: &Effect, r: &AbilityRules) {
     let at = (e.info.x, e.info.y);
     let r2 = e.info.radius as i64 * e.info.radius as i64;
@@ -65,6 +65,7 @@ pub(super) fn concuss(w: &mut World, e: &Effect, r: &AbilityRules) {
     for j in hit {
         w.cancel_channel(j);
         combat::cancel(w, j);
+        super::cast::cancel(w, j);
         let u = &mut w.units[j];
         u.slowed = u.slowed.max(turns);
     }
