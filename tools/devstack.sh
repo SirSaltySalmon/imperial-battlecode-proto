@@ -131,13 +131,15 @@ fewest_games() {
 }
 
 print_ladder() {
-  printf '\n%-5s %-12s %7s %6s %5s %7s %6s\n' rank team rating games wins losses draws
+  printf '\n%-5s %-12s %7s %-11s %6s %5s %7s %6s\n' rank team rating tier games wins losses draws
   ladder | tr '{' '\n' | { grep '"rank"' || true; } | while IFS= read -r row; do
     name="$(str name "$row")"
     [ -n "$name" ] || name="$(str team_name "$row")"
     rating="$(num rating "$row")"
-    grep -q '"provisional":true' <<<"$row" && rating="${rating:--}?"
-    printf '%-5s %-12s %7s %6s %5s %7s %6s\n' "$(num rank "$row")" "$name" "${rating:--}" \
+    tier="$(str tier "$row")"
+    # A provisional team has no rating or tier yet (fewer than IBC_PROVISIONAL_SERIES rated series).
+    grep -q '"provisional":true' <<<"$row" && tier="Provisional"
+    printf '%-5s %-12s %7s %-11s %6s %5s %7s %6s\n' "$(num rank "$row")" "$name" "${rating:--}" "${tier:--}" \
       "$(num games "$row")" "$(num wins "$row")" "$(num losses "$row")" "$(num draws "$row")"
   done
 }
