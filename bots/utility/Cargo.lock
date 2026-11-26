@@ -23,11 +23,11 @@ dependencies = [
 
 [[package]]
 name = "ibc-abi"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "ibc-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ibc-abi",
  "serde_json",
