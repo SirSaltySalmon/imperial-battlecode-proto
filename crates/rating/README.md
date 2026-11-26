@@ -31,9 +31,10 @@ for p in pairings {
 // Every finished game. `outcome` is the job's "a" | "b" | "draw" | "unfinished" (docs/JOBS.md).
 // Use it, not `winner`: an unfinished game also has `winner: null` and must not be rated.
 if let Some(w) = Winner::from_job_outcome(outcome) {
-    let r: GameResult = plan.result(game_index, w).unwrap();
-    apply_game(&system, &mut rating_of[r.team_a], &mut rating_of[r.team_b], r.outcome);
+    outcomes.push(plan.result(game_index, w).unwrap().outcome);
 }
+// When the series is over: one update from the pre-series ratings.
+let (a, b) = rate_series(&system, &rating_of[plan.team_a], &rating_of[plan.team_b], &outcomes);
 
 // Events
 rating = system.on_new_submission(&rating);      // team uploads a new bot
@@ -61,8 +62,10 @@ Types (all `Clone + Debug`, serde with the feature):
 
 `TeamState::last_played` and `now` share any monotone unit (seconds or batch number). `recent_opponents` lists
 the opponents of the team's series in the last day, oldest first, one entry per series. `recent_games` is the
-number of rated games in the same window. Ratings are updated **per game**, in game-index order within a
-series; a series is only a scheduling unit.
+number of rated games in the same window. Ratings are updated **per series** (`rate_series`): every map's
+update is computed from the pre-series ratings and the mean shifts are summed (a drawn map is a half), so
+map order does not matter and a 3-0 moves more than a 2-1. Uncertainty shrinks as after that many games
+(its step does not depend on who won). `apply_game` remains for per-game simulations.
 
 Store with each rating the `RatingSystem::name()` that produced it. `mu`/`sigma` of Elo and Weng-Lin are not
 interchangeable.

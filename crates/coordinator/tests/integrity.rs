@@ -152,5 +152,5 @@ async fn toggling_the_live_submission_does_not_grow_the_rating_ledger() {
         assert_eq!(out["changed"], true, "the live submission does change each time");
     }
     assert_eq!(events(), 1, "only the change that widened the rating is recorded");
-    assert_eq!(h.standing("alpha").await["sigma"], 0.5);
+    assert_eq!(h.rating("alpha").rating.sigma, 0.5);
 }

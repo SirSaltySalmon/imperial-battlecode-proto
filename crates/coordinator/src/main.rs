@@ -53,14 +53,21 @@ struct Args {
     #[arg(long, env = "IBC_UNRANKED_DAILY_GAMES", default_value_t = 100)]
     unranked_daily_games: i64,
     /// Seconds between rounds of the built-in ranked scheduler; 0 = off
-    #[arg(long, env = "IBC_RANKED_INTERVAL_SECS", default_value_t = 0)]
+    #[arg(long, env = "IBC_RANKED_INTERVAL_SECS", default_value_t = 600)]
     ranked_interval_secs: u64,
     /// Most ranked series created per scheduler round
     #[arg(long, env = "IBC_RANKED_SERIES_BUDGET", default_value_t = 16)]
     ranked_series_budget: usize,
-    /// Games per ranked series
-    #[arg(long, env = "IBC_RANKED_GAMES", default_value_t = 2)]
+    /// Maps per ranked series, each a full match
+    #[arg(long, env = "IBC_RANKED_GAMES", default_value_t = 3)]
     ranked_games: i64,
+    /// Rated series before a team leaves provisional (shown with a rating and a tier)
+    #[arg(long, env = "IBC_PROVISIONAL_SERIES", default_value_t = 5)]
+    provisional_series: i64,
+    /// Displayed-rating floors of Bronze, Silver, Gold, Platinum, Diamond, Ascendant, Immortal and
+    /// Radiant, comma-separated and ascending (Iron is below the first)
+    #[arg(long, env = "IBC_TIER_FLOORS", value_parser = parse_tier_floors)]
+    tier_floors: Option<[f64; 8]>,
     /// Largest accepted bot module, in bytes
     #[arg(long, env = "IBC_MAX_WASM_BYTES", default_value_t = 16 << 20)]
     max_wasm_bytes: usize,
@@ -80,6 +87,20 @@ fn parse_language(s: &str) -> Result<(String, f64), String> {
     let mult = ibc_coordinator::model::normalize_fuel_mult(mult)
         .ok_or("multiplier out of range (0.001 ..= 1000)")?;
     Ok((name.to_string(), mult))
+}
+
+fn parse_tier_floors(s: &str) -> Result<[f64; 8], String> {
+    let floors: Vec<f64> = s
+        .split(',')
+        .map(|f| f.trim().parse().map_err(|_| format!("bad number {f:?}")))
+        .collect::<Result<_, _>>()?;
+    let floors: [f64; 8] = floors
+        .try_into()
+        .map_err(|v: Vec<f64>| format!("expected 8 floors, got {}", v.len()))?;
+    if floors.iter().any(|f| !f.is_finite()) || floors.windows(2).any(|w| w[0] >= w[1]) {
+        return Err("floors must be finite and strictly ascending".into());
+    }
+    Ok(floors)
 }
 
 fn config(args: &Args) -> anyhow::Result<Config> {
@@ -122,6 +143,8 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         ranked_interval_ms: args.ranked_interval_secs * 1000,
         ranked_series_budget: args.ranked_series_budget,
         ranked_games: args.ranked_games,
+        provisional_series: args.provisional_series.max(0),
+        tier_floors: args.tier_floors.unwrap_or(defaults.tier_floors),
         languages: if args.languages.is_empty() {
             defaults.languages.clone()
         } else {

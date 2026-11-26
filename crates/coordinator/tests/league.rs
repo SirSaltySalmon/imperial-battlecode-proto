@@ -204,7 +204,7 @@ fn stronger<'a>(a: &'a str, b: &'a str) -> (&'a str, &'a str) {
 async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
     let h = Harness::new(|_| {});
     let empty = h.ok("GET", "/v1/ladder", None, Value::Null).await;
-    assert_eq!(empty["teams"], json!([]));
+    assert_eq!(empty, json!([]));
     h.league(&["alpha", "beta"]).await;
     let (winner, loser) = stronger("alpha", "beta");
 
@@ -263,10 +263,12 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
     );
 
     let ladder = h.ok("GET", "/v1/ladder", None, Value::Null).await;
-    let teams = ladder["teams"].as_array().unwrap();
-    assert_eq!(ladder["system"], "weng-lin-bt");
+    let teams = ladder.as_array().unwrap();
     assert_eq!(
-        (teams[0]["name"].as_str(), teams[1]["name"].as_str()),
+        (
+            teams[0]["team_name"].as_str(),
+            teams[1]["team_name"].as_str()
+        ),
         (Some(winner), Some(loser))
     );
     assert_eq!(
@@ -281,15 +283,13 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
         (teams[1]["losses"].as_i64(), teams[1]["wins"].as_i64()),
         (Some(4), Some(0))
     );
-    // The displayed rating is a whole number on the 1500 scale; after four games it is still provisional
-    // (and below 1500 for both: it is the conservative estimate mu - 3 sigma).
-    let (top, bottom) = (
-        teams[0]["rating"].as_i64().unwrap(),
-        teams[1]["rating"].as_i64().unwrap(),
-    );
-    assert!(top > bottom && top < 1500, "{top} {bottom}");
-    assert!(teams.iter().all(|t| t["provisional"] == true));
-    assert!(teams[0]["mu"].as_f64().unwrap() > 25.0 && teams[1]["mu"].as_f64().unwrap() < 25.0);
+    // One rated series: both teams are still provisional, so neither shows a rating or a tier yet, but the
+    // order already follows the stored estimate.
+    assert!(teams
+        .iter()
+        .all(|t| t["provisional"] == true && t["rating"].is_null() && t["tier"].is_null()));
+    assert_eq!(teams[0]["series"], 1);
+    assert!(h.rating(winner).rating.mu > 25.0 && h.rating(loser).rating.mu < 25.0);
 
     // Matches: listing, detail with the summary, replay download.
     let list = h
@@ -367,10 +367,10 @@ async fn a_series_waits_for_pending_verification_and_takes_the_trusted_result() 
     );
     let ladder = h.ok("GET", "/v1/ladder", None, Value::Null).await;
     assert_eq!(
-        ladder["teams"][0]["name"], winner,
+        ladder[0]["team_name"], winner,
         "rated from the trusted results, not the tampered ones"
     );
-    assert_eq!(ladder["teams"][0]["wins"], 2);
+    assert_eq!(ladder[0]["wins"], 2);
 }
 
 #[tokio::test]
@@ -379,14 +379,12 @@ async fn unranked_series_respect_the_daily_quota_and_do_not_touch_ratings() {
     let teams = h.league(&["alpha", "beta", "gamma"]).await;
     let alpha = Some(teams[0].1.as_str());
 
-    let (status, series) = h
-        .call(
-            "POST",
-            "/v1/series",
-            alpha,
-            json!({"opponent": "beta", "games": 2}),
-        )
-        .await;
+    let scrim = |token: Option<&str>, body: Value| {
+        let token = token.map(str::to_string);
+        let h = &h;
+        async move { h.call("POST", "/v1/scrims", token.as_deref(), body).await }
+    };
+    let (status, series) = scrim(alpha, json!({"opponent_team_id": "beta", "games": 2})).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(
         (
@@ -395,86 +393,61 @@ async fn unranked_series_respect_the_daily_quota_and_do_not_touch_ratings() {
         ),
         (Some("unranked"), 2)
     );
-    let (status, err) = h
-        .call(
-            "POST",
-            "/v1/series",
-            alpha,
-            json!({"opponent": "gamma", "games": 2}),
-        )
-        .await;
+    let (status, err) = scrim(alpha, json!({"opponent_team_id": "gamma", "games": 2})).await;
     assert_eq!(
         (status, err["error"].as_str()),
         (StatusCode::TOO_MANY_REQUESTS, Some("quota_exceeded"))
     );
+    // The first request leaves the window in 24 h.
+    let wait = err["retry_after"].as_u64().unwrap();
+    assert!((86_000..=86_400).contains(&wait), "{err}");
+    let (status, _) = scrim(alpha, json!({"opponent_team_id": &teams[2].0, "games": 1})).await;
+    assert_eq!(status, StatusCode::CREATED);
     assert_eq!(
-        h.call(
-            "POST",
-            "/v1/series",
-            alpha,
-            json!({"opponent": &teams[2].0, "games": 1})
-        )
-        .await
-        .0,
-        StatusCode::CREATED
-    );
-    assert_eq!(
-        h.call("POST", "/v1/series", alpha, json!({"opponent": "gamma"}))
-            .await
-            .0,
+        scrim(alpha, json!({"opponent_team_id": "gamma"})).await.0,
         StatusCode::TOO_MANY_REQUESTS
     );
     // Quotas are per team; bad requests are rejected before anything is queued.
     let beta = Some(teams[1].1.as_str());
+    for (body, expected) in [
+        (json!({"opponent_team_id": "beta"}), StatusCode::BAD_REQUEST),
+        (json!({"opponent_team_id": "nobody"}), StatusCode::NOT_FOUND),
+        (
+            json!({"opponent_team_id": "alpha", "games": 0}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!({"opponent_team_id": "alpha", "games": 6}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!({"opponent_team_id": "alpha", "sides": "left"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (json!({"opponent": "alpha"}), StatusCode::BAD_REQUEST),
+    ] {
+        assert_eq!(scrim(beta, body.clone()).await.0, expected, "{body}");
+    }
     assert_eq!(
-        h.call("POST", "/v1/series", beta, json!({"opponent": "beta"}))
-            .await
-            .0,
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        h.call("POST", "/v1/series", beta, json!({"opponent": "nobody"}))
-            .await
-            .0,
-        StatusCode::NOT_FOUND
-    );
-    assert_eq!(
-        h.call(
-            "POST",
-            "/v1/series",
-            beta,
-            json!({"opponent": "alpha", "games": 0})
-        )
-        .await
-        .0,
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        h.call(
-            "POST",
-            "/v1/series",
-            beta,
-            json!({"opponent": "alpha", "kind": "tournament"})
-        )
-        .await
-        .0,
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        h.call("POST", "/v1/series", None, json!({"opponent": "alpha"}))
-            .await
-            .0,
+        scrim(None, json!({"opponent_team_id": "alpha"})).await.0,
         StatusCode::UNAUTHORIZED
     );
+    // Teams go through scrims, not the organisers' series endpoint.
     assert_eq!(
         h.call(
             "POST",
             "/v1/series",
             beta,
-            json!({"opponent": "alpha", "games": 3})
+            json!({"team_a": "beta", "team_b": "alpha"})
         )
         .await
         .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        scrim(beta, json!({"opponent_team_id": "alpha", "games": 3}))
+            .await
+            .0,
         StatusCode::CREATED
     );
     assert_eq!(h.metric("ibc_queue_depth{class=\"unranked\"}").await, 6.0);
@@ -512,11 +485,7 @@ async fn unranked_series_respect_the_daily_quota_and_do_not_touch_ratings() {
     );
     let ladder = h.ok("GET", "/v1/ladder", None, Value::Null).await;
     assert!(
-        ladder["teams"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|t| t["games"] == 0),
+        ladder.as_array().unwrap().iter().all(|t| t["games"] == 0),
         "unranked and tournament games are not rated: {ladder}"
     );
 }
@@ -539,7 +508,10 @@ async fn a_new_patch_dead_letters_old_jobs_and_voids_their_series() {
             json!({"engine": "0.2.0", "ruleset_hash": "ffeeddccbbaa0099", "wasmtime": "51.0.0"}),
         )
         .await;
-    assert_eq!(out["superseded_jobs"], 2);
+    assert_eq!(
+        out["superseded_jobs"], 3,
+        "a default ranked series is three maps"
+    );
     assert_eq!(
         h.ok("GET", "/v1/patch", None, Value::Null).await["patch"]["engine"],
         "0.2.0"
@@ -711,7 +683,7 @@ async fn matches_page_without_gaps_and_reuploading_the_live_module_changes_nothi
     let w = MockWorker::register(&h, "w", true).await;
     assert_eq!(w.drain(&h).await, 5);
     assert_eq!(
-        h.ok("GET", "/v1/ladder", None, Value::Null).await["teams"][0]["games"],
+        h.ok("GET", "/v1/ladder", None, Value::Null).await[0]["games"],
         5
     );
 }

@@ -190,13 +190,24 @@ impl Harness {
     /// The ladder's row for a team, by name.
     pub async fn standing(&self, name: &str) -> Value {
         let ladder = self.ok("GET", "/v1/ladder", None, Value::Null).await;
-        ladder["teams"]
+        ladder
             .as_array()
             .unwrap()
             .iter()
-            .find(|t| t["name"] == name)
+            .find(|t| t["team_name"] == name)
             .unwrap_or_else(|| panic!("{name} is not on the ladder: {ladder}"))
             .clone()
+    }
+
+    /// The stored rating of a team, by name (the ladder shows only the displayed number).
+    pub fn rating(&self, name: &str) -> ibc_coordinator::db::ratings::Standing {
+        self.app
+            .db
+            .tx(|tx| {
+                let team = ibc_coordinator::db::find_team(tx, name)?;
+                ibc_coordinator::db::ratings::load(tx, self.app.rating.as_ref(), &team.id)
+            })
+            .unwrap()
     }
 
     pub async fn metric(&self, name: &str) -> f64 {

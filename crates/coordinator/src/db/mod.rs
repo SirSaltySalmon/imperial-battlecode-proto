@@ -6,6 +6,7 @@
 pub mod jobs;
 pub mod league;
 pub mod ratings;
+pub mod scrims;
 
 use crate::error::{ApiError, ApiResult};
 use crate::model::Patch;

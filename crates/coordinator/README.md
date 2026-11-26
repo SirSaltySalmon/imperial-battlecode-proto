@@ -41,13 +41,14 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
 | `POST /v1/workers/register`, `POST /v1/jobs/lease`, `POST /v1/jobs/{id}/heartbeat\|complete\|fail\|release`, `GET\|PUT /v1/blobs/{sha256}` | worker (blobs: also admin) | protocol v1.1, see `docs/JOBS.md` |
 | `GET /v1/team`, `POST /v1/submissions`, `GET /v1/submissions` | team | upload makes the module live if it validates, unless `?live=false` |
 | `POST /v1/submissions/{id}/live` | team (its own), or admin | make a validated submission the live one |
-| `POST /v1/series` | team: `{opponent, games}`; admin: `{team_a, team_b, games, kind: unranked\|tournament}` | unranked series, per-team daily quota (429 `quota_exceeded`) |
+| `POST /v1/scrims` | team | `{opponent_team_id, games, maps?, sides?, my_submission_id?, against_series_id?}`: an unranked series, per-team daily quota (429 `quota_exceeded` with `retry_after`); see `docs/api/league.md` |
+| `POST /v1/series` | admin | `{team_a, team_b, games, kind: unranked\|tournament}`, no quota |
 | `POST /v1/admin/teams`, `GET /v1/admin/teams`, `PUT /v1/admin/maps/{name}`, `POST /v1/admin/patch` | admin | |
 | `POST /v1/admin/ranked-batch` | admin | explicit `pairings` or the matchmaker (`budget`, default `--ranked-series-budget`) |
 | `POST /v1/admin/jobs` | admin | one stand-alone match (`class`, `bot_a`, `bot_b`, `map`, `seed`, `max_ticks`); answers `"cached": true` with the result if it already ran |
 | `GET /v1/admin/jobs/{id}`, `GET /v1/admin/dead`, `POST /v1/admin/jobs/{id}/requeue` | admin | the dead-letter list |
 | `GET /v1/admin/workers`, `POST /v1/admin/workers/{id}/trust`, `.../quarantine` | admin | |
-| `GET /v1/ladder`, `/v1/matches?team=&series=&limit=&before=<next of the previous page>`, `/v1/matches/{id}`, `/v1/matches/{id}/replay`, `/v1/series/{id}`, `/v1/maps`, `/v1/patch` | none | |
+| `GET /v1/ladder`, `/v1/matches?team=&series=&kind=&limit=&before=<next of the previous page>`, `/v1/matches/{id}`, `/v1/matches/{id}/replay`, `/v1/series/{id}`, `/v1/maps`, `/v1/maps/{name}`, `/v1/patch` | none (a team token adds its own submissions to match and series views) | the archive is private: no other team's submission ids or hashes |
 | `GET /metrics`, `GET /healthz` | none | keep them off the public proxy if you care |
 
 ### How the pieces behave
@@ -78,15 +79,18 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
   uploaded or selected later. A ranked series is always rated. Games: `ibc_rating::plan_series` picks the
   least-used maps of the pool (no repeat within a series), alternates the engine slots from a coin flip and
   derives the seeds from the series id. A series closes when none of its games and none of their
-  verifications is outstanding; a ranked one is then rated game by game, in game order, and a ladder snapshot
-  is written. A game that could not be run (dead-lettered) or ended `unfinished` is left out (the note says
+  verifications is outstanding; a ranked one is then rated once (see Ratings) and a ladder snapshot is
+  written. A scrim may pin one of the requester's archived submissions, or the opponent's submission from a
+  series both teams played (`against_series_id`), resolved on the server. A game that could not be run (dead-lettered) or ended `unfinished` is left out (the note says
   so); a series where no game finished is void. Setting a new patch dead-letters the jobs of the old one.
-- **Scheduler.** Every `--ranked-interval-secs` (0 = off) the matchmaker of `ibc-rating` (`plan_batch`,
+- **Scheduler.** Every `--ranked-interval-secs` (default 600; 0 = off) the matchmaker of `ibc-rating` (`plan_batch`,
   Halite III's scheme) pairs the live teams that have no ranked series running: under-played and idle teams
   are seeded first, opponents are drawn near in rating with a heavy tail, a pair meets at most twice a day.
   The round size comes from `series_per_batch`: the cores of the live workers, the mean `wall_ms` of the
   last hour's matches (its prior until there are some), 70 % utilisation, capped by
-  `--ranked-series-budget`. No live workers, no series. Each round's seed is kept in `ranked_batches`.
+  `--ranked-series-budget`. No live workers, no series; while nothing is measured, at least one series a
+  round, so the ladder starts by itself. Each series is `--ranked-games` maps (default 3), each a full
+  match, between the teams' live bots. Each round's seed is kept in `ranked_batches`.
 - **Upload validation** is a light parser (`wasmparser`), not the runner: WebAssembly 2.0 only, size cap,
   initial-memory cap, imports only from `ibc` and the WASI functions the runner provides, exports `_start`
   and `memory`. The lists in `src/wasmcheck.rs` mirror `ibc_runner::{IBC_IMPORTS, WASI_IMPORTS}`; keep them
@@ -98,30 +102,30 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
 `RatingHook` (`src/rating.rs`; every `ibc_rating::RatingSystem` implements it). Nothing else knows which
 system is in use.
 
-- **Per game, from `outcome`.** Each finished game of a ranked series is one update, in game order, from the
-  job's `outcome` (`"a" | "b" | "draw"`, by engine slot, turned into the series' team A's view). An
-  `"unfinished"` game is not rated, and not as a draw.
+- **Per series, from maps won.** A finished ranked series is one update (`ibc_rating::rate_series`): each
+  map's update is computed from the **pre-series** ratings and the mean shifts are summed, a drawn map
+  counting a half. Map order does not matter, a 3-0 moves more than a 2-1, and the round score inside a map
+  does not matter. Each map's result is the job's `outcome` (`"a" | "b" | "draw"`, by engine slot, turned
+  into the series' team A's view); an `"unfinished"` map is not rated, and not as a draw.
 - **Computed once, stored.** Ratings are `f64` and may differ in the last bit across platforms, so they are
-  computed here, as games are rated, and stored (`ratings`: `mu`, `sigma`, games, W/L/D, last played).
-  Every change is also an event in the `rating_events` ledger: one `game` event per rated game and one
-  `submission` event per change of live submission. Ratings are a fold of the ledger and are recomputed from
+  computed here, as series are rated, and stored (`ratings`: `mu`, `sigma`, games, W/L/D, last played).
+  Every change is also an event in the `rating_events` ledger: one `series` event per rated series (its map
+  results in game order) and one `submission` event per change of live submission. A ledger from before
+  ratings moved per series holds `game` events; they replay as one-map series. Ratings are a fold of the ledger and are recomputed from
   it, on the coordinator, in two cases only: a quarantine took back rated results (their events are dropped,
   the series is rated again from the re-runs, appended at the end), and `--rating-system` changed (at
   start; switching back gives the old numbers bit for bit).
 - **Resubmission.** When a team's live submission is replaced (upload or selection), `on_new_submission`
   widens its uncertainty (Weng-Lin: `sigma = max(sigma, sigma0 / 2)`; Elo reopens half the provisional
   window). The estimate is kept.
-- **Ladder.** `GET /v1/ladder` serves the latest snapshot, written when ratings or a live submission change.
-  Each team: `rank`, `rating` (the displayed number, rounded), `provisional`, `mu`, `sigma`, `games`, `wins`,
-  `losses`, `draws`, `submission_id`; and the snapshot's `system`. Every team with a live submission is
-  listed, from its first upload.
-- **New teams: show "provisional", not the number.** Weng-Lin's displayed rating is the conservative
-  estimate `mu - 3 sigma` on a 1500-centred scale: a new team shows about 763 and climbs as it plays (a
-  settled average team shows about 1360), which reads as a weak team next to a 1500 scale. Clients should
-  show "provisional" instead of the number while `provisional` is true (Weng-Lin: `sigma > 5`, about 25 games;
-  Elo: its first 10 games), and may show the number greyed or on hover. The ladder is sorted by `rating`, so
-  provisional teams start low and rise into place, which is also what a conservative ladder should do; a
-  resubmission can make a team provisional again only if its uncertainty grows past the threshold.
+- **Ladder.** `GET /v1/ladder` is computed from the stored ratings on each request: an array of
+  `{rank, team_id, team_name, rating, tier, provisional, games, series, wins, losses, draws}`, one per team
+  with a live submission. A team with fewer than `--provisional-series` (5) rated series is provisional:
+  `rating` and `tier` are null and it is listed after every rated team. Tiers (Iron .. Radiant) come from the
+  displayed rating and `--tier-floors`; they are display only, the matchmaker never looks at them. Weng-Lin's
+  displayed rating is the conservative estimate `mu - 3 sigma` on a 1500-centred scale (a new team about 763,
+  a settled average team about 1360). Snapshots of the full table (with `mu`, `sigma`) are still written to
+  `ladder_snapshots` for the organisers; they are not served.
 
 For another system, implement `RatingHook` and build the app with `App::new(cfg, db, blobs, hook)`; give it
 a new `name()`, since stored ratings are tagged with the system that produced them.

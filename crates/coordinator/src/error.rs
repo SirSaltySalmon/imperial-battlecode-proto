@@ -1,6 +1,6 @@
 //! The one error type of the HTTP API: `{"error": "<code>", "message": "..."}` with a status (docs/JOBS.md).
 
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
@@ -10,6 +10,8 @@ pub struct ApiError {
     pub status: StatusCode,
     pub code: &'static str,
     pub message: String,
+    /// 429 only: seconds until the request can succeed, sent as `retry_after` and `Retry-After`.
+    pub retry_after: Option<u64>,
 }
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -20,6 +22,14 @@ impl ApiError {
             status,
             code,
             message: message.into(),
+            retry_after: None,
+        }
+    }
+    /// 429 with `retry_after` (whole seconds, at least 1).
+    pub fn too_many(code: &'static str, message: impl Into<String>, retry_after: u64) -> ApiError {
+        ApiError {
+            retry_after: Some(retry_after.max(1)),
+            ..ApiError::new(StatusCode::TOO_MANY_REQUESTS, code, message)
         }
     }
     pub fn bad_request(message: impl Into<String>) -> ApiError {
@@ -66,10 +76,18 @@ impl From<std::io::Error> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
-            self.status,
-            Json(json!({"error": self.code, "message": self.message})),
-        )
-            .into_response()
+        let mut body = json!({"error": self.code, "message": self.message});
+        match self.retry_after {
+            Some(secs) => {
+                body["retry_after"] = json!(secs);
+                (
+                    self.status,
+                    [(header::RETRY_AFTER, secs.to_string())],
+                    Json(body),
+                )
+                    .into_response()
+            }
+            None => (self.status, Json(body)).into_response(),
+        }
     }
 }

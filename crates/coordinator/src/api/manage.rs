@@ -297,13 +297,10 @@ pub async fn set_patch(
 
 #[derive(Deserialize)]
 struct SeriesReq {
-    /// Team token: the team to play against (id or name).
-    opponent: Option<String>,
-    /// Admin token: both teams.
-    team_a: Option<String>,
-    team_b: Option<String>,
+    team_a: String,
+    team_b: String,
     games: Option<i64>,
-    /// Admin token only: `unranked` (default) or `tournament`.
+    /// `unranked` (default) or `tournament`.
     kind: Option<String>,
 }
 
@@ -318,48 +315,35 @@ fn check_games(app: &App, games: i64) -> ApiResult<i64> {
     }
 }
 
-/// An unranked series between the live submissions of two teams. A team may request
-/// `unranked_daily_games` games per rolling 24 hours; the organisers are not limited.
+/// Organisers: a series between the live submissions of two teams, not counted against any quota. Teams
+/// ask for unranked series with `POST /v1/scrims`.
 pub async fn create_series(
     State(app): AppState,
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Created> {
-    let caller = auth_team_or_admin(&app, &headers)?;
+    if let Caller::Team(_) = auth_team_or_admin(&app, &headers)? {
+        return Err(ApiError::bad_request(
+            "teams request unranked series with POST /v1/scrims",
+        ));
+    }
     let req: SeriesReq = parse(&body)?;
     let games = check_games(&app, req.games.unwrap_or(1))?;
+    let kind = match req.kind.as_deref().unwrap_or("unranked") {
+        "unranked" => "unranked",
+        "tournament" => "tournament",
+        other => return Err(ApiError::bad_request(format!(
+            "kind {other:?}: use `unranked` or `tournament` (ranked series go through /v1/admin/ranked-batch)"
+        ))),
+    };
     let now = now_ms();
     let view = app.db.tx(|tx| {
-        let (kind, a, b, requested_by) = match &caller {
-            Caller::Team(me) => {
-                if req.kind.as_deref().is_some_and(|k| k != "unranked") {
-                    return Err(ApiError::bad_request("teams can only request unranked series"));
-                }
-                let opponent = req.opponent.as_deref().ok_or_else(|| ApiError::bad_request("missing `opponent`"))?;
-                let used = league::games_requested_since(tx, &me.id, now - 86_400_000)?;
-                if used + games > app.cfg.unranked_daily_games {
-                    return Err(ApiError::new(
-                        StatusCode::TOO_MANY_REQUESTS,
-                        "quota_exceeded",
-                        format!("{used} of {} unranked games used in the last 24 h; {games} more do not fit", app.cfg.unranked_daily_games),
-                    ));
-                }
-                ("unranked", me.clone(), db::find_team(tx, opponent)?, Some(me.id.clone()))
-            }
-            Caller::Admin => {
-                let kind = match req.kind.as_deref().unwrap_or("unranked") {
-                    "unranked" => "unranked",
-                    "tournament" => "tournament",
-                    other => return Err(ApiError::bad_request(format!("kind {other:?}: use `unranked` or `tournament` (ranked series go through /v1/admin/ranked-batch)"))),
-                };
-                let team = |t: &Option<String>, what: &str| -> ApiResult<TeamRow> {
-                    db::find_team(tx, t.as_deref().ok_or_else(|| ApiError::bad_request(format!("missing `{what}`")))?)
-                };
-                (kind, team(&req.team_a, "team_a")?, team(&req.team_b, "team_b")?, None)
-            }
-        };
-        let id = app.new_series(tx, kind, &a, &b, games, requested_by.as_deref(), now)?;
-        league::series_view(tx, &id)
+        let (a, b) = (
+            db::find_team(tx, &req.team_a)?,
+            db::find_team(tx, &req.team_b)?,
+        );
+        let id = app.new_series(tx, kind, &a, &b, games, None, now)?;
+        league::series_view(tx, &id, &league::Viewer::Admin)
     })?;
     app.queue_changed.notify_waiters();
     Ok((StatusCode::CREATED, Json(view.unwrap_or(Value::Null))))

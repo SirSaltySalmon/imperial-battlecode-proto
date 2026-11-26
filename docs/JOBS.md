@@ -112,6 +112,11 @@ going through a double. Unknown fields must be ignored; a job of an unknown `kin
 result where it does not. `wall_ms` is not part of the match's determinism (it is not compared); the
 coordinator uses it to size ranked batches to the fleet.
 
+The ladder is rated per series, not per job: when every map of a ranked series has finished, the series'
+`outcome`s (maps won, lost, drawn) move the two ratings once, from the pre-series ratings
+(`docs/api/league.md`). A ranked series is `IBC_RANKED_GAMES` maps (default 3), queued by the built-in
+scheduler every `IBC_RANKED_INTERVAL_SECS` (default 600, 0 = off) with each team's live bot.
+
 ### Worker procedure
 
 1. `patch` must equal the worker's own `ibc version --json` (`engine`, `ruleset_hash`, `wasmtime`), or a

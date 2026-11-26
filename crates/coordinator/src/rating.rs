@@ -1,5 +1,5 @@
-//! The seam where a rating system plugs in. The coordinator needs "two ratings and a game result in, two
-//! ratings out", the ladder number, the provisional flag, the resubmission event and, for the ranked
+//! The seam where a rating system plugs in. The coordinator needs "two ratings and a series' map results
+//! in, two ratings out", the ladder number, the provisional flag, the resubmission event and, for the ranked
 //! matchmaker, the underlying `ibc_rating::RatingSystem`. Every system of `ibc-rating` provides all of it;
 //! `by_name` picks one from the configuration.
 
@@ -12,8 +12,8 @@ pub trait RatingHook: Send + Sync {
     fn name(&self) -> &str;
     /// The rating of a team that has not played.
     fn initial(&self) -> Rating;
-    /// New ratings of A and B after one game.
-    fn update(&self, a: &Rating, b: &Rating, outcome: Outcome) -> (Rating, Rating);
+    /// New ratings of A and B after a series, from its map results (`ibc_rating::rate_series`).
+    fn update_series(&self, a: &Rating, b: &Rating, outcomes: &[Outcome]) -> (Rating, Rating);
     /// The number shown on the ladder, which is sorted by it.
     fn display(&self, r: &Rating) -> f64;
     /// Too uncertain to be shown as a settled number.
@@ -31,8 +31,8 @@ impl<S: RatingSystem + Send + Sync> RatingHook for S {
     fn initial(&self) -> Rating {
         RatingSystem::initial(self)
     }
-    fn update(&self, a: &Rating, b: &Rating, outcome: Outcome) -> (Rating, Rating) {
-        RatingSystem::update(self, a, b, outcome)
+    fn update_series(&self, a: &Rating, b: &Rating, outcomes: &[Outcome]) -> (Rating, Rating) {
+        ibc_rating::rate_series(self, a, b, outcomes)
     }
     fn display(&self, r: &Rating) -> f64 {
         RatingSystem::display(self, r)
@@ -65,9 +65,10 @@ mod tests {
     fn both_systems_are_selectable_and_a_win_moves_the_right_way() {
         for name in ["weng-lin", "elo"] {
             let hook = by_name(name).unwrap();
-            let (a, b) = hook.update(&hook.initial(), &hook.initial(), Outcome::AWins);
+            let series = [Outcome::AWins, Outcome::Draw, Outcome::AWins];
+            let (a, b) = hook.update_series(&hook.initial(), &hook.initial(), &series);
             assert!(a.mu > b.mu, "{name}");
-            assert_eq!((a.games, b.games), (1, 1));
+            assert_eq!((a.games, b.games), (3, 3));
             assert!(hook.is_provisional(&hook.initial()));
         }
         assert!(by_name("glicko").is_none());

@@ -1,13 +1,15 @@
-//! Read-only endpoints that need no token: ladder, matches, replays, metrics, health.
+//! Read-only endpoints that need no token: ladder, matches, replays, maps, metrics, health. A token, when
+//! sent, only adds the caller's own submissions to the match and series views (`league::Viewer`).
 
 use super::worker::blob_response;
-use super::AppState;
-use crate::db::{self, jobs, league, ratings};
+use super::{auth_team_or_admin, AppState, Caller};
+use crate::db::{self, jobs, league, ratings, scrims};
 use crate::error::{ApiError, ApiResult};
 use crate::model::CLASSES;
 use crate::util::now_ms;
+use crate::App;
 use axum::extract::{Path, Query, State};
-use axum::http::header;
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
@@ -15,13 +17,24 @@ use serde_json::{json, Value};
 use std::fmt::Write;
 use std::sync::atomic::Ordering;
 
-/// Served verbatim from the latest snapshot (written whenever ratings or a live submission change).
-pub async fn ladder(State(app): AppState) -> ApiResult<Response> {
-    let body = app.db.tx(ratings::latest_snapshot)?;
-    let body = body.unwrap_or_else(|| {
-        json!({"generated_at": null, "system": app.rating.name(), "teams": []}).to_string()
-    });
-    Ok(([(header::CONTENT_TYPE, "application/json")], body).into_response())
+/// Who is asking: a valid team or admin credential widens the view; none, or one that is not accepted
+/// (a stale session on a public page), is the public view. Other failures are errors.
+fn viewer(app: &App, headers: &HeaderMap) -> ApiResult<league::Viewer> {
+    match auth_team_or_admin(app, headers) {
+        Ok(Caller::Admin) => Ok(league::Viewer::Admin),
+        Ok(Caller::Team(team)) => Ok(league::Viewer::Team(team.id)),
+        Err(e) if e.status == StatusCode::UNAUTHORIZED => Ok(league::Viewer::Public),
+        Err(e) => Err(e),
+    }
+}
+
+/// `[{rank, team_id, team_name, rating|null, tier|null, provisional, games, series, wins, losses, draws}]`,
+/// computed from the stored ratings on every request (one row per team with a live submission).
+pub async fn ladder(State(app): AppState) -> ApiResult<Json<Value>> {
+    let rows = app
+        .db
+        .tx(|tx| ratings::public_ladder(tx, app.rating.as_ref(), &app.cfg))?;
+    Ok(Json(Value::Array(rows)))
 }
 
 #[derive(Deserialize)]
@@ -29,6 +42,8 @@ pub struct MatchesQuery {
     /// Team id or name.
     team: Option<String>,
     series: Option<String>,
+    /// `ranked`, `unranked` or `tournament`.
+    kind: Option<String>,
     /// Page backwards: the `next` value of the previous page (a match id).
     before: Option<String>,
     limit: Option<i64>,
@@ -38,6 +53,11 @@ pub async fn matches(
     State(app): AppState,
     Query(q): Query<MatchesQuery>,
 ) -> ApiResult<Json<Value>> {
+    if let Some(kind) = q.kind.as_deref() {
+        league::class_of_kind(kind).ok_or_else(|| {
+            ApiError::bad_request(format!("kind {kind:?}: use ranked, unranked or tournament"))
+        })?;
+    }
     let list = app.db.tx(|tx| {
         let team = match &q.team {
             Some(t) => Some(db::find_team(tx, t)?.id),
@@ -46,6 +66,7 @@ pub async fn matches(
         let filter = league::MatchFilter {
             team,
             series: q.series.clone(),
+            kind: q.kind.clone(),
             before: q.before.clone(),
             limit: q.limit.unwrap_or(50).clamp(1, 500),
         };
@@ -64,9 +85,11 @@ pub async fn matches(
 pub async fn get_match(
     State(app): AppState,
     Path(match_id): Path<String>,
+    headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
+    let viewer = viewer(&app, &headers)?;
     app.db
-        .tx(|tx| league::get_match(tx, &match_id))?
+        .tx(|tx| league::get_match(tx, &match_id, &viewer))?
         .map(Json)
         .ok_or_else(|| ApiError::not_found(format!("no match {match_id:?}")))
 }
@@ -87,15 +110,28 @@ pub async fn replay(State(app): AppState, Path(match_id): Path<String>) -> ApiRe
 pub async fn get_series(
     State(app): AppState,
     Path(series_id): Path<String>,
+    headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
+    let viewer = viewer(&app, &headers)?;
     app.db
-        .tx(|tx| league::series_view(tx, &series_id))?
+        .tx(|tx| league::series_view(tx, &series_id, &viewer))?
         .map(Json)
         .ok_or_else(|| ApiError::not_found(format!("no series {series_id:?}")))
 }
 
 pub async fn maps(State(app): AppState) -> ApiResult<Json<Value>> {
     Ok(Json(json!({"maps": app.db.tx(db::list_maps)?})))
+}
+
+/// The `.ibcmap` text of a pool map (`ibc maps pull`).
+pub async fn map_text(State(app): AppState, Path(name): Path<String>) -> ApiResult<Response> {
+    let (_, sha256) = app.db.tx(|tx| scrims::pool_map(tx, &name))?;
+    let mut res = blob_response(app, sha256).await?;
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    Ok(res)
 }
 
 pub async fn patch(State(app): AppState) -> ApiResult<Json<Value>> {
