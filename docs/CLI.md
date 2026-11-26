@@ -84,6 +84,5 @@ sleep that long and retry once (up to an hour).
 
 All under `/v1` with `Authorization: Bearer <token>`: `POST auth/device`, `POST auth/device/token`,
 `POST auth/logout`, `GET me`, `GET team`, `POST submissions?language=&live=&note=`, `GET submissions`,
-`POST submissions/{id}/live`, `GET ladder`, `GET matches?team=&kind=&series=&before=&limit=`, `POST scrims`
-(falls back to `POST series` on a server without it, when no scrim-only option is given),
+`POST submissions/{id}/live`, `GET ladder`, `GET matches?team=&kind=&series=&before=&limit=`, `POST scrims`,
 `GET matches/{id}/replay?view=`, `GET maps`, `GET maps/{name}`.

@@ -138,19 +138,7 @@ pub fn scrim(opts: &Opts, a: ScrimArgs) -> CliResult<()> {
     if let Some(series) = &a.rematch {
         body["against_series_id"] = json!(series);
     }
-    let out = match client.post_json("scrims", &body) {
-        // An older coordinator only has `POST series`, which plays the live bots on pool maps.
-        Err(e)
-            if e.code == "endpoint_missing"
-                && a.maps.is_empty()
-                && a.me.is_none()
-                && a.rematch.is_none() =>
-        {
-            eprintln!("note: the server has no /v1/scrims; requesting a plain series instead");
-            client.post_json("series", &json!({"opponent": a.opponent, "games": a.games}))?
-        }
-        other => other?,
-    };
+    let out = client.post_json("scrims", &body)?;
     let id = out
         .get("series_id")
         .and_then(Value::as_str)
