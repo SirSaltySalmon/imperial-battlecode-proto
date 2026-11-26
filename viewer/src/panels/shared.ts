@@ -69,6 +69,9 @@ export const EFFECT_NAMES: Record<number, string> = {
   6: "heal",
   7: "decoy",
   8: "dash",
+  9: "trap",
+  10: "sonar",
+  11: "concussion",
 };
 
 /** `ITEM_KIND_*` ids of `crates/abi`. */
