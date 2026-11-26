@@ -1,4 +1,4 @@
-// The page around the canvas: side panel, kill feed, round banner, scrub-bar markers. Built with plain DOM
+// The page around the canvas: side panel, round banner, scrub-bar markers (the kill feed is in panels/). Built with plain DOM
 // calls; all replay-supplied text (bot names, map name) goes through `textContent`.
 
 import { stateTags, unitLabel } from "./draw-units";
@@ -8,7 +8,6 @@ import { recentEvents, roundIndexAt, type TimedEvent, type Timeline } from "./ti
 import {
   EVENT_DEFUSE,
   EVENT_DETONATE,
-  EVENT_KILL,
   EVENT_PLANT,
   PHASE_ACTION,
   PHASE_BUY,
@@ -206,38 +205,6 @@ export class Panel {
     this.viewButtons[2].classList.toggle("on", perspective.kind === "team" && perspective.team === 1);
     for (const [key, b] of this.layerButtons) b.classList.toggle("on", !!show[key]);
   }
-}
-
-/** How long a kill stays in the feed, in ticks. */
-const FEED_TICKS = 30;
-const FEED_ROWS = 6;
-
-function unitSpan(id: number, teamSize: number): HTMLElement {
-  if (id < 0) return el("span", "", "the world");
-  const team = id < teamSize ? 0 : 1;
-  return el("span", teamClass(team), unitLabel({ id, team }, teamSize));
-}
-
-/** Recent kills, newest at the bottom. Kills are public events, so the feed is the same in every perspective. */
-export function updateFeed(root: HTMLElement, timeline: Timeline, frame: number, teamSize: number, rules: ViewRules): void {
-  const round = timeline.rounds[roundIndexAt(timeline, frame)];
-  const kills = recentEvents(timeline, frame, FEED_TICKS, [EVENT_KILL])
-    .filter((e) => e.frame >= round.start)
-    .slice(-FEED_ROWS);
-  const key = kills.map((k) => `${k.frame}:${k.target}`).join(",");
-  if (root.dataset.key === key) return;
-  root.dataset.key = key;
-  root.replaceChildren(
-    ...kills.map((k) =>
-      el(
-        "div",
-        "feed-row",
-        unitSpan(k.actor, teamSize),
-        el("span", "how", weaponName(rules, k.value)),
-        unitSpan(k.target, teamSize),
-      ),
-    ),
-  );
 }
 
 function teamSpan(team: number, header: Header): HTMLElement {

@@ -493,6 +493,9 @@ fn worked_example_matches_the_docs() {
         let (killer, victim) = if winner == TEAM_A { (0, 2) } else { (2, 0) };
         let weapon = m.world.units[killer].weapon();
         kill(&mut m, killer, victim, weapon);
+        // The doc's detonation rounds assume the followed attacker ran clear of the blast. `end_round` is
+        // called directly, so no blast happens here; the winner must still be alive to carry its gear.
+        assert!(m.world.units[killer].alive);
         play_round(&mut m, winner, reason);
     }
     assert_eq!(

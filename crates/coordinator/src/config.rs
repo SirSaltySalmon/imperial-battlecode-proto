@@ -37,28 +37,80 @@ pub struct Config {
     pub max_blob_bytes: usize,
     pub max_map_bytes: usize,
 
-    /// Games of unranked series a team may request per rolling 24 h.
+    /// Games of unranked series (scrims) a team may request per rolling 24 h.
     pub unranked_daily_games: i64,
-    /// Most games in one series.
+    /// Most games in one series an organiser creates.
     pub max_series_games: i64,
+    /// Most games in one scrim (`POST /v1/scrims`).
+    pub max_scrim_games: i64,
     /// Period of the built-in ranked scheduler. 0 = off (use `POST /v1/admin/ranked-batch`).
     pub ranked_interval_ms: u64,
     /// Most series the scheduler creates per round. Below that, `ibc_rating::series_per_batch` sizes each
     /// round to what the live workers can play.
     pub ranked_series_budget: usize,
-    /// Games per ranked series (sides alternate, so keep it even).
+    /// Maps per ranked series, each a full match (sides swap at half-time inside a match, so any count
+    /// works; an odd one cannot end level on maps unless a map is drawn).
     pub ranked_games: i64,
     /// `weng-lin` or `elo` (see `rating::by_name`). Changing it on an existing data directory recomputes
     /// every rating from the event ledger at start.
     pub rating_system: String,
 
-    /// Language name -> fuel multiplier applied to submissions in that language.
+    /// Language name -> fuel multiplier applied to submissions in that language. The only source of a
+    /// submission's multiplier: an upload names its language, never its multiplier.
     pub languages: Vec<(String, f64)>,
     /// A worker counts as live in `/metrics` if it called within this window.
     pub worker_live_ms: i64,
     /// Ladder snapshots kept (older ones are pruned; they can be recomputed from the series table).
     pub ladder_snapshots_kept: i64,
+    /// Accounts, sessions, teams of users (docs/api/auth.md).
+    pub auth: crate::accounts::AuthConfig,
+    /// A team with fewer rated series than this is provisional: no rating or tier on the ladder, listed
+    /// after every rated team.
+    pub provisional_series: i64,
+    /// Lowest displayed rating of each tier above Iron, in `TIERS` order (Bronze .. Radiant), ascending.
+    /// Display only: the matchmaker never looks at tiers.
+    pub tier_floors: [f64; 8],
+    /// How long a tournament lock pauses ranked matchmaking (unless the organisers resume it sooner).
+    pub tournament_pause_ms: i64,
+    /// Rate limits, submission retention and moderation flags (`docs/MODERATION.md`).
+    pub moderation: crate::ratelimit::ModerationCfg,
+
+    /// A live submission that stops validating at a patch switch keeps playing this long; then its team is
+    /// left out of ranked pairing until it makes a valid submission live.
+    pub invalid_grace_ms: i64,
+    /// After a patch switch, jobs of the old patch still queued this long are dead-lettered (tournament
+    /// jobs excepted): workers that kept the old runner have this long to finish the series that started.
+    pub patch_drain_ms: i64,
+    /// A balance patch widens every rating's uncertainty by this factor (`on_balance_patch`).
+    pub balance_sigma_factor: f64,
+
+    /// The web platform's built files (`web/dist`), served at `/`. `None`: no pages, the API only.
+    pub web_dir: Option<std::path::PathBuf>,
+    /// The replay viewer's built files (`viewer/dist`), served at `/viewer/`.
+    pub viewer_dir: Option<std::path::PathBuf>,
+    /// `distribution.json` served at `GET /v1/distribution` (written by `cargo xtask dist`). `None`: 404.
+    pub distribution_file: Option<std::path::PathBuf>,
 }
+
+/// Ladder tiers, lowest first. Iron is everything below `tier_floors[0]`.
+pub const TIERS: [&str; 9] = [
+    "Iron",
+    "Bronze",
+    "Silver",
+    "Gold",
+    "Platinum",
+    "Diamond",
+    "Ascendant",
+    "Immortal",
+    "Radiant",
+];
+
+/// Default tier floors on the 1500-centred display scale. Weng-Lin shows the conservative estimate
+/// `mu - 3 sigma`, so a settled average team sits around 1360 and a brand-new one at about 760; Elo shows
+/// the rating itself (1500 start). 100 points is about 64 % expected score between settled teams.
+pub const DEFAULT_TIER_FLOORS: [f64; 8] = [
+    1100.0, 1200.0, 1300.0, 1400.0, 1500.0, 1600.0, 1700.0, 1800.0,
+];
 
 impl Default for Config {
     fn default() -> Config {
@@ -80,18 +132,39 @@ impl Default for Config {
             max_map_bytes: 1 << 20,
             unranked_daily_games: 100,
             max_series_games: 20,
-            ranked_interval_ms: 0,
+            max_scrim_games: 5,
+            ranked_interval_ms: 600_000,
             ranked_series_budget: 16,
-            ranked_games: 2,
+            ranked_games: 3,
             rating_system: "weng-lin".to_string(),
-            languages: vec![("rust".to_string(), 1.0)],
+            languages: vec![("rust".to_string(), 1.0), ("cpp".to_string(), 1.0)],
             worker_live_ms: 90_000,
             ladder_snapshots_kept: 200,
+            auth: crate::accounts::AuthConfig::default(),
+            provisional_series: 5,
+            tier_floors: DEFAULT_TIER_FLOORS,
+            tournament_pause_ms: 3_600_000,
+            moderation: Default::default(),
+            invalid_grace_ms: 86_400_000,
+            patch_drain_ms: 3_600_000,
+            balance_sigma_factor: 1.5,
+            web_dir: None,
+            viewer_dir: None,
+            distribution_file: None,
         }
     }
 }
 
 impl Config {
+    /// The tier of a displayed rating.
+    pub fn tier(&self, display: f64) -> &'static str {
+        TIERS[self
+            .tier_floors
+            .iter()
+            .filter(|&&floor| display >= floor)
+            .count()]
+    }
+
     pub fn fuel_multiplier(&self, language: &str) -> Option<f64> {
         self.languages
             .iter()

@@ -1,11 +1,14 @@
-// Whose eyes the map is drawn through. "all" shows everything; a team or a single unit sees its own team in
-// full and only those enemies that are in the `seen` bitmask of the chosen viewers.
+// Whose eyes the map is drawn through. "all" shows everything. Vision and hearing are shared by the team (the
+// engine fogs every bot's tables per team), so a team and a single unit see the same thing: their own team in
+// full and only the enemies in the union of the team's `seen` bitmasks. A single unit differs only in showing
+// just its own debug drawings.
 
 import type { GameMap } from "./map";
 import {
   CHARGE_CARRIED,
   CHARGE_DROPPED,
   DROP_CHARGE,
+  EFFECT_TRAP,
   S_HAS_CHARGE,
   type DebugDraw,
   type DropFrame,
@@ -39,11 +42,16 @@ export function perspectiveTeam(frame: Frame, p: Perspective): number | null {
   return null;
 }
 
-/** Units whose vision the perspective uses. */
+/** Units whose vision the perspective uses: the whole team of a team or unit perspective. */
 export function viewers(frame: Frame, p: Perspective): UnitFrame[] {
-  if (p.kind === "team") return frame.units.filter((u) => u.team === p.team);
-  if (p.kind === "unit") return frame.units.filter((u) => u.id === p.id);
-  return frame.units;
+  const team = perspectiveTeam(frame, p);
+  return team === null ? frame.units : frame.units.filter((u) => u.team === team);
+}
+
+/** Units whose debug drawings the perspective shows. */
+function debugIds(frame: Frame, p: Perspective): Set<number> {
+  if (p.kind === "unit") return new Set([p.id]);
+  return new Set(viewers(frame, p).map((u) => u.id));
 }
 
 /** Union of the viewers' `seen` masks (bit i = unit id i). */
@@ -55,7 +63,8 @@ export function seenMask(units: UnitFrame[]): bigint {
 
 /**
  * Per unit (same order as `frame.units`): is it drawn? Own team: always. Enemies: only while alive and in
- * the viewers' `seen` mask. A dead enemy stays as a marker: kills are public events.
+ * the viewers' `seen` mask. A dead enemy is kept here (kills are public events); `viewOf` then draws its
+ * body only where the viewers can see it, so an unseen kill does not give away the spot.
  */
 export function unitVisibility(frame: Frame, p: Perspective): boolean[] {
   const team = perspectiveTeam(frame, p);
@@ -104,8 +113,17 @@ export function viewOf(frame: Frame, p: Perspective, map: GameMap, rules: ViewRu
     };
   }
   const sees = (x: number, y: number) => eyes.some((u) => canSeePoint(map, rules, u, x, y));
+  // Kills are public, but not where they happened: a dead enemy is drawn only while its body is in sight.
+  frame.units.forEach((u, i) => {
+    if (!u.alive && u.team !== team) unitVisible[i] = sees(u.x, u.y);
+  });
+  // An enemy trap shows only to a viewer within `sense_radius` of it (docs/rules/abilities.md).
+  const near = (x: number, y: number) =>
+    eyes.some((u) => (u.x - x) ** 2 + (u.y - y) ** 2 <= rules.sense_radius ** 2 && canSeePoint(map, rules, u, x, y));
+  const effectVisible = (e: EffectFrame) => e.team === team || (e.kind === EFFECT_TRAP ? near : sees)(e.x, e.y);
   const attacking = frame.attackers === team;
   const ids = new Set(eyes.map((u) => u.id));
+  const drawers = debugIds(frame, p);
   let chargeVisible = true;
   if (frame.charge.state === CHARGE_CARRIED) {
     const carrier = frame.units.findIndex((u) => u.state & S_HAS_CHARGE);
@@ -116,10 +134,10 @@ export function viewOf(frame: Frame, p: Perspective, map: GameMap, rules: ViewRu
   return {
     unitVisible,
     projectiles: frame.projectiles.filter((q) => q.team === team || sees(q.x, q.y)),
-    effects: frame.effects.filter((e) => e.team === team || sees(e.x, e.y)),
+    effects: frame.effects.filter(effectVisible),
     drops: frame.drops.filter((d) => (d.kind === DROP_CHARGE && attacking) || sees(d.x, d.y)),
     sounds,
-    debug: frame.debug.filter((d) => ids.has(d[0])),
+    debug: frame.debug.filter((d) => drawers.has(d[0])),
     chargeVisible,
     viewerIds: [...ids],
     team,

@@ -1,7 +1,8 @@
 # TODO
 
-What is left to do, as of 2026-11-25, after the foundation, the first wave of eleven units and the job-system
-integration landed on `main`. Each item says what is wrong or missing, where it lives, and what "done" looks
+What is left to do, as of 2026-11-26, after the foundation, the first wave of eleven units, the job-system
+integration and the twenty-unit proof-of-concept batch (PRs 16 to 35, merged through the `integration` branch)
+landed. Each item says what is wrong or missing, where it lives, and what "done" looks
 like. Items inside a section are in the order I would do them.
 
 Where an item came from a measurement, the number is given so it can be re-checked. `ibc-bench`
@@ -30,6 +31,17 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [ ] **`forcer` beats the whole pool** (78.8% of matches) with the cheapest loadout and the most forward
   defence. Find out which of the two it is with `ibc-bench why` and an A/B of `forcer` against a copy with
   `Buy::Best`, before touching SMG or shotgun prices.
+- [ ] **The batch moved the league a long way, and nothing is tuned yet.** Native league, 14 maps x 3 seeds,
+  3,024 games, 672 per bot (about +/-3.7 points), win % before the batch -> after: rusher 65.2 -> 53.1,
+  holder 37.9 -> 28.7, utility 45.5 -> 33.3, sapper 53.4 -> 52.2, retaker 49.6 -> 73.7, lurker 52.1 -> 53.4,
+  saver 63.8 -> 76.0, forcer 82.4 -> 79.5. Most of it is the firing model (unit 3, PR 26): bots that shot on the
+  move lost, patient ones gained. Retaker's first jump came with draws and the blast (unit 1, PR 33); read
+  replays before acting on it. Per-stage tables are in the integration PR. Tune one change at a time.
+- [ ] **Pistol and rifle after the firing model.** With no movement spread and no kick, the pistol kills at
+  20 tiles and the rifle is strong at every range (unit 3's note). Re-measure kills by weapon, then tune.
+- [ ] **Refused actions during ability startup.** Since thrown abilities gained a startup (unit 5), bots
+  built on `utility` see 0.8 to 1.4% refused actions: they try to shoot while casting. Teach the SDK and bots
+  to wait out `S_CASTING`.
 - [ ] **New mechanics are played but not tuned.** Kills by weapon with the eight-bot pool: rifle 24.8%,
   marksman 23.2%, pistol 18.7%, SMG 9.7%, abilities 9.2%, shotgun 8.0%, LMG 6.5%. The marksman rifle is
   carried by about one unit in five and takes almost a quarter of the kills. Tune one thing at a time
@@ -47,14 +59,14 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   100k-fuel tick by estimate, never measured. On 56x40 maps `path_len`/`approach_point` in `sdk/rust/src/nav.rs`
   may exceed even the buy-phase budget. Measure fuel per call with the wasm runner and either budget the search
   or offer a host-side path helper in a later ABI revision.
-- [ ] **Decide friendly fire for bullets.** Flash and incendiary already affect your own team (confirmed
-  intended). Bullets currently pass through teammates. Pick one and document it.
+- [x] **Friendly fire for bullets.** Decided (vision): abilities hit your own team, bullets never do.
 - [ ] **`SiteInfo` is only a bounding box.** Its centre need not be a site tile on L-shaped or hollow sites, so
   `A_PLANT` there would fail. `ibc-maptool lint` rejects such maps today; the better fix is a guaranteed
   plantable point per site (additive ABI field).
-- [ ] **Bots cannot see their weapon cooldown or second weapon.** `UnitInfo` shows only the weapon in hand and
+- [x] **Bots cannot see their weapon cooldown or second weapon.** Done: `UnitInfo.other_weapon` and
+  `fire_cooldown` (unit 4). `UnitInfo` shows only the weapon in hand and
   has no weapon cooldown, so bots get `ERR_NOT_READY` unless they track it. Additive ABI fields.
-- [ ] **`vx`/`vy` report the commanded velocity**, even when a wall blocked the move. Report what happened.
+- [x] **`vx`/`vy` report the commanded velocity**, even when a wall blocked the move. Report what happened.
 - [ ] **`EVENT_DAMAGE` carries no weapon id**, so damage-by-weapon needs re-simulation. Additive.
 
 ## 2. Engine and runner correctness
@@ -71,10 +83,10 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [ ] **The `unsafe` in the fuel logic.** `crates/runner/src/vm.rs` reaches the store through a raw pointer to
   re-arm a suspended bot's fuel each turn. It is tested, but it relies on Wasmtime 51 internals. Re-check on
   every Wasmtime bump, and ask upstream whether a safe API exists.
-- [ ] **Bot debug drawings never reach the viewer.** `frame.debug` is empty on re-simulation: `debug_draw`
+- [x] **Bot debug drawings never reach the viewer.** Done in replay format 2 (docs/REPLAY.md). `frame.debug` is empty on re-simulation: `debug_draw`
   calls are not recorded as replay inputs and `World::step` clears them. Record them in the replay as
   non-simulation events (they must not affect the state hash).
-- [ ] **Core rules are not in the replay header.** The viewer hardcodes vision range, cone angle, unit radius
+- [x] **Core rules are not in the replay header.** Done in replay format 2 (docs/REPLAY.md). The viewer hardcodes vision range, cone angle, unit radius
   and more in `viewer/src/vision.ts`; a balance patch will make drawn cones disagree with what units saw. Put
   the ruleset tables (or the whole TOML) in the header and have the viewer read them.
 - [ ] **Per-round and per-kill statistics in `summary_json`**, a per-turn fuel distribution in the runner
@@ -86,7 +98,6 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [ ] **`lead` and `dist` in the Rust SDK overflow** on extreme inputs (a bullet speed near 1): wraps in
   release, panics in debug. Clamp or use wider arithmetic in `sdk/rust/src/geom.rs` and mirror it in
   `sdk/cpp/ibc.h` (the C++ port matches release behaviour on purpose).
-- [ ] **`ibc new` is a stub.** Create a bot from a template for Rust and C++.
 - [ ] **`ibc build --debug`** and bots that print to stdout have never been exercised.
 
 ## 3. Job system and platform
@@ -100,34 +111,47 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   Test on Linux before relying on it for spot instances.
 - [ ] **`--allow-runner-fetch` and side-by-side runner directories have no test.** This is the path that lets
   a fleet change patch without redeploying; it downloads and runs native code, so it needs a careful test.
-- [ ] **No web platform.** There is an HTTP API and nothing for a human: no sign-in, team pages, submission
+- [x] **No web platform.** Done: `web/` (unit 13) with email + password accounts, sessions and device-code
+  CLI login (unit 8), served by the coordinator at `/` with the viewer at `/viewer/`. Was: There is an HTTP API and nothing for a human: no sign-in, team pages, submission
   upload, ladder, match list or embedded viewer. This is the largest missing piece for an event. The
   coordinator authenticates teams with a bearer token shown once at creation; real sign-in (Cambridge used
   Discord and email) has to be designed.
-- [ ] **How the ladder shows a new team.** The API exposes `rating` and `provisional`; the frontend must
+- [x] **How the ladder shows a new team.** Done: "Provisional" until 5 rated series (unit 9). Was: The API exposes `rating` and `provisional`; the frontend must
   decide whether a provisional team shows a number or the word. With Weng-Lin a new team's number starts near
   763 and climbs.
-- [ ] **No tournament runner.** Single and double elimination seeded from a ladder snapshot, a submission lock
-  window, many games per match. Tournament jobs already have their own priority class.
-- [ ] **A patch change voids running series.** Setting a new patch dead-letters queued and leased jobs of the
+- [x] **No tournament runner.** Done: `docs/api/tournaments.md` (lock snapshot, seeded single/double
+  elimination, every pairing plays every map, maps hidden until revealed, ranked paused at lock).
+- [x] **A patch change voids running series.** Done (unit 12): started series finish on their patch, queued
+  ones move, balance patches widen ratings. Was: Setting a new patch dead-letters queued and leased jobs of the
   old one at once. Decide the behaviour at a patch boundary (finish in-flight series on the old patch, or void
   them) and whether ratings widen (`on_balance_patch` exists in `ibc-rating` and is not called).
-- [ ] **Invalid submissions after an ABI or engine change.** There is no server-side rebuild because bots are
+- [x] **Invalid submissions after an ABI or engine change.** Done (unit 12): 24 h grace, then out of
+  matchmaking. Was: There is no server-side rebuild because bots are
   uploaded as wasm. Decide the rule for bots that no longer validate (Cambridge gave a 24 h grace period, then
   automatic losses).
-- [ ] **Language fuel multipliers are self-declared.** Harmless while only Rust and C++ exist (both 1x). Before
+- [x] **Language fuel multipliers are self-declared.** Done (unit 12): the server's table decides; `ibc build`
+  embeds an `ibc.language` section. Was: Harmless while only Rust and C++ exist (both 1x). Before
   Python arrives the server must decide the multiplier itself, not trust the upload.
 - [ ] **SQLite and local disk only.** Fine for one box. `crates/coordinator` keeps SQL in `src/db/` and blobs
   behind a trait for a later Postgres and S3 backend. Not needed until a second coordinator or off-box storage
   is.
-- [ ] **Backups and retention.** Document and automate copying the SQLite file and blobs. Add a replay
+- [x] **Backups and retention.** Done: `ibc-coordinator backup`, `prune-replays`, `deploy/backup.sh` (unit 16),
+  per-team submission retention (unit 11). Was: Document and automate copying the SQLite file and blobs. Add a replay
   retention policy: replays can be regenerated from (patch, map, bots, seed), so unranked and bench replays
   need not be kept forever.
-- [ ] **Abuse limits.** Upload rate and size per team, total submissions kept per team, API rate limits.
+- [x] **Abuse limits.** Done (unit 11): per-token and per-IP request limits, uploads per hour, module size,
+  429 with `Retry-After`, suspend/ban for teams and users. Was: Upload rate and size per team, total submissions kept per team, API rate limits.
 - [ ] **Cost prior in the budget governor.** `series_per_batch` falls back to 10 core-seconds per game when it
-  has no measurement; measured cost is about 0.03. Lower the prior.
-- [ ] **Plagiarism and duplicate detection** between teams' submissions (hash equality is trivial; near
-  duplicates are not).
+  has no measurement; measured cost is about 0.03. Unit 9 made it schedule at least one series per round until
+  games are timed, and devstack uses a 30 s interval; the prior itself is still 10.
+- [ ] **Plagiarism and duplicate detection.** Identical wasm across teams is flagged (unit 11); near duplicates
+  are not.
+- [ ] **Accounts:** emails are not verified, so register the `IBC_ADMIN_EMAILS` accounts before the site is
+  public; login throttling is per email only (put per-IP limits in the reverse proxy).
+- [ ] **Any worker token can read any full replay blob** by hash. Fine while workers are trusted.
+- [ ] **Double elimination has no bracket reset** in the grand final (documented in `docs/api/tournaments.md`).
+- [ ] **Docker images have never been built** (no daemon on the dev machine); `docker compose config` accepts
+  the file.
 
 ## 4. Never executed
 
@@ -139,10 +163,9 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [ ] **`ibc toolchain install` download.** The sha256 pins are the digests GitHub publishes, but no archive
   was ever fetched.
 - [ ] **Workflow lint.** The YAML was parsed, not linted. Run `actionlint`.
-- [ ] **The three shell wrappers in `tools/`.**
+- [ ] **The three shell wrappers in `tools/`.** (`tools/devstack.sh` has run green.)
 - [ ] **CI did not run on PR 15.** Check why (path filters or a trigger) so job-system changes are covered.
-- [ ] **A full workspace test run on `main` after PR 15.** The last full run (258 tests) was before it; PR 15
-  was tested per crate.
+- [x] **A full workspace test run.** 488 passed on the integration branch.
 
 ## 5. Tests and code health
 
@@ -153,6 +176,12 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   clippy warnings in `ibc-abi`, `ibc-engine`, `ibc-sim` (`ibc-cli` and `ibc-runner` unsurveyed). Do one
   clean-up commit, add a `rustfmt.toml` (`max_width = 120`, `use_small_heuristics = "Max"` gave the smallest
   diff), then switch CI to `cargo xtask check --strict`.
+- [ ] **`ibc_runner::run_driven` is about 190 lines** (it grew out of `run_match` for `ibc play`).
+- [ ] **`crates/engine-wasm/src/view.rs` serialises rules fields by hand,** so a new rules field must be added
+  there too or the viewer's buy menu will not show it.
+- [ ] **Generated rules page has empty meanings** for `EconRules` and many core fields: they have no doc
+  comments in the engine.
+- [ ] **C++ templates and headers from this batch were never compiled** (wasi-sdk not installed).
 - [ ] **Functions over the 80-line guideline:** `drawEffects` in `viewer/src/draw-world.ts`, `ab::analyse`,
   the Markdown renderers and `dump::why` in `crates/bench`, two in `crates/coordinator`.
 - [ ] **`ibc-bench` accepts flags meant for another subcommand** and ignores them.
@@ -172,22 +201,19 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   and the host API either through a statically linked extension module (needs a custom CPython build) or over
   a file descriptor the WASI shim implements (no rebuild). Cambridge gave Python 25x the fuel; that multiplier
   is the main running-cost lever, so choose it deliberately.
-- [ ] **Map editor** in the browser, reusing the viewer's renderer and `ibc-maptool lint`.
+- [x] **Map editor** in the browser: `ibc view --editor` (unit 20).
 - [ ] **Bot parameter tuner** (SPSA, as `tools/evotune` did for the Cambridge bot) on top of `ibc-bench`.
-- [ ] **Handbook generator:** rules pages from `rules/*.toml`, the ABI reference from `crates/abi`, and a
-  single Markdown bundle for AI agents, as Cambridge's "Download for LLM".
-- [ ] **CLI self-update and `ibc.toml` version pinning,** so players are moved to a new patch reliably.
+- [x] **Handbook generator:** rules pages from `rules/*.toml`, the ABI reference from `crates/abi`, and a
+  single Markdown bundle for AI agents, as Cambridge's "Download for LLM". `cargo xtask docs`, output in
+  `docs/generated/`, checked in CI. Left over: serve `llm.md` from the platform as a download.
+- [x] **CLI update check and `ibc.toml` version pinning:** `ibc update` prints the upgrade command, other
+  commands warn once a day when outdated (unit 16). It never downloads by itself.
 - [ ] **More bot languages** once the ABI has settled (Go, Zig, AssemblyScript are cheap on `wasm32-wasip1`).
 - [ ] **Shadow runs before a patch goes live:** replay yesterday's ranked inputs on the new engine and compare
   outcome distributions (`docs/release.md` describes it; nothing implements it).
 
 ## 7. Decisions needed
 
-- Friendly fire for bullets (section 1).
-- What a provisional team shows on the ladder (section 3).
-- What happens to in-flight series and to ratings at a patch boundary (section 3).
-- The rule for submissions that stop validating after a patch (section 3).
-- Sign-in method and eligibility categories for the event.
-- Games per ranked series and ladder cadence. Cambridge ran five-game series in batches; one game here already
-  has both sides, so a series may need fewer games.
-- Team shared memory size (64 bytes now) and whether teammates' sightings should be shared automatically.
+- Eligibility categories for the event (sign-in is email + password, decided).
+- Ladder cadence. Ranked series are now 3 games (sides alternate per game) every 600 s by default.
+- Team shared memory size (64 bytes now). (Sightings and sounds are now shared automatically.)

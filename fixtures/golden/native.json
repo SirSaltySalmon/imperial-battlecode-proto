@@ -1,8 +1,8 @@
 {
   "patch": {
-    "engine": "0.1.0",
-    "ruleset_hash": "0304dfc448350cca",
-    "abi": 0
+    "engine": "0.2.0",
+    "ruleset_hash": "5795cbc069627a93",
+    "abi": 1
   },
   "cases": [
     {
@@ -17,8 +17,8 @@
         7,
         0
       ],
-      "ticks": 531,
-      "final_state_hash": "0743d31e73f75bf2"
+      "ticks": 592,
+      "final_state_hash": "58facedd899908c4"
     },
     {
       "name": "crossfire-holder-rusher-s2",
@@ -29,11 +29,11 @@
       "finished": true,
       "winner": 1,
       "score": [
-        9,
-        9
+        2,
+        7
       ],
-      "ticks": 1104,
-      "final_state_hash": "d516054a71540bd4"
+      "ticks": 575,
+      "final_state_hash": "9d44ffd6bc10e1d1"
     },
     {
       "name": "tunnels-rusher-holder-s1",
@@ -47,8 +47,8 @@
         7,
         0
       ],
-      "ticks": 312,
-      "final_state_hash": "0a07843446453af9"
+      "ticks": 375,
+      "final_state_hash": "21ca941c89b73fd5"
     },
     {
       "name": "tunnels-holder-rusher-s2",
@@ -59,11 +59,11 @@
       "finished": true,
       "winner": 1,
       "score": [
-        0,
+        2,
         7
       ],
-      "ticks": 325,
-      "final_state_hash": "da70c11962062341"
+      "ticks": 418,
+      "final_state_hash": "72bef8f11d08da9f"
     },
     {
       "name": "crossfire-rusher-rusher-s3",
@@ -72,13 +72,13 @@
       "a": "rusher",
       "b": "rusher",
       "finished": true,
-      "winner": 1,
+      "winner": null,
       "score": [
         9,
         9
       ],
-      "ticks": 711,
-      "final_state_hash": "82d788fc08e30c6c"
+      "ticks": 907,
+      "final_state_hash": "bb66286b423ba88b"
     },
     {
       "name": "tunnels-holder-idle-s4",
@@ -92,8 +92,8 @@
         7,
         0
       ],
-      "ticks": 612,
-      "final_state_hash": "e619486ed0baf328"
+      "ticks": 634,
+      "final_state_hash": "850a4f3ad946732f"
     }
   ]
 }

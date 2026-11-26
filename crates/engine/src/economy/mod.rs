@@ -8,7 +8,7 @@ use crate::Fnv;
 use ibc_abi::*;
 use toml::Table;
 
-pub use shop::buy;
+pub use shop::{buy, buy_for};
 
 /// Units per team whose buy-phase purchases are tracked for trade-in refunds. Units beyond this (no shipped map
 /// has that many) can still buy; they just get no refund when replacing something bought in the same phase.
@@ -212,22 +212,25 @@ pub fn on_round_end(w: &mut World, winner: i32, reason: i32) {
     w.econ[loser as usize].loss_streak = streak + 1;
 }
 
+/// How a match ended: the winning team, or `None` for a draw.
+pub type Outcome = Option<i32>;
+
 /// SEAM: called after every round from the last regulation round on, when the core has not ended the match.
-/// Return `Some(team)` to end the match, or `None` to play another round.
+/// Return `Some(outcome)` to end the match, or `None` to play another round.
 ///
 /// Overtime is played in pairs of rounds, one per side. After a complete pair the team ahead wins (it took
 /// both rounds); a split pair leads to another pair, and after `overtime_max_pairs` level pairs to `tiebreak`.
-pub fn after_regulation(w: &mut World) -> Option<i32> {
+pub fn after_regulation(w: &mut World) -> Option<Outcome> {
     let played = w.round - regulation_rounds(w);
     if played < 0 || played % 2 != 0 {
         return None;
     }
     if w.score[0] != w.score[1] {
-        return Some(if w.score[0] > w.score[1] {
+        return Some(Some(if w.score[0] > w.score[1] {
             TEAM_A
         } else {
             TEAM_B
-        });
+        }));
     }
     if played / 2 >= w.rules.flow.overtime_max_pairs {
         return Some(tiebreak(w));
@@ -235,25 +238,23 @@ pub fn after_regulation(w: &mut World) -> Option<i32> {
     None
 }
 
-/// SEAM: pick a winner when the score cannot: rounds, then kills, then damage, then a seed coin flip.
-pub fn tiebreak(w: &World) -> i32 {
-    if w.score[0] != w.score[1] {
-        return if w.score[0] > w.score[1] {
-            TEAM_A
-        } else {
-            TEAM_B
-        };
-    }
+/// SEAM: pick a winner when the score cannot: rounds, then kills, then damage. If all three are level the match
+/// is a draw. Blast kills have no attacker, so they never count as kills here.
+pub fn tiebreak(w: &World) -> Outcome {
     let sum = |team: i32, f: fn(&Unit) -> i32| -> i32 {
         w.units.iter().filter(|u| u.team == team).map(f).sum()
     };
-    let kills: fn(&Unit) -> i32 = |u| u.stats.kills;
-    let damage: fn(&Unit) -> i32 = |u| u.stats.damage;
-    for f in [kills, damage] {
-        let (a, b) = (sum(TEAM_A, f), sum(TEAM_B, f));
-        if a != b {
-            return if a > b { TEAM_A } else { TEAM_B };
-        }
-    }
-    (w.seed & 1) as i32
+    let rounds = [w.score[0], w.score[1]];
+    let kills = [
+        sum(TEAM_A, |u| u.stats.kills),
+        sum(TEAM_B, |u| u.stats.kills),
+    ];
+    let damage = [
+        sum(TEAM_A, |u| u.stats.damage),
+        sum(TEAM_B, |u| u.stats.damage),
+    ];
+    [rounds, kills, damage]
+        .into_iter()
+        .find(|[a, b]| a != b)
+        .map(|[a, b]| if a > b { TEAM_A } else { TEAM_B })
 }

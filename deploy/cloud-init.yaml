@@ -1,11 +1,14 @@
 #cloud-config
 # Boot a rented box or a spot instance into a registered Imperial Battlecode worker.
 #
-# Set the two variables below and paste this file as user data. Nothing listens on the box: the worker only
+# Set the variables below and paste this file as user data. Nothing listens on the box: the worker only
 # makes outbound HTTPS connections to the coordinator, so no inbound firewall rule is needed.
 #
-# RELEASE_URL is a per-deployment constant, not a per-box variable: a tarball holding `ibc`, `ibc-worker` and
-# `ibc-worker.service` for the current patch (build it with deploy/README.md, "Building a release").
+# RELEASE_URL and RELEASE_SHA256 are per-patch constants, not per-box variables: the Linux release archive
+# that `cargo xtask dist` builds (`ibc-<version>-x86_64-unknown-linux-musl.tar.gz`, or `aarch64-...` for
+# Arm boxes). It holds `ibc`, `ibc-worker` and `ibc-worker.service` in one top-level directory. Copy both
+# values from the coordinator's `GET /v1/distribution` (the artifact with that `target`) or from the
+# release's SHA256SUMS; an empty RELEASE_SHA256 skips the check.
 
 write_files:
   - path: /etc/ibc-worker/bootstrap.env
@@ -13,7 +16,8 @@ write_files:
     content: |
       IBC_COORDINATOR=https://coordinator.example.org
       IBC_REGISTRATION_TOKEN=paste-a-short-lived-registration-token
-      RELEASE_URL=https://github.com/SirSaltySalmon/imperial-battlecode-proto/releases/latest/download/ibc-worker-x86_64-linux.tar.gz
+      RELEASE_URL=https://github.com/SirSaltySalmon/imperial-battlecode-proto/releases/download/v0.1.0/ibc-0.1.0-x86_64-unknown-linux-musl.tar.gz
+      RELEASE_SHA256=
 
   # Turns a cloud interruption notice into a drain: the worker stops leasing and finishes what it runs.
   # AWS spot gives 120 s of notice, GCP and Azure spot about 30 s; a match takes well under a second.
@@ -53,7 +57,12 @@ runcmd:
     set -eu
     . /etc/ibc-worker/bootstrap.env
     tmp=$(mktemp -d)
-    curl -fsSL --retry 5 "$RELEASE_URL" | tar -xz -C "$tmp"
+    curl -fsSL --retry 5 -o "$tmp/release.tar.gz" "$RELEASE_URL"
+    if [ -n "${RELEASE_SHA256:-}" ]; then
+      echo "$RELEASE_SHA256  $tmp/release.tar.gz" | sha256sum -c -
+    fi
+    # The archive is ibc-<version>-<target>/{ibc,ibc-worker,ibc-worker.service,...}.
+    tar -xzf "$tmp/release.tar.gz" -C "$tmp" --strip-components=1
     install -m 755 "$tmp/ibc" "$tmp/ibc-worker" /usr/local/bin/
     install -m 644 "$tmp/ibc-worker.service" /etc/systemd/system/
     rm -rf "$tmp"

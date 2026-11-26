@@ -8,3 +8,6 @@ out
 **/.ibc
 **/node_modules
 viewer/dist
+deploy/release
+web/dist
+packaging/pip/wheel-data

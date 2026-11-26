@@ -1,4 +1,4 @@
-// Integer fan and falloff, matching `crates/engine/src/combat`. Drawing colours come from theme.ts, not from here.
+// Integer fan, startup and falloff, matching `crates/engine/src/combat`. Drawing colours come from theme.ts, not from here.
 
 export interface Weapon {
   name: string;
@@ -7,7 +7,6 @@ export interface Weapon {
   damage: number;
   pellets: number;
   spread: number;
-  moveSpread: number;
   recoilSpread: number;
   recoilPerShot: number;
   recoilRecovery: number;
@@ -20,9 +19,13 @@ export interface Weapon {
   falloffStart: number;
   falloffMinPct: number;
   movePct: number;
+  unsteadyGain: number;
+  unsteadyDecay: number;
+  unsteadyMax: number;
+  startupPerPoint: number;
   topSpeed: number;
-  /** Heat, sideways shift, fan step at each release while holding the trigger. */
-  hold: [number, number, number][];
+  /** Recoil heat and fan step at each release while holding the trigger braced. */
+  hold: [number, number][];
 }
 
 export interface LabMap {
@@ -61,9 +64,7 @@ export interface FanCheck {
   weapon: number;
   facing: number;
   aim: number;
-  speed: number;
   recoil: number;
-  shots: number;
   centre: number;
   step: number;
 }
@@ -96,7 +97,6 @@ export interface Fan {
   step: number;
   pellets: number;
   extra: number;
-  bias: number;
 }
 
 export function angleDiff(a: number, b: number): number {
@@ -118,18 +118,23 @@ export function polar(angle: number, len: number): [number, number] {
   return [Math.trunc((sinOne(angle + 16384) * len) / 16384), Math.trunc((sinOne(angle) * len) / 16384)];
 }
 
-export function extraSpread(w: Weapon, speed: number, recoil: number): number {
-  const e = Math.trunc((w.moveSpread * Math.max(0, speed)) / 1024) + w.recoilSpread * Math.max(0, recoil);
-  return Math.max(0, Math.min(32768, e));
+/** Spread added between pellets by recoil heat. Movement adds none. */
+export function extraSpread(w: Weapon, recoil: number): number {
+  return Math.max(0, Math.min(32768, w.recoilSpread * Math.max(0, recoil)));
 }
 
-export function fanOf(w: Weapon, facing: number, aim: number, fov: number, speed: number, recoil: number, shots: number): Fan {
-  const extra = extraSpread(w, speed, recoil);
-  const bias = shots % 2 === 0 ? Math.trunc(extra / 2) : -Math.trunc(extra / 2);
+/** The fan, centred on the aim clamped to the view cone. */
+export function fanOf(w: Weapon, facing: number, aim: number, fov: number, recoil: number): Fan {
+  const extra = extraSpread(w, recoil);
   let off = angleDiff(facing, aim);
   if (off > fov) off = fov;
   if (off < -fov) off = -fov;
-  return { centre: (facing + off + bias) & 0xffff, step: w.spread + extra, pellets: w.pellets, extra, bias };
+  return { centre: (facing + off) & 0xffff, step: w.spread + extra, pellets: w.pellets, extra };
+}
+
+/** Ticks from a pull to the bullets leaving for a unit that is not braced. */
+export function startupTicks(w: Weapon, unsteadiness: number): number {
+  return w.windup + Math.trunc((Math.max(0, unsteadiness) * w.startupPerPoint + 50) / 100);
 }
 
 export function pelletAngle(fan: Fan, i: number): number {
@@ -153,7 +158,7 @@ export function mismatches(lab: LabFile): unknown[] {
   const byId = new Map(lab.weapons.map((w) => [w.id, w]));
   const bad: unknown[] = [];
   for (const c of lab.checks) {
-    const f = fanOf(byId.get(c.weapon)!, c.facing, c.aim, lab.fovHalf, c.speed, c.recoil, c.shots);
+    const f = fanOf(byId.get(c.weapon)!, c.facing, c.aim, lab.fovHalf, c.recoil);
     if (f.centre !== c.centre || f.step !== c.step) bad.push(c);
   }
   for (const c of lab.damageChecks) {

@@ -170,8 +170,9 @@ pub fn mirror(raw: &RawMap, axis: Axis, swap_sides: bool) -> Result<RawMap, Stri
     Ok(out)
 }
 
-/// A bordered, lint-clean starting point: spawns at the left and right edges hidden from each other
-/// by a centre wall, and two sites on the defenders' side.
+/// A bordered starting point: spawns at the left and right edges hidden from each other by a centre
+/// wall, and two sites on the defenders' side. Lint-clean from about 24 tiles wide; narrower ones leave
+/// no room to run clear of the detonation blast.
 pub fn scaffold(
     width: usize,
     height: usize,
@@ -287,11 +288,18 @@ mod tests {
     #[test]
     fn scaffold_passes_lint() {
         let rules = Ruleset::builtin();
-        for (w, h, n) in [(16, 12, 3), (40, 28, 5), (33, 21, 4), (128, 128, 5)] {
+        for (w, h, n) in [(24, 12, 3), (40, 28, 5), (33, 21, 4), (128, 128, 5)] {
             let text = scaffold(w, h, n, "fresh").unwrap().to_text();
             let issues = lint(&text, Some("fresh"), &rules);
             assert!(!fails(&issues, true), "{w}x{h}: {issues:?}");
         }
+        // Too small to run clear of a 12-tile blast: everything else about it is fine.
+        let text = scaffold(16, 12, 3, "fresh").unwrap().to_text();
+        let issues = lint(&text, Some("fresh"), &rules);
+        assert!(
+            !issues.is_empty() && issues.iter().all(|i| i.code == "blast-escape"),
+            "{issues:?}"
+        );
         assert!(scaffold(8, 8, 5, "x").is_err());
     }
 }

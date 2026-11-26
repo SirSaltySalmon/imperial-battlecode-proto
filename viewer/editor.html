@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Map editor</title>
+    <link rel="stylesheet" href="./src/style.css" />
+    <link rel="stylesheet" href="./src/editor/editor.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="top">
+        <div class="brand">IBC<span>map editor</span></div>
+        <label class="field" title="The map's name: the `name:` header and the file name">
+          Name <input id="map-name" type="text" size="14" spellcheck="false" autocomplete="off" />
+        </label>
+        <label class="field" title="Units per team (`team_size:`); a side uses its first spawn tiles in reading order">
+          Team <select id="team-size"></select>
+        </label>
+        <div class="spacer"></div>
+        <button id="btn-new" title="Start a new map">New</button>
+        <button id="btn-open" title="Open an .ibcmap file (O)">Open</button>
+        <select id="server-maps" title="Maps in the folder given to ibc view --editor" hidden></select>
+        <button id="btn-undo" title="Undo (Ctrl+Z)">Undo</button>
+        <button id="btn-redo" title="Redo (Ctrl+Y, Ctrl+Shift+Z)">Redo</button>
+        <button id="btn-export" class="primary" title="Download the .ibcmap (Ctrl+S without the server)">Export</button>
+        <button id="btn-lint" title="Run ibc-maptool lint on the server (L)" hidden>Lint</button>
+        <button id="btn-save" title="Save into the server's map folder (Ctrl+S)" hidden>Save</button>
+        <a class="navlink" href="./" title="The replay viewer">Replays</a>
+        <button id="btn-theme" title="Switch theme (T)">Light</button>
+        <input type="file" id="file" accept=".ibcmap,text/plain" hidden />
+      </header>
+      <main>
+        <nav id="tools">
+          <div class="section-title">Tile</div>
+          <div id="palette" class="palette"></div>
+          <div class="section-title">Tool</div>
+          <div class="seg" id="tool-seg">
+            <button data-tool="brush" title="Brush (B)">Brush</button>
+            <button data-tool="rect" title="Rectangle (R)">Rect</button>
+            <button data-tool="fill" title="Flood fill (G)">Fill</button>
+          </div>
+          <label class="row">Brush size <select id="brush-size"></select></label>
+          <div class="section-title">Symmetry</div>
+          <select id="symmetry" title="Paint the mirror image too">
+            <option value="none">Off</option>
+            <option value="h">Left / right</option>
+            <option value="v">Top / bottom</option>
+            <option value="point">Point (180°)</option>
+          </select>
+          <label class="row"><input type="checkbox" id="swap-sides" /> Mirror swaps a / d</label>
+          <label class="row"><input type="checkbox" id="pair-sites" checked /> Mirror pairs sites (1↔2, 3↔4)</label>
+          <div class="section-title">Whole map</div>
+          <div class="grid2">
+            <button data-op="rot90" title="Rotate 90° clockwise">Rot 90</button>
+            <button data-op="rot270" title="Rotate 90° anticlockwise">Rot 270</button>
+            <button data-op="rot180" title="Rotate 180°">Rot 180</button>
+            <button data-op="transpose" title="Swap rows and columns">Transpose</button>
+            <button data-op="flip-h" title="Flip left to right">Flip H</button>
+            <button data-op="flip-v" title="Flip top to bottom">Flip V</button>
+            <button data-op="swap-sides" title="Attacker and defender spawns trade places">Swap a/d</button>
+          </div>
+          <div class="row">
+            <select id="mirror-axis" title="Which half is copied onto the other">
+              <option value="h">Left → right</option>
+              <option value="v">Top → bottom</option>
+              <option value="point">Top → bottom, 180°</option>
+            </select>
+            <button id="btn-mirror" title="Overwrite one half with the mirror of the other (ibc-maptool mirror)">Mirror</button>
+          </div>
+          <div class="section-title">Size</div>
+          <div class="row">
+            <input id="size-w" type="number" min="3" max="128" aria-label="Width" /> ×
+            <input id="size-h" type="number" min="3" max="128" aria-label="Height" />
+            <button id="btn-resize" title="Resize, keeping the top-left; the new border is wall">Apply</button>
+          </div>
+        </nav>
+        <div id="stage">
+          <canvas id="canvas"></canvas>
+          <div id="toast" role="alert" hidden></div>
+        </div>
+        <aside id="panel">
+          <div>
+            <div class="section-title">Engine</div>
+            <div id="verdict" class="verdict">loading the engine…</div>
+          </div>
+          <div id="summary"></div>
+          <div>
+            <div class="section-title">Problems</div>
+            <ul id="findings" class="findings"></ul>
+          </div>
+          <div id="lint-box" hidden>
+            <div class="section-title">Lint <span id="lint-state"></span></div>
+            <ul id="lint" class="findings"></ul>
+          </div>
+          <div class="help">
+            Left drag paints, right or middle drag pans, wheel zooms, Alt+click picks a tile. Keys: W wall,
+            E floor, C low cover, A / D spawns, 1–9 sites, B / R / G tools, F fit, Ctrl+Z / Ctrl+Y.
+            Drop an <code>.ibcmap</code> anywhere to open it.
+          </div>
+        </aside>
+      </main>
+      <footer id="controls">
+        <div id="readout"></div>
+      </footer>
+    </div>
+    <dialog id="new-dialog">
+      <form method="dialog">
+        <h2>New map</h2>
+        <p>A bordered scaffold with spawns and two sites, the same as <code>ibc-maptool new</code>.</p>
+        <label>Name <input name="name" value="custom1" spellcheck="false" /></label>
+        <label>Width <input name="w" type="number" min="16" max="128" value="32" /></label>
+        <label>Height <input name="h" type="number" min="12" max="128" value="24" /></label>
+        <label>Team size <input name="team" type="number" min="1" max="5" value="5" /></label>
+        <menu>
+          <button value="cancel">Cancel</button>
+          <button value="ok" class="primary">Create</button>
+        </menu>
+      </form>
+    </dialog>
+    <script type="module" src="./src/editor/main.ts"></script>
+  </body>
+</html>

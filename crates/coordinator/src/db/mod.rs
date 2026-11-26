@@ -5,7 +5,12 @@
 
 pub mod jobs;
 pub mod league;
+pub mod moderation;
+pub mod patches;
 pub mod ratings;
+pub mod users;
+pub mod scrims;
+pub mod tournaments;
 
 use crate::error::{ApiError, ApiResult};
 use crate::model::Patch;
@@ -78,6 +83,44 @@ CREATE TABLE IF NOT EXISTS ranked_batches(
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ladder_snapshots(
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS tournaments(
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, format TEXT NOT NULL, field TEXT NOT NULL, maps TEXT NOT NULL,
+  map_shas TEXT, status TEXT NOT NULL, excluded TEXT, winner TEXT, created_at INTEGER NOT NULL,
+  locked_at INTEGER, started_at INTEGER, finished_at INTEGER, revealed_at INTEGER);
+CREATE TABLE IF NOT EXISTS tournament_entrants(
+  tournament_id TEXT NOT NULL REFERENCES tournaments(id), seed INTEGER NOT NULL, team_id TEXT NOT NULL,
+  submission_id TEXT NOT NULL, rating INTEGER, provisional INTEGER NOT NULL, PRIMARY KEY(tournament_id, seed));
+CREATE TABLE IF NOT EXISTS tournament_matches(
+  tournament_id TEXT NOT NULL REFERENCES tournaments(id), idx INTEGER NOT NULL, series_id TEXT,
+  map_halves_a INTEGER, map_halves_b INTEGER, rounds_a INTEGER, rounds_b INTEGER, winner_side INTEGER,
+  decided_by TEXT, PRIMARY KEY(tournament_id, idx));
+CREATE INDEX IF NOT EXISTS tournament_matches_series ON tournament_matches(series_id);
+CREATE TABLE IF NOT EXISTS tournament_series(
+  series_id TEXT PRIMARY KEY, tournament_id TEXT NOT NULL REFERENCES tournaments(id), idx INTEGER NOT NULL);
+-- moderation (db/moderation.rs, docs/MODERATION.md)
+CREATE TABLE IF NOT EXISTS team_sanctions(
+  team_id TEXT PRIMARY KEY REFERENCES teams(id), kind TEXT NOT NULL, reason TEXT NOT NULL, until INTEGER,
+  created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS admin_audit(
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL, status INTEGER NOT NULL,
+  payload TEXT, created_at INTEGER NOT NULL);
+CREATE TRIGGER IF NOT EXISTS admin_audit_no_update BEFORE UPDATE ON admin_audit
+  BEGIN SELECT RAISE(ABORT, 'admin_audit is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS admin_audit_no_delete BEFORE DELETE ON admin_audit
+  BEGIN SELECT RAISE(ABORT, 'admin_audit is append-only'); END;
+CREATE TABLE IF NOT EXISTS flags_seen(
+  kind TEXT NOT NULL, subject TEXT NOT NULL, first_seen INTEGER NOT NULL, PRIMARY KEY(kind, subject));
+CREATE INDEX IF NOT EXISTS submissions_sha ON submissions(sha256);
+CREATE INDEX IF NOT EXISTS submissions_created ON submissions(created_at);
+-- patch lifecycle (db/patches.rs)
+CREATE TABLE IF NOT EXISTS patch_meta(
+  patch_id INTEGER PRIMARY KEY REFERENCES patches(id), abi TEXT, superseded_at INTEGER);
+CREATE TABLE IF NOT EXISTS submission_checks(
+  submission_id TEXT NOT NULL REFERENCES submissions(id), patch_id INTEGER NOT NULL REFERENCES patches(id),
+  ok INTEGER NOT NULL, reason TEXT, checked_at INTEGER NOT NULL, PRIMARY KEY(submission_id, patch_id));
+CREATE TABLE IF NOT EXISTS patch_misses(
+  worker_id TEXT NOT NULL, engine TEXT NOT NULL, ruleset_hash TEXT NOT NULL, wasmtime TEXT NOT NULL,
+  until INTEGER NOT NULL, PRIMARY KEY(worker_id, engine, ruleset_hash, wasmtime));
 ";
 
 /// Columns added after the first release: `CREATE TABLE IF NOT EXISTS` does not add them to an existing data
@@ -86,6 +129,8 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("jobs", "timeouts", "INTEGER NOT NULL DEFAULT 0"),
     ("patches", "runner_blobs", "TEXT"),
     ("ratings", "last_played", "INTEGER"),
+    ("teams", "join_code", "TEXT"),
+    ("submissions", "note", "TEXT"),
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -127,6 +172,7 @@ impl Db {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
         migrate(&conn)?;
+        users::init(&conn)?;
         Ok(Db {
             conn: Mutex::new(conn),
         })
@@ -250,6 +296,8 @@ pub struct NewSubmission<'a> {
     pub rejected: Option<&'a str>,
     /// Make a validated module the team's live submission at once (the default of the upload endpoint).
     pub make_live: bool,
+    /// The uploader's note (`ibc submit --note`), shown only to the team.
+    pub note: Option<&'a str>,
 }
 
 /// What a change of live submission did.
@@ -280,9 +328,9 @@ pub fn insert_submission(
     }
     let id = format!("sub{}", random_hex(6));
     tx.execute(
-        "INSERT INTO submissions(id, team_id, sha256, size, language, fuel_mult, status, reason, live, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9)",
-        params![id, s.team_id, s.sha256, s.size as i64, s.language, s.fuel_mult, if validated { "validated" } else { "rejected" }, s.rejected, now],
+        "INSERT INTO submissions(id, team_id, sha256, size, language, fuel_mult, status, reason, live, created_at, note)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10)",
+        params![id, s.team_id, s.sha256, s.size as i64, s.language, s.fuel_mult, if validated { "validated" } else { "rejected" }, s.rejected, now, s.note],
     )?;
     let change = if validated && s.make_live {
         set_live(tx, s.team_id, &id)?
@@ -365,13 +413,14 @@ pub fn live_submission(tx: &Transaction, team_id: &str) -> ApiResult<Option<Subm
 
 pub fn list_submissions(tx: &Transaction, team_id: &str) -> ApiResult<Vec<Value>> {
     let mut st = tx.prepare(
-        "SELECT id, sha256, size, language, fuel_mult, status, reason, live, created_at FROM submissions
+        "SELECT id, sha256, size, language, fuel_mult, status, reason, live, created_at, note FROM submissions
          WHERE team_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 100",
     )?;
     let rows = st.query_map([team_id], |r| {
         Ok(json!({"submission_id": r.get::<_, String>(0)?, "sha256": r.get::<_, String>(1)?, "size": r.get::<_, i64>(2)?,
                   "language": r.get::<_, String>(3)?, "fuel_mult": r.get::<_, f64>(4)?, "status": r.get::<_, String>(5)?,
-                  "reason": r.get::<_, Option<String>>(6)?, "live": r.get::<_, bool>(7)?, "created_at": rfc3339(r.get(8)?)}))
+                  "reason": r.get::<_, Option<String>>(6)?, "live": r.get::<_, bool>(7)?, "created_at": rfc3339(r.get(8)?),
+                  "note": r.get::<_, Option<String>>(9)?}))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -410,9 +459,8 @@ pub fn list_maps(tx: &Transaction) -> ApiResult<Vec<Value>> {
 
 // ---- patches ----
 
-/// Make `patch` the current one. Jobs still waiting or running on another patch can no longer be run by
-/// an up-to-date fleet, so they are dead-lettered now instead of after three "patch mismatch" attempts.
-/// Returns how many jobs that were.
+/// Make `patch` the current one; returns its row id. Jobs of other patches stay pinned to their patch:
+/// what happens to them is `crate::patch::switch`'s decision (docs/JOBS.md, "Patch boundary").
 ///
 /// `runner_blobs` (`"<os>-<arch>"` -> SHA-256 of an `ibc` binary of this patch), when given, replaces the
 /// runner blobs stored for the patch; they are sent with its jobs (docs/JOBS.md, `runner_blobs`).
@@ -421,7 +469,7 @@ pub fn set_current_patch(
     patch: &Patch,
     runner_blobs: Option<&Value>,
     now: i64,
-) -> ApiResult<usize> {
+) -> ApiResult<i64> {
     tx.execute("UPDATE patches SET current = 0 WHERE current = 1", [])?;
     let blobs = runner_blobs.map(Value::to_string);
     tx.execute(
@@ -430,14 +478,7 @@ pub fn set_current_patch(
            runner_blobs = COALESCE(excluded.runner_blobs, runner_blobs)",
         params![patch.engine, patch.ruleset_hash, patch.wasmtime, now, blobs],
     )?;
-    let superseded = tx.execute(
-        "UPDATE jobs SET state = 'dead', error = 'patch superseded', finished_at = ?4, lease_token = NULL, lease_expires_at = NULL
-         WHERE state IN ('queued', 'leased')
-           AND (json_extract(payload, '$.patch.engine') != ?1 OR json_extract(payload, '$.patch.ruleset_hash') != ?2
-                OR json_extract(payload, '$.patch.wasmtime') != ?3)",
-        params![patch.engine, patch.ruleset_hash, patch.wasmtime, now],
-    )?;
-    Ok(superseded)
+    Ok(tx.query_row("SELECT id FROM patches WHERE current = 1", [], |r| r.get(0))?)
 }
 
 /// The runner blobs of every patch that has some, keyed by patch.

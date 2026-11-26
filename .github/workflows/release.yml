@@ -55,9 +55,53 @@ jobs:
             patch.json
           retention-days: 7
 
+  # The replay viewer is the same on every platform: build it once (engine wasm + Vite) and ship it in
+  # every archive and wheel, so `ibc view` works offline right after install.
+  viewer:
+    name: viewer
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain (with the wasm targets from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-viewer
+      - name: Engine for the browser
+        run: cargo build --locked -p ibc-engine-wasm --release --target wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the viewer
+        working-directory: viewer
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          ls dist/engine/*.wasm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: viewer-dist
+          path: viewer/dist
+          if-no-files-found: error
+          retention-days: 7
+      # The web front end ships beside ibc-coordinator (served at `/`).
+      - name: Build the web front end
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 7
+
   build:
     name: ${{ matrix.target }}
-    needs: preflight
+    needs: [preflight, viewer]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -96,16 +140,25 @@ jobs:
           if [ "${{ matrix.builder }}" = "zigbuild" ]; then
             python -m pip install --disable-pip-version-check ziglang cargo-zigbuild
           fi
-      - name: Binaries and archive
+      - uses: actions/download-artifact@v4
+        with:
+          name: viewer-dist
+          path: viewer/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Binaries and archive (with the viewer, web front end, maps and docs)
         run: cargo xtask dist --target ${{ matrix.target }} --builder ${{ matrix.builder }}
       - name: The binary reports the patch identity of these sources
         if: matrix.runs_here
         run: |
           ext=""; case "${{ matrix.target }}" in *windows*) ext=".exe" ;; esac
           cargo xtask patch-id --bin "target/${{ matrix.target }}/release/ibc$ext"
-      - name: Wheel (pip install imperial-battlecode)
-        working-directory: packaging/pip
+      - name: Wheel (pip install imperial-battlecode), with the same viewer, maps and docs
         run: |
+          cargo xtask dist pip-data
+          cd packaging/pip
           zig=""; if [ "${{ matrix.builder }}" = "zigbuild" ]; then zig="--zig"; fi
           maturin build --release --locked --target ${{ matrix.target }} $zig --out ../../dist
       - uses: actions/upload-artifact@v4
@@ -136,6 +189,18 @@ jobs:
         with:
           name: patch
           path: patch
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-xtask
+      # What the coordinator serves at /v1/distribution (IBC_DISTRIBUTION) and `ibc update` reads: every
+      # archive with its download URL in this release and its sha256.
+      - name: distribution.json
+        run: |
+          cargo xtask dist distribution dist \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+          cat dist/distribution.json
       - name: SHA256SUMS
         working-directory: dist
         run: |

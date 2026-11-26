@@ -4,40 +4,86 @@
 //! JavaScript usage (all pointers are offsets into the exported `memory`):
 //!   p = ibc_alloc(n); copy the .ibcr bytes to p; rc = ibc_load(p, n); ibc_free(p, n)
 //!   rc == 0: ibc_frame_count() frames (initial state + one per tick); frame i is UTF-8 JSON at
-//!            ibc_frame_ptr(i) / ibc_frame_len(i) (same object as `ibc replay dump` prints per line);
+//!            ibc_frame_ptr(i) / ibc_frame_len(i) (the object `ibc replay dump` prints per line, plus `loadout`);
 //!            the replay header is JSON at ibc_header_ptr() / ibc_header_len().
 //!   rc != 0: the message is at ibc_error_ptr() / ibc_error_len(). Loading re-simulates the whole match and
 //!            checks every state hash, so a replay from another engine version fails here instead of drifting.
-//!   The rules this build simulates with (sizes, timings, weapon names by id) are JSON at
-//!   ibc_rules_ptr() / ibc_rules_len(), available without loading a replay.
+//!            The private records of the teams the replay still has (logs, per-turn fuel, debug drawings; see
+//!            `ibc_replay::records_json`) are JSON at ibc_records_ptr() / ibc_records_len().
+//!   Each frame also carries `loadout` (both weapon slots, ammo, ability charges per unit; see `view.rs`).
+//!   The rules (sizes, timings, weapon names by id, and every weapon, ability, kit, shop item and economy
+//!   number) are JSON at ibc_rules_ptr() / ibc_rules_len(): those of the loaded replay (its header rules, or
+//!   the built-in rules for a replay without them), or the built-in rules when no replay is loaded.
+//!   Map editor: copy `.ibcmap` text to p; rc = ibc_map_check(p, n); ibc_free(p, n). The result is UTF-8 at
+//!   ibc_map_ptr() / ibc_map_len(): with rc == 0 a JSON summary of the map as the engine reads it
+//!   (`map_summary`), otherwise the engine's parse error. It does not touch a loaded replay.
 //! Each engine release ships its own build of this module, so old replays stay viewable.
 
 use std::cell::RefCell;
+
+mod view;
 
 #[derive(Default)]
 struct Loaded {
     frames: Vec<String>,
     header: String,
+    records: String,
+    /// Rules JSON of the loaded replay; empty means the built-in rules.
+    rules: String,
     error: String,
 }
 
 thread_local! {
     static STATE: RefCell<Loaded> = RefCell::new(Loaded::default());
     static RULES: String = rules();
+    static MAP_CHECK: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
-/// The built-in ruleset as the JSON a viewer reads (`ibc_engine::rules_json`).
+/// The built-in ruleset as the JSON a viewer reads (`ibc_engine::rules_json` plus the full tables).
 pub fn rules() -> String {
-    ibc_engine::rules_json(&ibc_engine::Ruleset::builtin())
+    view::rules(&ibc_engine::Ruleset::builtin())
 }
 
-/// Decode and re-simulate a replay. Returns the frames and the header JSON.
-pub fn load(bytes: &[u8]) -> Result<(Vec<String>, String), String> {
+pub struct Replay {
+    pub frames: Vec<String>,
+    pub header: String,
+    /// `ibc_replay::records_json` without memory writes.
+    pub records: String,
+    /// `view::rules` (the rules JSON plus the full tables) of the rules the replay was simulated with.
+    pub rules: String,
+}
+
+/// Decode and re-simulate a replay.
+pub fn load(bytes: &[u8]) -> Result<Replay, String> {
     let replay = ibc_replay::Replay::decode(bytes)?;
     let mut frames = Vec::with_capacity(replay.ticks.len() + 1);
-    replay.simulate(|m| frames.push(m.frame_json()))?;
+    let m = replay.simulate(|m| frames.push(view::frame(&m.world, m.frame_json())))?;
     let header = serde_json::to_string(&replay.header).map_err(|e| e.to_string())?;
-    Ok((frames, header))
+    let records = ibc_replay::records_json(&replay, false);
+    Ok(Replay { frames, header, records, rules: view::rules(&m.world.rules) })
+}
+
+/// Parse map text exactly as a match would (`Map::parse`) and summarise what the engine makes of it: size,
+/// team size, the sites (bounding boxes and the centre bots plant at), the spawn tiles per side and the map
+/// hash that replays record.
+pub fn map_summary(text: &str) -> Result<String, String> {
+    let map = ibc_engine::Map::parse(text)?;
+    let sites: Vec<_> = map
+        .sites
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "id": s.id, "min_tx": s.min_tx, "min_ty": s.min_ty, "max_tx": s.max_tx, "max_ty": s.max_ty,
+                "centre_x": s.centre_x, "centre_y": s.centre_y,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "name": map.name, "width": map.width, "height": map.height, "team_size": map.team_size,
+        "sites": sites, "spawns": [map.spawns[0].len() as u32, map.spawns[1].len() as u32],
+        "hash": format!("{:016x}", map.hash()),
+    })
+    .to_string())
 }
 
 #[no_mangle]
@@ -64,9 +110,11 @@ pub unsafe extern "C" fn ibc_load(ptr: *const u8, len: u32) -> i32 {
         let mut s = s.borrow_mut();
         *s = Loaded::default();
         match load(bytes) {
-            Ok((frames, header)) => {
-                s.frames = frames;
-                s.header = header;
+            Ok(r) => {
+                s.frames = r.frames;
+                s.header = r.header;
+                s.records = r.records;
+                s.rules = r.rules;
                 0
             }
             Err(e) => {
@@ -75,6 +123,35 @@ pub unsafe extern "C" fn ibc_load(ptr: *const u8, len: u32) -> i32 {
             }
         }
     })
+}
+
+/// # Safety
+/// `ptr..ptr+len` must be readable.
+#[no_mangle]
+pub unsafe extern "C" fn ibc_map_check(ptr: *const u8, len: u32) -> i32 {
+    let bytes = std::slice::from_raw_parts(ptr, len as usize);
+    let result = match std::str::from_utf8(bytes) {
+        Ok(text) => map_summary(text),
+        Err(_) => Err("map text is not UTF-8".to_string()),
+    };
+    MAP_CHECK.with(|m| {
+        let (rc, out) = match result {
+            Ok(json) => (0, json),
+            Err(e) => (1, e),
+        };
+        *m.borrow_mut() = out;
+        rc
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn ibc_map_ptr() -> *const u8 {
+    MAP_CHECK.with(|m| m.borrow().as_ptr())
+}
+
+#[no_mangle]
+pub extern "C" fn ibc_map_len() -> u32 {
+    MAP_CHECK.with(|m| m.borrow().len() as u32)
 }
 
 #[no_mangle]
@@ -113,13 +190,37 @@ pub extern "C" fn ibc_error_len() -> u32 {
 }
 
 #[no_mangle]
+pub extern "C" fn ibc_records_ptr() -> *const u8 {
+    STATE.with(|s| s.borrow().records.as_ptr())
+}
+
+#[no_mangle]
+pub extern "C" fn ibc_records_len() -> u32 {
+    STATE.with(|s| s.borrow().records.len() as u32)
+}
+
+#[no_mangle]
 pub extern "C" fn ibc_rules_ptr() -> *const u8 {
-    RULES.with(|r| r.as_ptr())
+    STATE.with(|s| {
+        let s = s.borrow();
+        if s.rules.is_empty() {
+            RULES.with(|r| r.as_ptr())
+        } else {
+            s.rules.as_ptr()
+        }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn ibc_rules_len() -> u32 {
-    RULES.with(|r| r.len() as u32)
+    STATE.with(|s| {
+        let s = s.borrow();
+        if s.rules.is_empty() {
+            RULES.with(|r| r.len() as u32)
+        } else {
+            s.rules.len() as u32
+        }
+    })
 }
 
 /// Engine version of this build, as a NUL-free UTF-8 string of `ibc_version_len()` bytes.

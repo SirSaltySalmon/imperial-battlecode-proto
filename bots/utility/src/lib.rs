@@ -80,7 +80,8 @@ impl Utility {
             }
             self.look_away = None;
         }
-        let enemy = enemies().filter(|e| e.alive()).min_by_key(|e| dist2(me.pos(), e.pos()));
+        // `enemies()` is the team's sight; only aim abilities at enemies with no wall in between.
+        let enemy = enemies().filter(|e| e.alive() && los(me.pos(), e.pos())).min_by_key(|e| dist2(me.pos(), e.pos()));
         for slot in 0..2 {
             let a = match self.abilities[slot] {
                 Some(a) if me.charges[slot] > 0 && me.cooldown[slot] == 0 => a,
@@ -94,7 +95,7 @@ impl Utility {
                 if a.effect == EFFECT_FLASH {
                     let away = angle_to(me.x - target.0, me.y - target.1);
                     let _ = face(away);
-                    self.look_away = Some((away, info.tick + a.delay));
+                    self.look_away = Some((away, info.tick + tactics::ticks_to_effect(&a, me.pos(), target)));
                 }
                 return;
             }

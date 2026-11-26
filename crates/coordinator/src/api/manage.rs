@@ -5,8 +5,8 @@ use crate::db::{self, jobs, league, NewSubmission, TeamRow};
 use crate::error::{ApiError, ApiResult};
 use crate::model::{BotRef, Class, JobSpec, MapRef, Patch};
 use crate::util::{is_sha256, new_token, now_ms, sha256_hex};
-use crate::wasmcheck::{check_wasm, Limits};
-use crate::{bump, App};
+use crate::wasmcheck::Abi;
+use crate::{bump, patch, App};
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -25,10 +25,6 @@ fn valid_name(name: &str, max: usize) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
 }
 
-fn finalize(app: &App, tx: &rusqlite::Transaction, now: i64) -> ApiResult<usize> {
-    league::finalize_ready(tx, app.rating.as_ref(), now, app.cfg.ladder_snapshots_kept)
-}
-
 // ---- teams ----
 
 #[derive(Deserialize)]
@@ -44,19 +40,28 @@ pub async fn create_team(
 ) -> ApiResult<Created> {
     auth_admin(&app, &headers)?;
     let req: CreateTeamReq = parse(&body)?;
-    if !valid_name(&req.name, 40) {
+    let (team, token) = app.db.tx(|tx| insert_team(tx, &req.name, now_ms()))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({"team_id": team.id, "name": team.name, "token": token})),
+    ))
+}
+
+/// Create a team with a fresh `ibt` token; returns the team and the token (only its hash is stored). Used
+/// by the organisers' endpoint and by users creating a team (`api::teams`).
+pub(crate) fn insert_team(
+    tx: &rusqlite::Transaction,
+    name: &str,
+    now: i64,
+) -> ApiResult<(TeamRow, String)> {
+    if !valid_name(name, 40) {
         return Err(ApiError::bad_request(
             "team name must be 1..=40 characters of [A-Za-z0-9_.-]",
         ));
     }
     let token = new_token("ibt");
-    let team = app
-        .db
-        .tx(|tx| db::create_team(tx, &req.name, &sha256_hex(token.as_bytes()), now_ms()))?;
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({"team_id": team.id, "name": team.name, "token": token})),
-    ))
+    let team = db::create_team(tx, name, &sha256_hex(token.as_bytes()), now)?;
+    Ok((team, token))
 }
 
 pub async fn list_teams(State(app): AppState, headers: HeaderMap) -> ApiResult<Json<Value>> {
@@ -68,10 +73,15 @@ pub async fn whoami(State(app): AppState, headers: HeaderMap) -> ApiResult<Json<
     match auth_team_or_admin(&app, &headers)? {
         Caller::Admin => Ok(Json(json!({"admin": true}))),
         Caller::Team(team) => {
-            let live = app.db.tx(|tx| db::live_submission(tx, &team.id))?;
-            Ok(Json(
-                json!({"team_id": team.id, "name": team.name, "live_submission": live.map(|s| s.id)}),
-            ))
+            let (live, status) = app.db.tx(|tx| {
+                let status = crate::patch::team_status(&app, tx, &team.id, now_ms())?;
+                Ok((db::live_submission(tx, &team.id)?, status))
+            })?;
+            let mut out = json!({"team_id": team.id, "name": team.name, "live_submission": live.map(|s| s.id)});
+            if let (Some(out), Some(status)) = (out.as_object_mut(), status.as_object()) {
+                out.extend(status.clone());
+            }
+            Ok(Json(out))
         }
     }
 }
@@ -80,15 +90,36 @@ pub async fn whoami(State(app): AppState, headers: HeaderMap) -> ApiResult<Json<
 
 #[derive(Deserialize)]
 pub struct SubmissionQuery {
+    /// Upload only: one of the server's languages (`patch::resolve_language`).
     language: Option<String>,
     /// Admin only: the team to upload for (id or name).
     team: Option<String>,
     /// Upload only: make the module live if it validates (default true).
     live: Option<bool>,
+    /// Refused: the multiplier is the server's (`Config::languages`).
+    fuel_mult: Option<String>,
+    /// Upload only: a note to remember the version by (`ibc submit --note`), at most `MAX_NOTE_CHARS`.
+    note: Option<String>,
+}
+
+/// Longest submission note, in characters.
+const MAX_NOTE_CHARS: usize = 200;
+
+/// The upload's note, trimmed; an empty note is none.
+fn submission_note(note: Option<&str>) -> ApiResult<Option<&str>> {
+    let Some(note) = note.map(str::trim).filter(|n| !n.is_empty()) else {
+        return Ok(None);
+    };
+    if note.chars().count() > MAX_NOTE_CHARS || note.chars().any(char::is_control) {
+        return Err(ApiError::bad_request(format!(
+            "note: at most {MAX_NOTE_CHARS} characters, no control characters"
+        )));
+    }
+    Ok(Some(note))
 }
 
 /// The team a request acts for: the token's team, or `?team=` when the organisers call.
-fn acting_team(app: &App, caller: Caller, team: Option<&str>) -> ApiResult<TeamRow> {
+pub(crate) fn acting_team(app: &App, caller: Caller, team: Option<&str>) -> ApiResult<TeamRow> {
     match (caller, team) {
         (Caller::Team(t), _) => Ok(t),
         (Caller::Admin, Some(team)) => app.db.tx(|tx| db::find_team(tx, team)),
@@ -99,50 +130,57 @@ fn acting_team(app: &App, caller: Caller, team: Option<&str>) -> ApiResult<TeamR
 }
 
 /// Body: the raw wasm module. A module that validates becomes the team's live submission at once, unless
-/// `?live=false`. Series that already exist keep the submissions they were created with.
+/// `?live=false`. Series that already exist keep the submissions they were created with. The module is
+/// checked against the current patch; its fuel multiplier comes from the server's language table.
 pub async fn upload_submission(
     State(app): AppState,
     Query(q): Query<SubmissionQuery>,
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Created> {
-    let team = acting_team(&app, auth_team_or_admin(&app, &headers)?, q.team.as_deref())?;
-    let language = q.language.unwrap_or_else(|| "rust".to_string());
-    let fuel_mult = app
-        .cfg
-        .fuel_multiplier(&language)
-        .ok_or_else(|| ApiError::bad_request(format!("unknown language {language:?}")))?;
+    let caller = auth_team_or_admin(&app, &headers)?;
+    let by_team = matches!(caller, Caller::Team(_));
+    let team = acting_team(&app, caller, q.team.as_deref())?;
+    if by_team {
+        super::moderation::check_upload(&app, &team)?;
+    }
+    if q.fuel_mult.is_some() {
+        return Err(ApiError::bad_request(
+            "the server sets the fuel multiplier from the language; send ?language= only",
+        ));
+    }
+    let note = submission_note(q.note.as_deref())?;
+    if let Some(language) = q.language.as_deref() {
+        if app.cfg.fuel_multiplier(language).is_none() {
+            return Err(patch::unknown_language(&app.cfg, language));
+        }
+    }
     if body.len() > app.cfg.max_wasm_bytes {
         return Err(ApiError::new(
             StatusCode::PAYLOAD_TOO_LARGE,
             "too_large",
-            format!("the limit is {} bytes", app.cfg.max_wasm_bytes),
+            format!(
+                "the module is {} bytes; the limit is {} bytes",
+                body.len(),
+                app.cfg.max_wasm_bytes
+            ),
         ));
     }
-    let limits = Limits {
-        max_bytes: app.cfg.max_wasm_bytes,
-        max_memory_bytes: app.cfg.max_memory_bytes,
-    };
-    let store = app.blobs.clone();
     let size = body.len();
-    // Validation and the disk write are CPU / IO bound: keep them off the async threads.
-    let (sha256, verdict) = tokio::task::spawn_blocking(move || {
-        let sha256 = sha256_hex(&body);
-        let verdict = check_wasm(&body, &limits).and_then(|()| {
-            store
-                .put(&sha256, &body)
-                .map(|_| ())
-                .map_err(|e| format!("storage: {e}"))
-        });
-        (sha256, verdict)
-    })
-    .await
-    .map_err(ApiError::internal)?;
-    if let Err(reason) = &verdict {
-        if reason.starts_with("storage: ") {
-            return Err(ApiError::internal(reason));
-        }
-    }
+    let patch::Inspected {
+        sha256,
+        verdict,
+        detected,
+        patch_id,
+    } = patch::inspect_upload(&app, body).await?;
+    // A module that does not validate is stored as rejected; what it says about its language is moot.
+    let detected = if verdict.is_ok() {
+        detected
+    } else {
+        Default::default()
+    };
+    let (language, fuel_mult) =
+        patch::resolve_language(&app.cfg, q.language.as_deref(), &detected)?;
     let new = NewSubmission {
         team_id: &team.id,
         sha256: &sha256,
@@ -151,14 +189,24 @@ pub async fn upload_submission(
         fuel_mult,
         rejected: verdict.as_ref().err().map(String::as_str),
         make_live: q.live.unwrap_or(true),
+        note,
     };
     let now = now_ms();
     let (id, live) = app.db.tx(|tx| {
+        if by_team {
+            // Again under the write lock: parallel uploads all passed the check above.
+            db::moderation::check_upload(tx, &team.id, app.cfg.moderation.uploads_per_hour, now)?;
+        }
+        patch::confirm_same_patch(tx, patch_id)?;
         let (id, change) = db::insert_submission(tx, &new, now)?;
+        if let Some(patch_id) = patch_id {
+            db::patches::record_check(tx, &id, patch_id, new.rejected, now)?;
+        }
         app.after_live_change(tx, &team.id, change, now)?;
         let live = db::live_submission(tx, &team.id)?.is_some_and(|s| s.id == id);
         Ok((id, live))
     })?;
+    super::moderation::retain(&app, &team.id);
     match verdict {
         Ok(()) => Ok((
             StatusCode::CREATED,
@@ -176,19 +224,26 @@ pub async fn upload_submission(
 }
 
 /// Make one of the team's validated submissions the live one (team token, or the admin token). Only series
-/// created afterwards use it; a replaced submission widens the team's rating uncertainty.
+/// created afterwards use it; a replaced submission widens the team's rating uncertainty. One that does not
+/// validate on the current patch is refused (409 `invalid_on_patch`).
 pub async fn select_live(
     State(app): AppState,
     Path(submission_id): Path<String>,
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     let caller = auth_team_or_admin(&app, &headers)?;
+    let own_team = match &caller {
+        Caller::Team(t) => Some(t.id.as_str()),
+        Caller::Admin => None,
+    };
+    patch::require_valid(&app, &submission_id, own_team).await?;
     let now = now_ms();
     let (team, change) = app.db.tx(|tx| {
         let team = match &caller {
             Caller::Team(t) => t.clone(),
             Caller::Admin => db::submission_team(tx, &submission_id)?,
         };
+        patch::confirm_valid(tx, &submission_id, &team.id)?;
         let change = db::set_live(tx, &team.id, &submission_id)?;
         app.after_live_change(tx, &team.id, change, now)?;
         Ok((team, change))
@@ -204,9 +259,12 @@ pub async fn list_submissions(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     let team = acting_team(&app, auth_team_or_admin(&app, &headers)?, q.team.as_deref())?;
-    Ok(Json(
-        json!({"submissions": app.db.tx(|tx| db::list_submissions(tx, &team.id))?}),
-    ))
+    let list = app.db.tx(|tx| {
+        let mut list = db::list_submissions(tx, &team.id)?;
+        patch::annotate_submissions(tx, &team.id, &mut list)?;
+        Ok(list)
+    })?;
+    Ok(Json(json!({"submissions": list})))
 }
 
 // ---- maps, patch ----
@@ -255,8 +313,14 @@ struct SetPatchReq {
     /// `"<os>-<arch>"` (e.g. `linux-x86_64`) -> SHA-256 of an uploaded `ibc` binary of this patch, sent with
     /// its jobs as `runner_blobs` (workers started with `--allow-runner-fetch` install it).
     runner_blobs: Option<BTreeMap<String, String>>,
+    /// The imports the patch offers bots (`wasmcheck::Abi`); default: this coordinator build's lists.
+    imports: Option<Abi>,
+    /// A balance patch: every rating's uncertainty is widened (only when the patch changes).
+    #[serde(default)]
+    balance: bool,
 }
 
+/// Switch the current patch (docs/JOBS.md, "Patch boundary"), then check every live submission on it.
 pub async fn set_patch(
     State(app): AppState,
     headers: HeaderMap,
@@ -266,6 +330,8 @@ pub async fn set_patch(
     let SetPatchReq {
         patch,
         runner_blobs,
+        imports,
+        balance,
     } = parse(&body)?;
     let one_line = |s: &str| !s.is_empty() && s.len() <= 100 && !s.contains('\n');
     if !(one_line(&patch.engine) && one_line(&patch.ruleset_hash) && one_line(&patch.wasmtime)) {
@@ -281,29 +347,31 @@ pub async fn set_patch(
         }
     }
     let runner_blobs = runner_blobs.map(|m| json!(m));
-    let now = now_ms();
-    let superseded = app.db.tx(|tx| {
-        let superseded = db::set_current_patch(tx, &patch, runner_blobs.as_ref(), now)?;
-        finalize(&app, tx, now)?;
-        Ok(superseded)
-    })?;
-    bump(&app.counters.dead, superseded);
-    Ok(Json(
-        json!({"patch": patch, "runner_blobs": runner_blobs, "superseded_jobs": superseded}),
-    ))
+    let req = patch::SwitchReq {
+        patch: &patch,
+        runner_blobs: runner_blobs.as_ref(),
+        abi: imports.as_ref(),
+        balance,
+    };
+    let switched = app.db.tx(|tx| patch::switch(&app, tx, &req, now_ms()))?;
+    app.queue_changed.notify_waiters();
+    let checked = patch::revalidate(&app).await?;
+    Ok(Json(json!({
+        "patch": patch, "runner_blobs": runner_blobs, "switched": switched.switched,
+        "balance": balance && switched.switched, "ratings_widened": switched.widened,
+        "replanned_series": switched.replanned, "kept_series": switched.kept,
+        "revalidated": checked.checked, "invalid_submissions": checked.failed,
+    })))
 }
 
 // ---- series ----
 
 #[derive(Deserialize)]
 struct SeriesReq {
-    /// Team token: the team to play against (id or name).
-    opponent: Option<String>,
-    /// Admin token: both teams.
-    team_a: Option<String>,
-    team_b: Option<String>,
+    team_a: String,
+    team_b: String,
     games: Option<i64>,
-    /// Admin token only: `unranked` (default) or `tournament`.
+    /// `unranked` (default) or `tournament`.
     kind: Option<String>,
 }
 
@@ -318,48 +386,35 @@ fn check_games(app: &App, games: i64) -> ApiResult<i64> {
     }
 }
 
-/// An unranked series between the live submissions of two teams. A team may request
-/// `unranked_daily_games` games per rolling 24 hours; the organisers are not limited.
+/// Organisers: a series between the live submissions of two teams, not counted against any quota. Teams
+/// ask for unranked series with `POST /v1/scrims`.
 pub async fn create_series(
     State(app): AppState,
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Created> {
-    let caller = auth_team_or_admin(&app, &headers)?;
+    if let Caller::Team(_) = auth_team_or_admin(&app, &headers)? {
+        return Err(ApiError::bad_request(
+            "teams request unranked series with POST /v1/scrims",
+        ));
+    }
     let req: SeriesReq = parse(&body)?;
     let games = check_games(&app, req.games.unwrap_or(1))?;
+    let kind = match req.kind.as_deref().unwrap_or("unranked") {
+        "unranked" => "unranked",
+        "tournament" => "tournament",
+        other => return Err(ApiError::bad_request(format!(
+            "kind {other:?}: use `unranked` or `tournament` (ranked series go through /v1/admin/ranked-batch)"
+        ))),
+    };
     let now = now_ms();
     let view = app.db.tx(|tx| {
-        let (kind, a, b, requested_by) = match &caller {
-            Caller::Team(me) => {
-                if req.kind.as_deref().is_some_and(|k| k != "unranked") {
-                    return Err(ApiError::bad_request("teams can only request unranked series"));
-                }
-                let opponent = req.opponent.as_deref().ok_or_else(|| ApiError::bad_request("missing `opponent`"))?;
-                let used = league::games_requested_since(tx, &me.id, now - 86_400_000)?;
-                if used + games > app.cfg.unranked_daily_games {
-                    return Err(ApiError::new(
-                        StatusCode::TOO_MANY_REQUESTS,
-                        "quota_exceeded",
-                        format!("{used} of {} unranked games used in the last 24 h; {games} more do not fit", app.cfg.unranked_daily_games),
-                    ));
-                }
-                ("unranked", me.clone(), db::find_team(tx, opponent)?, Some(me.id.clone()))
-            }
-            Caller::Admin => {
-                let kind = match req.kind.as_deref().unwrap_or("unranked") {
-                    "unranked" => "unranked",
-                    "tournament" => "tournament",
-                    other => return Err(ApiError::bad_request(format!("kind {other:?}: use `unranked` or `tournament` (ranked series go through /v1/admin/ranked-batch)"))),
-                };
-                let team = |t: &Option<String>, what: &str| -> ApiResult<TeamRow> {
-                    db::find_team(tx, t.as_deref().ok_or_else(|| ApiError::bad_request(format!("missing `{what}`")))?)
-                };
-                (kind, team(&req.team_a, "team_a")?, team(&req.team_b, "team_b")?, None)
-            }
-        };
-        let id = app.new_series(tx, kind, &a, &b, games, requested_by.as_deref(), now)?;
-        league::series_view(tx, &id)
+        let (a, b) = (
+            db::find_team(tx, &req.team_a)?,
+            db::find_team(tx, &req.team_b)?,
+        );
+        let id = app.new_series(tx, kind, &a, &b, games, None, now)?;
+        league::series_view(tx, &id, &league::Viewer::Admin)
     })?;
     app.queue_changed.notify_waiters();
     Ok((StatusCode::CREATED, Json(view.unwrap_or(Value::Null))))

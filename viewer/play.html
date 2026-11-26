@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Imperial Battlecode play</title>
+    <link rel="stylesheet" href="./src/style.css" />
+    <link rel="stylesheet" href="./src/play/play.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="top">
+        <div class="brand">IBC<span>play</span></div>
+        <div id="match-title"></div>
+        <div class="spacer"></div>
+        <button id="btn-step" class="primary" title="Advance one tick (Space)" hidden>Step (Space)</button>
+        <button id="btn-run" class="primary" title="Start / pause the clock (Space or P)" hidden>Start (Space)</button>
+        <button id="btn-help" title="Controls">Keys</button>
+        <button id="btn-quit" title="End the match here and write the replay">Quit</button>
+      </header>
+      <main>
+        <div id="stage">
+          <canvas id="canvas"></canvas>
+          <div id="hud">
+            <div id="hud-phase"></div>
+            <div id="hud-score"></div>
+            <div id="hud-alive"></div>
+            <div id="hud-hp" class="big"></div>
+            <div id="hud-weapon" class="big"></div>
+            <div id="hud-credits"></div>
+            <div id="hud-kit"></div>
+            <div id="hud-acts" class="dim"></div>
+            <div id="hud-mode" class="dim"></div>
+          </div>
+          <div id="draft" class="menu" hidden>
+            <h2>Pick a kit (1-9)</h2>
+            <div id="draft-list"></div>
+            <p class="dim">Then press Space to start.</p>
+          </div>
+          <div id="buy" class="menu" hidden>
+            <h2>Buy (1-0)</h2>
+            <div id="buy-list"></div>
+          </div>
+          <div id="done" class="menu" hidden>
+            <h2>Match over</h2>
+            <pre id="done-text"></pre>
+          </div>
+          <div id="error" role="alert" hidden></div>
+          <div id="help" hidden>
+            <h2>Controls</h2>
+            <dl>
+              <dt>W A S D</dt><dd>move (arrows too); hold Shift to walk quietly</dd>
+              <dt>Mouse</dt><dd>aim: your unit turns towards it at its turn rate</dd>
+              <dt>Left click</dt><dd>fire (hold)</dd>
+              <dt>R</dt><dd>reload</dd>
+              <dt>Q E</dt><dd>ability in slot 0 / 1, at the mouse</dd>
+              <dt>F</dt><dd>plant / defuse (hold)</dd>
+              <dt>1 2</dt><dd>switch weapon slot</dd>
+              <dt>G C</dt><dd>pick up / cancel</dd>
+              <dt>1-0</dt><dd>draft a kit, buy an item (in those phases)</dd>
+              <dt>Space</dt><dd>turn mode: one tick; real time: start / pause (also P)</dd>
+              <dt>Wheel</dt><dd>zoom</dd>
+            </dl>
+          </div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="./src/play/main.ts"></script>
+  </body>
+</html>

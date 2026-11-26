@@ -385,7 +385,9 @@ mod tests {
             WeaponRules,
             AbilityRules,
             ItemRules,
-            KitRules
+            KitRules,
+            RosterInfo,
+            RoundInfo
         );
         let (rust, cpp) = (rust_records(), cpp_records());
         assert_eq!(

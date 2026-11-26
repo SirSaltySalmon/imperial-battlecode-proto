@@ -10,12 +10,16 @@ pub mod economy;
 pub mod fixed;
 mod host;
 pub mod map;
+mod objective;
+mod projectiles;
 pub mod rules;
+pub mod vision;
+mod teamplay;
 pub mod world;
 
 pub use ibc_abi as abi;
 pub use map::Map;
-pub use rules::Ruleset;
+pub use rules::{RulesSource, Ruleset};
 pub use world::World;
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -60,6 +64,28 @@ impl Default for Fnv {
         Fnv::new()
     }
 }
+
+/// The per-tick state hash, split so that a replay can leave out one team's memory and still verify: `world`
+/// covers everything except team-private memory, `memory[t]` covers team `t`'s team and draft memory.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StateHashes {
+    pub world: u64,
+    pub memory: [u64; 2],
+}
+
+impl StateHashes {
+    /// One number for the whole state (summaries, goldens).
+    pub fn combined(&self) -> u64 {
+        let mut h = Fnv::new();
+        h.u64(self.world);
+        h.u64(self.memory[0]);
+        h.u64(self.memory[1]);
+        h.finish()
+    }
+}
+
+/// One `debug_draw` call: (unit, kind, x0, y0, x1, y1, color). Never part of the state hash.
+pub type DebugDraw = (u32, u32, i32, i32, i32, i32, u32);
 
 /// Everything a bot can do to the world. A replay is the list of these per tick.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,6 +192,16 @@ impl Match {
 
     pub fn state_hash(&self) -> u64 {
         self.world.state_hash()
+    }
+
+    pub fn state_hashes(&self) -> StateHashes {
+        self.world.state_hashes()
+    }
+
+    /// Debug drawings made since the last call (or the last step, which discards them). Call before `step()`
+    /// to record them; they are not simulation inputs.
+    pub fn take_debug(&mut self) -> Vec<DebugDraw> {
+        std::mem::take(&mut self.world.debug)
     }
 
     /// The bot of this unit crashed: it idles for the rest of the match.

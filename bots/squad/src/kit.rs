@@ -2,7 +2,8 @@
 //!
 //! Abilities are used for the objective first: smoke on the line the enemy arrives on (or on the charge,
 //! to defuse inside it), fire on a defuse in progress, a barrier in front of a plant or defuse, recon on
-//! the site before going in. Flash, heal and dash are used as the fight asks.
+//! the site before going in, a trap where the enemy arrives or on our planted charge, sonar on the site, a
+//! concussion on a plant or defuse. Flash, heal and dash are used as the fight asks.
 use ibc::*;
 
 /// Heal a teammate, or raise a barrier, below this share of 100 hit points.
@@ -44,13 +45,16 @@ pub(crate) struct Kit {
     retry_at: [i32; 2],
 }
 
-/// Kit 0 is the plain one. Spread the others over the team so no two teammates share a kit while there
-/// are enough to go round; the seed decides who gets which.
+/// Kit 0 is the plain one. Slot 0 drafts for the whole team, spreading the others so no two teammates share
+/// a kit while there are enough to go round (kits are unique within a team); the seed decides who gets which.
 pub(crate) fn draft(info: &MatchInfo) {
     let kits = core_rules().kits;
-    if kits > 1 {
-        let shift = (info.seed_lo.unsigned_abs() % (kits as u32 - 1)) as i32;
-        let _ = ibc::draft(1 + (info.unit_slot.max(0) + shift) % (kits - 1));
+    if kits <= 1 || info.unit_slot != 0 {
+        return;
+    }
+    let shift = (info.seed_lo.unsigned_abs() % (kits as u32 - 1)) as i32;
+    for slot in 0..info.team_size {
+        let _ = ibc::draft_for(1 + (slot + shift) % (kits - 1), slot);
     }
 }
 
@@ -92,12 +96,17 @@ impl Kit {
             if a.effect == EFFECT_FLASH {
                 let away = angle_to(me.x - t.0, me.y - t.1);
                 let _ = face(away);
-                self.look_away = Some((away, info.tick + a.delay));
+                self.look_away = Some((away, info.tick + tactics::ticks_to_effect(&a, me.pos(), t)));
             }
             return true;
         }
         false
     }
+}
+
+/// A living teammate stands within `radius` of `p` (abilities hit our own team too).
+fn ally_near(p: (i32, i32), radius: i32) -> bool {
+    allies().any(|u| u.alive() && dist(u.pos(), p) <= radius)
 }
 
 fn smoked(p: (i32, i32), radius: i32) -> bool {
@@ -159,6 +168,35 @@ fn target(a: &AbilityRules, me: &UnitInfo, s: &Scene) -> Option<(i32, i32)> {
             (quiet && s.opened && speed > 0 && dist(pos, s.objective) > a.range + TILE)
                 .then(|| (me.x + me.vx * a.range / speed, me.y + me.vy * a.range / speed))
                 .filter(|p| p.0 >= 0 && p.1 >= 0 && p.0 <= map.width * TILE && p.1 <= map.height * TILE)
+        }
+        EFFECT_TRAP => {
+            // Defending: on the way in. Attacking with the charge down: on the charge, where a defuser stands.
+            let p = match (s.attacking, s.planted) {
+                (false, false) if near => {
+                    let reach = a.range.min(dist(pos, s.watch));
+                    offset(me.x, me.y, angle_to(s.watch.0 - me.x, s.watch.1 - me.y), reach)
+                }
+                (true, true) if in_range(s.objective) => s.objective,
+                _ => return None,
+            };
+            let clear = dist(pos, p) > a.radius + TILE && !ally_near(p, a.radius + TILE);
+            (quiet && s.opened && clear).then_some(p)
+        }
+        EFFECT_SONAR => {
+            // Before going onto the site, or before retaking it.
+            let ready = (s.attacking && !s.planted) || (!s.attacking && s.planted);
+            let p = s.objective;
+            let clear = dist(pos, p) > a.radius + TILE && !ally_near(p, a.radius + TILE);
+            (ready && quiet && s.opened && in_range(p) && clear).then_some(p)
+        }
+        EFFECT_CONCUSSION => {
+            let clear =
+                |p: (i32, i32)| in_range(p) && dist(pos, p) > a.radius + TILE && !ally_near(p, a.radius + TILE);
+            if s.attacking && s.planted && s.defuse_heard && clear(s.objective) && los(pos, s.objective) {
+                return Some(s.objective);
+            }
+            let e = s.enemy.filter(|e| e.has(S_PLANTING | S_DEFUSING))?;
+            clear(e.pos()).then(|| e.pos())
         }
         EFFECT_HEAL => {
             let hurt = |u: &UnitInfo| u.alive() && u.hp <= HURT_HP && dist(pos, u.pos()) <= a.range;

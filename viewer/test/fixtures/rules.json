@@ -1,0 +1,53 @@
+{
+  "ability_rules": [
+    {"cooldown":4,"delay":1,"duration":14,"effect":1,"id":0,"max_charges":2,"name":"smoke","power":0,"price":300,"radius":1792,"range":10240},
+    {"cooldown":3,"delay":1,"duration":6,"effect":4,"id":1,"max_charges":2,"name":"flash","power":30,"price":250,"radius":12288,"range":8192},
+    {"cooldown":6,"delay":1,"duration":8,"effect":2,"id":2,"max_charges":1,"name":"incendiary","power":12,"price":350,"radius":1536,"range":8192},
+    {"cooldown":0,"delay":1,"duration":5,"effect":5,"id":3,"max_charges":1,"name":"recon","power":3,"price":0,"radius":6144,"range":12288},
+    {"cooldown":8,"delay":0,"duration":20,"effect":3,"id":4,"max_charges":1,"name":"barrier","power":120,"price":300,"radius":1536,"range":2560},
+    {"cooldown":5,"delay":0,"duration":0,"effect":8,"id":5,"max_charges":2,"name":"dash","power":0,"price":0,"radius":0,"range":3072},
+    {"cooldown":0,"delay":0,"duration":12,"effect":7,"id":6,"max_charges":1,"name":"decoy","power":3,"price":0,"radius":2048,"range":10240},
+    {"cooldown":6,"delay":0,"duration":6,"effect":6,"id":7,"max_charges":2,"name":"heal","power":7,"price":0,"radius":1024,"range":4096}
+  ],
+  "core": {"buy_ticks":6,"defuse_kit_ticks":16,"defuse_ticks":21,"fov_half":9100,"fuse_ticks":80,"interact_reach":1200,"max_hp":100,"max_ticks":4000,"pickup_reach":900,"plant_ticks":12,"round_end_ticks":2,"round_ticks":120,"rounds_per_half":6,"rounds_to_win":7,"run_speed":700,"sense_radius":1536,"shot_sound_radius":30720,"step_sound_radius":8192,"team_size":5,"turn_rate":20000,"unit_radius":300,"vision_range":24576,"walk_speed":350},
+  "defuse_ticks": 21,
+  "economy": {"ability_kill_reward":200,"armor_absorb_pct":50,"default_sidearm":0,"defuse_reward":300,"loss_reward":1400,"loss_streak_bonus":500,"loss_streak_cap":3,"max_credits":8000,"overtime_credits":5000,"overtime_max_pairs":3,"plant_reward":300,"refund_pct":100,"start_credits":800,"win_reward":3000},
+  "fov_half": 9100,
+  "fuse_ticks": 80,
+  "item_rules": [
+    {"id":0,"kind":1,"name":"rifle","price":2700,"value":1},
+    {"id":1,"kind":2,"name":"light_armor","price":400,"value":25},
+    {"id":2,"kind":2,"name":"heavy_armor","price":1000,"value":50},
+    {"id":3,"kind":4,"name":"defuse_kit","price":400,"value":0},
+    {"id":4,"kind":1,"name":"pistol","price":0,"value":0},
+    {"id":5,"kind":3,"name":"ability_charge_0","price":0,"value":0},
+    {"id":6,"kind":3,"name":"ability_charge_1","price":0,"value":1},
+    {"id":7,"kind":1,"name":"smg","price":1500,"value":2},
+    {"id":8,"kind":1,"name":"shotgun","price":1800,"value":3},
+    {"id":9,"kind":1,"name":"marksman","price":3200,"value":4},
+    {"id":10,"kind":1,"name":"lmg","price":2300,"value":5}
+  ],
+  "kit_rules": [
+    {"abilities":[-1,-1],"hp":100,"id":0,"name":"standard","speed_pct":100},
+    {"abilities":[5,1],"hp":90,"id":1,"name":"lancer","speed_pct":105},
+    {"abilities":[6,0],"hp":95,"id":2,"name":"shroud","speed_pct":100},
+    {"abilities":[3,2],"hp":95,"id":3,"name":"seeker","speed_pct":100},
+    {"abilities":[3,4],"hp":115,"id":4,"name":"bulwark","speed_pct":88},
+    {"abilities":[7,0],"hp":100,"id":5,"name":"mender","speed_pct":95},
+    {"abilities":[5,2],"hp":85,"id":6,"name":"kindler","speed_pct":105}
+  ],
+  "max_hp": 100,
+  "plant_ticks": 12,
+  "sense_radius": 1536,
+  "unit_radius": 300,
+  "vision_range": 24576,
+  "weapon_rules": [
+    {"bullet_speed":8192,"cooldown":0,"damage":26,"falloff_min_pct":50,"falloff_start":8192,"id":0,"kill_reward":300,"magazine":12,"move_pct":100,"move_spread":600,"name":"pistol","pellets":1,"price":0,"range":20480,"recoil_per_shot":2,"recoil_recovery":1,"recoil_spread":120,"reload_ticks":3,"slot":1,"spread":0,"windup":1},
+    {"bullet_speed":14336,"cooldown":0,"damage":22,"falloff_min_pct":70,"falloff_start":16384,"id":1,"kill_reward":200,"magazine":8,"move_pct":90,"move_spread":1200,"name":"rifle","pellets":3,"price":2700,"range":30720,"recoil_per_shot":3,"recoil_recovery":1,"recoil_spread":250,"reload_ticks":4,"slot":0,"spread":250,"windup":1},
+    {"bullet_speed":9216,"cooldown":0,"damage":17,"falloff_min_pct":40,"falloff_start":6144,"id":2,"kill_reward":400,"magazine":15,"move_pct":100,"move_spread":150,"name":"smg","pellets":2,"price":1500,"range":16384,"recoil_per_shot":2,"recoil_recovery":1,"recoil_spread":100,"reload_ticks":3,"slot":0,"spread":200,"windup":1},
+    {"bullet_speed":8192,"cooldown":2,"damage":15,"falloff_min_pct":25,"falloff_start":3072,"id":3,"kill_reward":500,"magazine":5,"move_pct":95,"move_spread":300,"name":"shotgun","pellets":7,"price":1800,"range":9216,"recoil_per_shot":4,"recoil_recovery":2,"recoil_spread":60,"reload_ticks":5,"slot":0,"spread":260,"windup":1},
+    {"bullet_speed":20480,"cooldown":2,"damage":75,"falloff_min_pct":100,"falloff_start":40960,"id":4,"kill_reward":100,"magazine":5,"move_pct":80,"move_spread":2400,"name":"marksman","pellets":1,"price":3200,"range":40960,"recoil_per_shot":4,"recoil_recovery":1,"recoil_spread":300,"reload_ticks":5,"slot":0,"spread":0,"windup":2},
+    {"bullet_speed":12288,"cooldown":0,"damage":16,"falloff_min_pct":60,"falloff_start":14336,"id":5,"kill_reward":150,"magazine":20,"move_pct":70,"move_spread":2000,"name":"lmg","pellets":5,"price":2300,"range":28672,"recoil_per_shot":2,"recoil_recovery":1,"recoil_spread":60,"reload_ticks":7,"slot":0,"spread":300,"windup":2}
+  ],
+  "weapons": ["pistol","rifle","smg","shotgun","marksman","lmg"]
+}

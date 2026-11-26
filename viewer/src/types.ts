@@ -28,6 +28,7 @@ export const S_RUNNING = 1 << 7;
 export const S_HAS_KIT = 1 << 8;
 export const S_SLOWED = 1 << 9;
 export const S_REVEALED = 1 << 10;
+export const S_CASTING = 1 << 12;
 
 export const SOUND_STEP = 1;
 export const SOUND_SHOT = 2;
@@ -43,6 +44,10 @@ export const EFFECT_FLASH = 4;
 export const EFFECT_RECON = 5;
 export const EFFECT_HEAL = 6;
 export const EFFECT_DECOY = 7;
+/** 8 is the dash, which never appears in the world. */
+export const EFFECT_TRAP = 9;
+export const EFFECT_SONAR = 10;
+export const EFFECT_CONCUSSION = 11;
 
 export const DROP_CHARGE = 1;
 export const DROP_WEAPON = 2;
@@ -136,6 +141,24 @@ export interface EventFrame {
   value: number;
 }
 
+/**
+ * What a unit carries, added to frames by `crates/engine-wasm/src/view.rs` (absent from older engine builds).
+ * Indexed like the abilities and weapon slots of the rules: slot 0 primary / signature, slot 1 sidearm / bought.
+ */
+export interface LoadoutFrame {
+  id: number;
+  /** Weapon id per slot, -1 = empty. */
+  weapons: [number, number];
+  ammo: [number, number];
+  /** Slot in hand. */
+  slot: number;
+  charges: [number, number];
+  cooldown: [number, number];
+  has_kit: boolean;
+  damage: number;
+  faulted: boolean;
+}
+
 /** `[unit, kind, x0, y0, x1, y1, colour 0xRRGGBB]`. */
 export type DebugDraw = [number, number, number, number, number, number, number];
 
@@ -155,6 +178,7 @@ export interface Frame {
   events: EventFrame[];
   debug: DebugDraw[];
   winner: number | null;
+  loadout?: LoadoutFrame[];
 }
 
 export interface BotInfo {
@@ -174,6 +198,12 @@ export interface Header {
   abi_version: number;
   bots: [BotInfo, BotInfo];
   result: { winner: number | null; score: [number, number]; ticks: number; finished: boolean };
+  /** Units per team: ids below this are team A. */
+  team_size: number;
+  /** Teams whose memory writes, logs, fuel and debug drawings were removed from this file. */
+  redacted: [boolean, boolean];
+  /** The rules TOML texts; the engine turns them into `Engine.rules()`. Absent in some replays. */
+  rules?: { core: string; weapons: string; abilities: string; economy: string };
 }
 
 export type Vec2 = [number, number];

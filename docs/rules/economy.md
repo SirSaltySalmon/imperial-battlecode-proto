@@ -65,6 +65,11 @@ Details:
   light then heavy armour costs 1000 in total; buying the free `pistol` item returns the price of a sidearm
   upgrade bought this phase. Gear carried over from an earlier round has no trade-in value, and there is no way
   to sell a primary back to an empty slot. The refund is forgotten when the buy phase ends.
+- **Buying for a teammate.** `A_BUY_FOR` (a = item, b = the teammate's slot in the team) buys for a teammate.
+  The checks above are made against the teammate (what it holds, its side, its kit) except the funds check,
+  which is against the buyer: the buyer pays. A trade-in goes to whoever makes the replacing purchase, so credits
+  can move between teammates: A buys B a rifle, B replaces it with a cheaper primary and keeps the difference.
+  Transfers like this are allowed.
 
 ## Carry-over
 
@@ -90,8 +95,10 @@ At the start of a round every unit is revived at full health with full magazines
   during an overtime round is therefore never spent. Both rounds of a pair are always played. A team that wins
   both rounds of a pair wins the match (for example 8-6). If the pair is split, another pair is played, up to
   `overtime_max_pairs` (3).
-- **Tie-break.** If every overtime pair is split, or the match reaches `max_ticks`, the winner is the team with
-  more rounds, then more kills, then more damage dealt, then a coin flip on the match seed.
+- **Tie-break.** If every overtime pair is split, the winner is the team with more rounds, then more kills, then
+  more damage dealt. If all three are level the match is a **draw** (`winner: null` in the summary and the
+  replay). Detonation-blast deaths have no killer and are not kills here.
+- **Out of ticks.** A match that reaches `max_ticks` is a draw, whatever the score.
 - If regulation ends without a level score and without anyone reaching `rounds_to_win` (only possible with a
   non-default `rounds_to_win`), the team ahead wins without overtime.
 - **Tick bound.** A round lasts at most `buy_ticks + round_ticks + fuse_ticks + round_end_ticks` = 208 ticks, so
@@ -116,7 +123,9 @@ A full buy (rifle and heavy armour) is 3700; a defender adds a 400 kit.
 One unit from each team is followed: **a** (team A, attacks rounds 1 to 6) and **b** (team B). Both follow the same
 policy: full buy (rifle and heavy armour, 3700) when affordable; light armour in a pistol round; a force buy
 (rifle and light armour, 3100) from 3100 credits; otherwise save. In every round the winner's followed unit
-kills the loser's, so the loser always starts over and the winner carries its gear. This table is pinned by the
+kills the loser's, so the loser always starts over and the winner carries its gear. In the detonation rounds
+the followed attacker has run clear of the 12-tile blast; one caught inside it would die and start the next
+round with the sidearm like the loser. This table is pinned by the
 engine test `worked_example_matches_the_docs`.
 
 | Round | Result | a: credits, buy, left | b: credits, buy, left | a income | b income |

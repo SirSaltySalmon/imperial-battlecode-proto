@@ -3,9 +3,20 @@
 use ibc_maptool::lint::{fails, lint, Issue, Severity};
 use ibc_maptool::Ruleset;
 
+/// The tiny maps below fit inside the real 12-tile blast, so they are linted with a 3-tile one.
 fn run(grid: &[&str]) -> Vec<Issue> {
+    run_with(grid, &small_blast())
+}
+
+fn run_with(grid: &[&str], rules: &Ruleset) -> Vec<Issue> {
     let text = format!("name: t\nteam_size: 3\n---\n{}\n", grid.join("\n"));
-    lint(&text, Some("t"), &Ruleset::builtin())
+    lint(&text, Some("t"), rules)
+}
+
+fn small_blast() -> Ruleset {
+    let mut r = Ruleset::builtin();
+    r.core.blast_radius = 3 * 1024;
+    r
 }
 
 fn codes(issues: &[Issue]) -> Vec<&'static str> {
@@ -230,4 +241,38 @@ fn header_warnings() {
         codes(&c).contains(&"name-mismatch") && codes(&c).contains(&"no-team-size"),
         "{c:?}"
     );
+}
+
+/// 33 wide: the site at the west end, open floor up to 30 tiles east of it.
+const LONG: [&str; 7] = [
+    "#################################",
+    "#aaa.#..........................#",
+    "#....#..........................#",
+    "#11..#..........................#",
+    "#11.............................#",
+    "#....#.......................ddd#",
+    "#################################",
+];
+
+#[test]
+fn a_map_with_room_to_run_from_the_blast_is_clean() {
+    let issues = run_with(&LONG, &Ruleset::builtin());
+    assert!(issues.is_empty(), "{issues:?}");
+}
+
+#[test]
+fn no_escape_from_the_blast() {
+    // Every floor tile of the small map is within 12 tiles of the site.
+    let issues = run_with(&CLEAN, &Ruleset::builtin());
+    let hit = issues.iter().find(|i| i.code == "blast-escape");
+    assert!(
+        hit.is_some_and(|i| i.severity == Severity::Error && i.message.contains("site 1")),
+        "{issues:?}"
+    );
+    assert!(fails(&issues, false));
+    // Seal the site's room: the blast goes through walls, the run does not.
+    let mut g = LONG;
+    g[4] = "#11..#..........................#";
+    let codes = codes(&run_with(&g, &Ruleset::builtin()));
+    assert!(codes.contains(&"blast-escape"), "{codes:?}");
 }

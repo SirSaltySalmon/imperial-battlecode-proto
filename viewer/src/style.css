@@ -641,3 +641,166 @@ main {
     min-width: 0;
   }
 }
+
+/* Panels (src/panels): buy menu, team tab, round strip, hint. Placeholder styling. */
+.overlay {
+  position: absolute;
+  inset: 12px;
+  overflow: auto;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  z-index: 5;
+}
+
+.overlay-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.overlay h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.overlay h3 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+}
+
+.overlay h3.a,
+.overlay ol.history .a {
+  color: var(--team-a);
+}
+
+.overlay h3.b,
+.overlay ol.history .b {
+  color: var(--team-b);
+}
+
+.overlay .hint,
+.overlay .note {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.overlay .note {
+  margin: 4px 0 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.overlay table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.overlay th,
+.overlay td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.overlay th {
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.overlay tr.dim td {
+  color: var(--dim);
+}
+
+.overlay .econ {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, auto) minmax(70px, auto));
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.overlay .econ dt {
+  color: var(--dim);
+}
+
+.overlay .econ dd {
+  margin: 0;
+}
+
+.overlay ol.history {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  columns: 3 220px;
+}
+
+.round-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.round-chip {
+  min-width: 20px;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  text-align: center;
+  font-size: 11px;
+}
+
+.round-chip.a {
+  background: var(--team-a);
+  color: var(--on-team);
+}
+
+.round-chip.b {
+  border: 2px solid var(--team-b);
+  color: var(--team-b);
+}
+
+.round-strip .note {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+#hint {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  color: var(--dim);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+/* Bot log and fuel of the selected unit (placeholder). */
+.fuel-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 36px;
+  margin: 4px 0;
+}
+
+.fuel-bars i {
+  flex: 1;
+  min-height: 1px;
+  background: var(--dim);
+}
+
+.fuel-bars i.out {
+  background: #d9534f;
+}
+
+.bot-log {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

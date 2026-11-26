@@ -6,15 +6,20 @@ only, keeps no state worth backing up, and can be killed at any time: a match is
 `(patch, map, bots, seed)`, so whatever it was doing is leased again by someone else. The protocol is
 `docs/JOBS.md`.
 
+Running the coordinator, backups, replay retention and publishing releases to participants are in
+`docs/DEPLOY.md`; this page is about workers.
+
 | File | What it is | Status |
 |---|---|---|
-| `Dockerfile` | multi-stage build, distroless final image with `ibc` + `ibc-worker` only | **not built here** (no Docker daemon on the dev box) |
-| `ibc-worker.service` | hardened systemd unit (DynamicUser, read-only root, private tmp, no new privileges) | **not run here** (written on Windows) |
-| `cloud-init.yaml` | user data: boot a box into a registered worker; includes a spot interruption watcher | **not run here** |
-| `docker-compose.yml` | coordinator + N workers on one box | **not run here**; the coordinator service is a placeholder |
+| `Dockerfile` | multi-stage build; targets `worker` (`ibc` + `ibc-worker`) and `coordinator` (`ibc-coordinator` + viewer + web front end), distroless | **not built here** (no Docker daemon on the dev box) |
+| `docker-compose.yml` | coordinator + two trusted workers on one box, ranked scheduler on | `docker compose config` validates; **not run here** |
+| `ibc-worker.service`, `ibc-coordinator.service` | hardened systemd units (DynamicUser, read-only root, private tmp, no new privileges); shipped in the Linux release archive | **not run here** (written on Windows) |
+| `cloud-init.yaml` | user data: boot a box into a registered worker from the Linux release archive; includes a spot interruption watcher | **not run here** |
+| `backup.sh` | `ibc-coordinator prune-replays` + `backup` + dated snapshots, for cron | the two commands are tested (`cargo test -p ibc-coordinator --test operations`); the script is not run here |
 
 The worker binary itself is tested (`cargo test -p ibc-worker`) and was run end to end against a mock
-coordinator; see "Measured" below.
+coordinator; see "Measured" below. The same coordinator and workers, natively, are what
+`tools/devstack.sh` runs: that is the tested path.
 
 ## Add a rented machine in five minutes
 
@@ -44,9 +49,12 @@ Knobs (flags, or env in `/etc/ibc-worker/env`): `IBC_WORKER_CONCURRENCY` (defaul
 ### Building a release
 
 ```sh
-cargo build --release -p ibc-cli -p ibc-worker
-tar -czf ibc-worker-x86_64-linux.tar.gz -C target/release ibc ibc-worker -C ../../deploy ibc-worker.service
+cargo xtask dist --target x86_64-unknown-linux-musl     # dist/ibc-<version>-x86_64-unknown-linux-musl.tar.gz
 ```
+
+The archive holds `ibc`, `ibc-worker` and `ibc-worker.service` (and the coordinator, viewer, maps and docs)
+in one top-level directory; `cloud-init.yaml` unpacks it with `--strip-components=1`. The tagged release
+builds it for six targets (`docs/release.md`).
 
 A worker serves the patch of its `--runner` (`ibc version --json`: engine, ruleset hash, wasmtime) and
 `release`s jobs of any other patch ("patch mismatch"): the job goes back to the queue without spending an

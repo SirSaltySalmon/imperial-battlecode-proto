@@ -28,9 +28,16 @@ ibc view --replays out/replays         # a folder to pick from: menu in the head
 or any static server over `dist/` (`npx vite preview`, `python -m http.server`), opening
 `/?replay=<url of an .ibcr>`. `npm run dev` runs the Vite dev server with hot reload.
 
+`/editor.html` is the map editor: `ibc view --editor [--maps DIR]` serves it with lint and save for a map
+folder (see `docs/maps.md`, "The editor"). From any other host it still opens, edits and exports maps.
+
 `/lab.html` is the combat lab. It uses this viewer's theme, units and map to draw a recording from
 `cargo run -p ibc-combatviz -- --out viewer/public/lab.json`. Drop a `lab.json` on the page if it is not
 served from `public/`.
+
+`/play.html` is the page of `ibc play` (play one unit against a bot; see `docs/PLAY.md`). It only works
+served by `ibc play`, which provides its `/setup`, `/state` and input endpoints. Its code is in `src/play/`
+and reuses the renderer, map parser and perspective of the replay viewer; it needs no engine module.
 
 `ibc view` finds the built viewer through `--viewer-dir`, then `IBC_VIEWER_DIR`, then a `viewer/dist` beside
 the working directory or the binary. The viewer is not embedded in the `ibc` binary on purpose: that would
@@ -57,7 +64,8 @@ A replay only re-simulates on the engine version that recorded it. `scripts/copy
 `public/engine/<engine_version>.wasm`, then rewrites `public/engine/index.json` from the files present.
 Builds already in that directory are kept, so several versions sit side by side: to keep old replays
 viewable, keep (or copy in) the `.wasm` of each released engine before building. Pass a path to add one:
-`node scripts/copy-engine.mjs path/to/ibc_engine_wasm.wasm`.
+`node scripts/copy-engine.mjs path/to/ibc_engine_wasm.wasm` (or set `IBC_ENGINE_WASM`). Without either it
+reads the cargo target directory, `$CARGO_TARGET_DIR` when set.
 
 On load the viewer reads the replay header with a small JS parser of the container (`src/ibcr.ts`), fetches
 `engine/<engine_version>.wasm`, and reports a clear error if that version is not shipped. Errors from the
@@ -73,8 +81,10 @@ engine (corrupt file, ruleset mismatch, hash mismatch) are shown as the engine w
 | N / P | next / previous round |
 | Home / End | start / end of the match |
 | 1 / 2 / 3 | view as everyone / team A / team B |
-| , / . | previous / next unit's view; Esc returns to everyone |
+| , / . | previous / next unit's view; Esc returns to everyone and closes the buy menu and team tab |
 | V / S / D | vision cones / sounds / bot debug drawings |
+| B | buy menu: price and stats of every weapon, ability, kit and armour item, and the economy |
+| Tab | team tab: hold to peek, tap to pin it open (tap again to close). While a control has keyboard focus, Tab moves focus as usual |
 | F | fit the map |
 | T | dark / light theme |
 | ? | key list |
@@ -93,9 +103,23 @@ diamond at each plant.
   blinded, dotted yellow = revealed. The pink diamond is the charge. A cross is where a unit died.
 - Bullets with a short trail, effects by kind (smoke, fire, barrier, flash, recon, heal, decoy), dropped
   weapons, the dropped or planted charge with its fuse, sounds heard this tick as rings.
+- Kill feed (top right): the kills of the current round, killer, what killed (the weapon, or for a kill
+  without a weapon the ability whose effect covered the victim), victim. Each entry stays 24 ticks (3 s at
+  1x) of replay time and fades over the last 8, so pausing freezes it and scrubbing rebuilds it.
+- Round history: a chip per decided round in the side panel (coloured by the winner, hover for how it was
+  won), and as a list in the team tab. Only rounds decided by the tick shown are listed.
+- Buy menu (B): built from the engine's rules export alone, generically: every record of the ruleset is a
+  row and every field a column, so a weapon or a field added to `rules/*.toml` (and to
+  `crates/engine-wasm/src/view.rs`) appears without a viewer change. Distances are in tiles (t), times in
+  ticks (tk), angles in degrees.
+- Team tab (Tab): both teams, every unit's kit, alive or dead, health out of the kit's maximum, armour, both
+  weapons with ammo (the one in hand marked), ability charges and cooldowns, defuse kit, charge, credits,
+  kills, deaths and damage, with the score and the round history. A replay holds the full state, so this
+  shows what neither team saw of the other during the match.
 - Perspectives: **Everyone** shows all and tints each unit's vision. **Team** and **unit** views fog the map
-  outside the viewers' vision and hide enemies that are not in the viewers' `seen` bitmask, enemy bullets,
-  effects and drops they cannot see, and other units' debug drawings and sounds. The side panel, kill feed
+  outside the viewers' vision and hide enemies that are not in the viewers' `seen` bitmask, dead enemies whose
+  bodies they cannot see, enemy bullets, effects and drops they cannot see, and other units' debug drawings
+  and sounds. The side panel, kill feed
   and banner always show the full public state.
 
 Between ticks, unit and bullet positions are interpolated for display only. Paused, the viewer shows exactly
@@ -115,6 +139,15 @@ the frame of that tick.
 | `src/render.ts`, `src/draw-*.ts` | canvas drawing |
 | `src/ui.ts`, `src/main.ts` | side panel, feed, banner, controls, input |
 | `src/theme.ts` | colours for both themes |
+| `src/panels/` | buy menu (`buy.ts`), team tab (`tab.ts`), kill feed (`killfeed.ts`), round history (`history.ts`), field formatting (`shared.ts`); `index.ts` wires them and their keys |
+
+Besides the frame JSON of `ibc replay dump`, each frame from the engine module carries `loadout` (both
+weapon slots, ammo per slot, the slot in hand, ability charges and cooldowns, defuse kit, damage dealt per
+unit), and the rules export carries `core`, `economy`, `weapon_rules`, `ability_rules`, `kit_rules` and
+`item_rules`; both are added in `crates/engine-wasm/src/view.rs`. An older engine build without them still
+plays: the buy menu says it has no tables and the team tab shows only the weapon in hand.
+| `src/play/` | the `ibc play` page: controls (key and mouse to input messages), HUD, server API |
+| `src/editor/` | the map editor: `doc.ts` (map text), `paint.ts`, `transform.ts` (mirrors, rotations), `history.ts` (undo), `check.ts` (engine validation), `api.ts` (lint and save on `ibc view --editor`), `draw.ts` (through `render.ts`), `input.ts`, `panel.ts`, `main.ts` |
 
 Frames stay inside the engine's memory as JSON strings; the viewer decodes a frame when it is shown and
 keeps at most 48 parsed, so a long match costs little beyond the engine's own copy.

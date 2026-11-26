@@ -3,7 +3,7 @@
 
 use crate::fixed;
 use crate::world::*;
-use crate::{abilities, combat, economy, Input, Match};
+use crate::{abilities, combat, economy, teamplay, Input, Match};
 use ibc_abi::*;
 use serde_json::json;
 
@@ -11,6 +11,10 @@ fn push<T: Copy>(out: &mut Vec<u8>, v: &T) -> i32 {
     let b = bytes_of(v);
     out.extend_from_slice(b);
     b.len() as i32
+}
+
+fn push_row<T: Copy>(out: &mut Vec<u8>, v: Option<T>) -> i32 {
+    v.map_or(-ERR_OUT_OF_RANGE, |v| push(out, &v))
 }
 
 fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
@@ -23,6 +27,7 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
     };
     flag(u.alive, S_ALIVE);
     flag(u.combat.winding, S_WINDUP);
+    flag(u.combat.braced, S_BRACED);
     flag(u.combat.reload > 0, S_RELOADING);
     flag(u.channel_kind == CHANNEL_PLANT, S_PLANTING);
     flag(u.channel_kind == CHANNEL_DEFUSE, S_DEFUSING);
@@ -30,6 +35,7 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
     flag(u.running, S_RUNNING);
     flag(u.slowed > 0, S_SLOWED);
     flag(u.revealed > 0, S_REVEALED);
+    flag(u.alive && abilities::casting(w, i), S_CASTING);
     flag(u.has_charge, S_HAS_CHARGE);
     flag(u.has_kit && full, S_HAS_KIT);
     let channel = if u.channel_kind != CHANNEL_NONE { u.channel_left } else { u.combat.channel() };
@@ -44,8 +50,8 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
         facing: u.facing,
         vx: u.vel.0,
         vy: u.vel.1,
-        hp: u.hp,
-        armor: u.armor,
+        hp: if full { u.hp } else { 0 },
+        armor: if full { u.armor } else { 0 },
         weapon: u.weapon(),
         ammo: if full { u.ammo[u.slot] } else { 0 },
         reserve: if full { -1 } else { 0 },
@@ -56,32 +62,22 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
         cooldown: if full { u.abil.cooldown } else { [0, 0] },
         recoil: u.combat.recoil,
         blind: if full { u.blind } else { 0 },
+        unsteadiness: u.combat.unsteady,
+        other_weapon: if full { u.weapons[1 - u.slot.min(1)] } else { 0 },
+        fire_cooldown: if full { u.combat.cooldown } else { 0 },
     }
 }
 
-/// Indices of the rows of a per-unit list table, in a fixed order.
+/// Indices of the rows of a list table as the calling unit's team perceives it, in a fixed order.
 fn rows(w: &World, me: usize, table: u32) -> Vec<usize> {
-    let my = &w.units[me];
+    let team = w.units[me].team;
+    let view = &w.views[team as usize];
     match table {
-        T_ALLIES => (0..w.units.len()).filter(|&j| j != me && w.units[j].team == my.team).collect(),
+        T_ALLIES => (0..w.units.len()).filter(|&j| j != me && w.units[j].team == team).collect(),
         T_ENEMIES => (0..w.units.len())
-            .filter(|&j| w.units[j].team != my.team && w.units[j].alive && my.seen & (1 << j) != 0)
+            .filter(|&j| w.units[j].team != team && w.units[j].alive && view.units & (1 << j) != 0)
             .collect(),
-        T_PROJECTILES => (0..w.projectiles.len())
-            .filter(|&j| w.projectiles[j].team == my.team || w.can_see_point(me, w.projectiles[j].pos))
-            .collect(),
-        T_EFFECTS => (0..w.effects.len())
-            .filter(|&j| {
-                let e = &w.effects[j].info;
-                e.team == my.team || w.can_see_point(me, (e.x, e.y))
-            })
-            .collect(),
-        T_DROPS => (0..w.drops.len())
-            .filter(|&j| {
-                let d = &w.drops[j];
-                (d.kind == DROP_CHARGE && w.side_of(my.team) == SIDE_ATTACK) || w.can_see_point(me, (d.x, d.y))
-            })
-            .collect(),
+        T_PROJECTILES | T_EFFECTS | T_DROPS => w.perceived(team, table),
         _ => Vec::new(),
     }
 }
@@ -128,14 +124,16 @@ impl Host for Match {
         match table {
             T_SELF | T_MATCH | T_MAP | T_RULES_CORE => 1,
             T_ALLIES | T_ENEMIES | T_PROJECTILES | T_EFFECTS | T_DROPS => rows(w, me, table).len() as i32,
-            T_SOUNDS => w.units[me].sounds.len() as i32,
+            T_SOUNDS => w.team_sounds[w.units[me].team as usize].len() as i32,
             T_MAP_ROW => w.map.height,
             T_WEAPON => w.rules.weapons.len() as i32,
             T_ABILITY => w.rules.abilities.len() as i32,
             T_ITEM => w.rules.items.len() as i32,
             T_KIT => w.rules.kits.len() as i32,
             T_SITES => w.map.sites.len() as i32,
-            T_EVENTS => w.events.len() as i32,
+            T_EVENTS => w.views[w.units[me].team as usize].events.len() as i32,
+            T_ROSTER => w.units.len() as i32,
+            T_ROUNDS => w.rounds.len() as i32,
             _ => -ERR_UNSUPPORTED,
         }
     }
@@ -165,7 +163,7 @@ impl Host for Match {
                 Some(&j) => push(out, &unit_info(w, j, false)),
                 None => -ERR_OUT_OF_RANGE,
             },
-            T_SOUNDS => row!(w.units[me].sounds),
+            T_SOUNDS => row!(w.team_sounds[w.units[me].team as usize]),
             T_PROJECTILES => match rows(w, me, table).get(ix) {
                 Some(&j) => {
                     let p = &w.projectiles[j];
@@ -230,7 +228,9 @@ impl Host for Match {
             T_ITEM => row!(w.rules.items),
             T_KIT => row!(w.rules.kits),
             T_SITES => row!(w.map.sites),
-            T_EVENTS => row!(w.events),
+            T_EVENTS => row!(w.views[w.units[me].team as usize].events),
+            T_ROSTER => push_row(out, teamplay::roster_row(w, ix)),
+            T_ROUNDS => push_row(out, teamplay::round_row(w, ix)),
             _ => -ERR_UNSUPPORTED,
         }
     }
@@ -248,10 +248,12 @@ impl Host for Match {
         match w.phase {
             PHASE_DRAFT => match kind {
                 A_DRAFT => abilities::draft(w, me, a),
+                A_DRAFT_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| abilities::draft(w, t, a)),
                 _ => ERR_NOT_ALLOWED,
             },
             PHASE_BUY => match kind {
                 A_BUY => economy::buy(w, me, a),
+                A_BUY_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| economy::buy_for(w, me, t, a)),
                 A_FACE => {
                     w.units[me].facing = a & 0xFFFF;
                     OK
@@ -297,6 +299,9 @@ impl Host for Match {
                     A_RELOAD | A_PICKUP | A_DROP | A_CANCEL => OK,
                     _ => ERR_UNSUPPORTED,
                 };
+                // Abilities unit: hands are busy during an ability's startup; only A_CANCEL gets through.
+                let check =
+                    if check == OK && kind != A_CANCEL && abilities::casting(w, me) { ERR_NOT_READY } else { check };
                 if check == OK {
                     w.units[me].intent.primary = Some((kind, a, b, c));
                 }
@@ -328,6 +333,7 @@ impl Host for Match {
         let mem = match scope {
             MEM_TEAM => &w.team_mem[team],
             MEM_DRAFT => &w.draft_mem[team],
+            MEM_BUY => &w.buy_mem[team],
             _ => return ERR_BAD_ARG,
         };
         let off = off as usize;
@@ -346,9 +352,10 @@ impl Host for Match {
             _ => return ERR_BAD_ARG,
         };
         let mem = match scope {
-            MEM_TEAM => &mut w.team_mem[team],
+            MEM_TEAM if w.in_action() => &mut w.team_mem[team],
             MEM_DRAFT if w.phase == PHASE_DRAFT => &mut w.draft_mem[team],
-            MEM_DRAFT => return ERR_NOT_ALLOWED,
+            MEM_BUY if w.phase == PHASE_BUY => &mut w.buy_mem[team],
+            MEM_TEAM | MEM_DRAFT | MEM_BUY => return ERR_NOT_ALLOWED,
             _ => return ERR_BAD_ARG,
         };
         let off = off as usize;
@@ -388,9 +395,9 @@ pub fn frame_json(w: &World) -> String {
                 "id": u.id, "team": u.team, "side": info.side, "kit": u.kit, "alive": u.alive, "state": info.state,
                 "x": u.pos.0, "y": u.pos.1, "facing": u.facing, "vx": u.vel.0, "vy": u.vel.1,
                 "hp": u.hp, "armor": u.armor, "weapon": info.weapon, "ammo": info.ammo, "channel": info.channel,
-                "aim": info.aim, "credits": u.credits, "seen": u.seen.to_string(),
+                "aim": info.aim, "credits": u.credits, "seen": w.views[u.team as usize].units.to_string(),
                 "kills": u.stats.kills, "deaths": u.stats.deaths,
-                "sounds": u.sounds.iter().map(|s| json!([s.kind, s.x, s.y])).collect::<Vec<_>>(),
+                "sounds": w.team_sounds[u.team as usize].iter().map(|s| json!([s.kind, s.x, s.y])).collect::<Vec<_>>(),
             })
         })
         .collect();

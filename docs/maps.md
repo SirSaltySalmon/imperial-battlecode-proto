@@ -76,6 +76,7 @@ Structural checks; exits non-zero on any error (`--strict`: on warnings too).
 | `site-unreachable`, `site-small` | error | A site is cut off, or has fewer than 4 tiles |
 | `site-centre` | error | The bounding-box centre is blocked or not on the site, so bots cannot plant |
 | `spawn-sightline` | error | An attacker and a defender spawn tile see each other at round start |
+| `blast-escape` | error | From some plant tile no reachable tile lies outside `blast_radius` (12 tiles) of a charge anywhere on that tile: a lost retake would cost everyone near the site their gun |
 | `diagonal-pinch` | warning | Two floor tiles touch only at a corner between blocked tiles |
 | `site-split`, `spawn-on-site`, `no-name`, `name-mismatch`, `no-team-size`, `team-size` | warning | Probably not what you meant |
 
@@ -118,7 +119,39 @@ SVG (for docs and review) or text. Overlays: `routes` (fastest attacker and defe
 `transform --op` takes `flip-h`, `flip-v`, `transpose`, `rot90`, `rot180`, `rot270` (clockwise) and
 `swap-sides`. `mirror --axis h|v|point` copies one half onto the other (site digits in the copy are shifted
 so a mirrored site 1 becomes a new site; `--swap-sides` trades `a` and `d` in the copy). `new` writes a
-bordered, lint-clean scaffold to start from. Several pool maps were drawn as a top half and mirrored.
+bordered scaffold to start from; it is lint-clean from about 24 tiles wide (smaller ones fail
+`blast-escape`). Several pool maps were drawn as a top half and mirrored.
+
+## The editor
+
+A map editor runs in the browser, on the replay viewer's build and renderer (`viewer/editor.html`):
+
+```
+ibc view --editor                      # lists, opens and saves maps in ./maps (created if missing)
+ibc view --editor --maps my-maps --port 8080
+```
+
+It prints the editor's URL. Open a map from the folder menu, a file (Open, or drop it on the page) or a
+link (`editor.html?map=<url>`), or start from New, which writes the same scaffold as `ibc-maptool new`.
+
+- Paint with the brush (1x1 to 5x5), a rectangle or a flood fill, for every tile type: wall, floor, low
+  cover, attacker and defender spawns, sites 1 to 9. Undo and redo cover every edit.
+- Symmetry paints the mirror image as you go (left/right, top/bottom, or 180 degrees about the centre), with
+  optional side swap (`a` and `d` trade places) and site pairing (1 and 2, 3 and 4 swap). The whole-map
+  buttons are `ibc-maptool transform` and `mirror` and give the same grids.
+- Size resizes keeping the top-left; the border moves with it and stays wall.
+- Every edit is checked by the engine itself (`Map::parse` compiled to WebAssembly): the panel says
+  whether `ibc run --map` would accept the map, what the engine reads (size, team size, spawn tiles, each
+  site's box and plant point, the map hash), an open border, and sites the engine would silently drop. The
+  spawn tiles a team uses are dotted and the plant points crossed on the map.
+- **Lint** sends the map to the local server, which runs the `lint` checks above and lists the findings.
+  **Save** writes `<folder>/<name>.ibcmap` (asking before it overwrites), setting `name:` to the file name.
+  The server writes only inside the folder: names are letters, digits, `_` and `-`.
+- **Export** downloads the `.ibcmap` and works without the server too (any static host of `viewer/dist`);
+  there Lint and Save are hidden. Run `ibc-maptool lint` on the file yourself.
+
+A saved or exported map is a normal map file: `ibc run bots/a bots/b --map maps/custom1.ibcmap`. Header
+notes and unknown keys survive an edit, and a map that is opened and saved unchanged is byte-identical.
 
 ## Design guidelines and target bands
 
@@ -159,6 +192,10 @@ Guidelines that the numbers come from:
 - **Watch both axes.** On maps taller than about 24 tiles, gaps that line up vertically make 25-tile
   sightlines as easily as lanes do.
 - **No spawn-to-spawn sightline**, ever (lint error).
+- **Room to run from the blast.** A detonation kills every unit within 12 tiles of the charge, through walls.
+  From every plant tile some reachable tile must lie outside that circle (lint error `blast-escape`). Every
+  map in the pool passes; at run speed clearing the radius from the charge takes about 18 ticks. The lint
+  checks that a way out exists, not that it is short enough to take within the fuse.
 
 Bands are configurable: copy the output of `ibc-maptool bands`, edit, pass `--bands`. A map may sit
 outside a band on purpose; say so in its row of the gallery.

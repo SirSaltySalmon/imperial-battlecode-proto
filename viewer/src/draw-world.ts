@@ -11,12 +11,15 @@ import {
   DEBUG_LINE,
   DROP_CHARGE,
   EFFECT_BARRIER,
+  EFFECT_CONCUSSION,
   EFFECT_DECOY,
   EFFECT_FIRE,
   EFFECT_FLASH,
   EFFECT_HEAL,
   EFFECT_RECON,
   EFFECT_SMOKE,
+  EFFECT_SONAR,
+  EFFECT_TRAP,
   PHASE_PLANTED,
   S_HAS_CHARGE,
   SOUND_SHOT,
@@ -140,6 +143,40 @@ export function drawEffects(pen: Pen, effects: EffectFrame[]): void {
         ctx.stroke();
         label(pen, "?", x, y, alpha(team, life));
         break;
+      case EFFECT_TRAP:
+        // Placeholder: a dashed trigger circle with an X on the trap.
+        circle(ctx, x, y, r);
+        ctx.strokeStyle = alpha(team, 0.7 * life);
+        ctx.lineWidth = 1.5 * px;
+        ctx.setLineDash([2 * px, 2 * px]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 2 * px;
+        ctx.beginPath();
+        ctx.moveTo(x - 5 * px, y - 5 * px);
+        ctx.lineTo(x + 5 * px, y + 5 * px);
+        ctx.moveTo(x + 5 * px, y - 5 * px);
+        ctx.lineTo(x - 5 * px, y + 5 * px);
+        ctx.stroke();
+        break;
+      case EFFECT_SONAR:
+        // Placeholder: concentric rings.
+        ctx.strokeStyle = alpha(team, 0.8 * life);
+        ctx.lineWidth = 1.5 * px;
+        for (const s of [1, 0.66, 0.33]) {
+          circle(ctx, x, y, r * s);
+          ctx.stroke();
+        }
+        break;
+      case EFFECT_CONCUSSION:
+        // Placeholder: a filled disc with a heavy rim.
+        circle(ctx, x, y, r);
+        ctx.fillStyle = alpha(pal.flash, 0.15 * life);
+        ctx.fill();
+        ctx.strokeStyle = alpha(pal.text, 0.8 * life);
+        ctx.lineWidth = 3 * px;
+        ctx.stroke();
+        break;
       default:
         circle(ctx, x, y, r);
         ctx.strokeStyle = alpha(pal.dim, 0.8 * life);
@@ -238,6 +275,16 @@ export function drawShots(pen: Pen, shots: Shot[]): void {
   for (const s of shots) {
     const [x, y, tx, ty] = [s.x * K, s.y * K, s.tx * K, s.ty * K];
     const color = pal.team[s.team] ?? pal.text;
+    if (s.kind !== 0) {
+      // A thrown ability device (placeholder look): a team-coloured ball with a white rim, no trail.
+      circle(ctx, x, y, 5 * px);
+      ctx.fillStyle = alpha(color, 0.9);
+      ctx.fill();
+      ctx.strokeStyle = pal.text;
+      ctx.lineWidth = 1.5 * px;
+      ctx.stroke();
+      continue;
+    }
     if (x !== tx || y !== ty) {
       const g = ctx.createLinearGradient(tx, ty, x, y);
       g.addColorStop(0, alpha(color, 0));

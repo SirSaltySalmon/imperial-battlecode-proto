@@ -13,7 +13,8 @@
 
 namespace ibc {
 
-inline constexpr uint32_t ABI_VERSION = 0;
+/// 1: the additions listed in docs/ABI.md ("Additions in v1").
+inline constexpr uint32_t ABI_VERSION = 1;
 inline constexpr char IMPORT_MODULE[] = "ibc";
 
 /// Fixed-point units per tile.
@@ -39,13 +40,14 @@ inline constexpr int32_t ERR_BAD_PTR = 8;
 inline constexpr uint32_t T_SELF = 1;
 /// `UnitInfo` per teammate (always known, like a radar), excluding self.
 inline constexpr uint32_t T_ALLIES = 2;
-/// `UnitInfo` per enemy currently visible to THIS unit.
+/// `UnitInfo` per living enemy currently seen by THIS unit's team (vision is shared by the team). Enemy rows
+/// hide hp, armour, credits, ammo, charges, cooldowns and the defuse kit; the weapon in hand is shown.
 inline constexpr uint32_t T_ENEMIES = 3;
-/// `SoundInfo` heard by this unit during the previous tick.
+/// `SoundInfo` heard by any living unit of THIS unit's team during the previous tick (shared by the team).
 inline constexpr uint32_t T_SOUNDS = 4;
-/// `ProjectileInfo` visible to this unit.
+/// `ProjectileInfo` seen by this unit's team (own team's bullets always).
 inline constexpr uint32_t T_PROJECTILES = 5;
-/// `EffectInfo` visible to this unit (smoke, fire, barriers, ...).
+/// `EffectInfo` seen by this unit's team (smoke, fire, barriers, ...; own team's effects always).
 inline constexpr uint32_t T_EFFECTS = 6;
 /// One `MatchInfo`.
 inline constexpr uint32_t T_MATCH = 7;
@@ -63,19 +65,27 @@ inline constexpr uint32_t T_ABILITY = 12;
 inline constexpr uint32_t T_ITEM = 13;
 /// `SiteInfo` per plant site.
 inline constexpr uint32_t T_SITES = 14;
-/// `DropInfo` per dropped item visible to this unit (the charge is always visible to attackers).
+/// `DropInfo` per dropped item seen by this unit's team (the charge is always visible to attackers).
 inline constexpr uint32_t T_DROPS = 15;
 /// `KitRules` per kit id.
 inline constexpr uint32_t T_KIT = 16;
-/// `EventInfo` per public event of the previous tick (kills, plant, defuse, round end).
+/// `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight;
+/// kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the
+/// team does not know the position. See docs/ABI.md for each kind.
 inline constexpr uint32_t T_EVENTS = 17;
+/// `RosterInfo` per unit of both teams, in unit id order. Readable in every phase.
+inline constexpr uint32_t T_ROSTER = 18;
+/// `RoundInfo` per finished round of the match, oldest first.
+inline constexpr uint32_t T_ROUNDS = 19;
 
 // ---- actions for `act(kind, a, b, c)` ----
 /// a = angle, b = speed in units/tick (clamped to the unit's max). Speed above `walk_speed` is a run (noisy).
 inline constexpr uint32_t A_MOVE = 1;
 /// a = desired facing angle (turn rate limited).
 inline constexpr uint32_t A_FACE = 2;
-/// a = aim angle. Starts the weapon's wind-up; bullets leave when it ends.
+/// a = aim angle. Starts the weapon's startup (`windup` plus the unit's unsteadiness); bullets leave when it
+/// ends and the unit is then braced: while it keeps firing and stays put, each pull leaves on the tick it is
+/// made. Refused with `ERR_NOT_ALLOWED` on a tick the unit also moves: a move cancels a startup and the brace.
 inline constexpr uint32_t A_FIRE = 3;
 inline constexpr uint32_t A_RELOAD = 4;
 inline constexpr uint32_t A_PLANT = 5;
@@ -94,6 +104,11 @@ inline constexpr uint32_t A_PICKUP = 11;
 inline constexpr uint32_t A_DRAFT = 12;
 /// Cancel the current channel (plant, defuse, reload, wind-up).
 inline constexpr uint32_t A_CANCEL = 13;
+/// a = item id, b = slot of the teammate who gets it (`MatchInfo.unit_slot`; your own slot works too).
+/// Buy phase only. The caller pays.
+inline constexpr uint32_t A_BUY_FOR = 14;
+/// a = kit id, b = slot of the teammate it is drafted for. Draft phase only.
+inline constexpr uint32_t A_DRAFT_FOR = 15;
 
 // ---- enums ----
 inline constexpr int32_t TEAM_A = 0;
@@ -127,6 +142,11 @@ inline constexpr int32_t S_RUNNING = 1 << 7;
 inline constexpr int32_t S_HAS_KIT = 1 << 8;
 inline constexpr int32_t S_SLOWED = 1 << 9;
 inline constexpr int32_t S_REVEALED = 1 << 10;
+/// Startup done and still firing: the next pull leaves on the tick it is made.
+inline constexpr int32_t S_BRACED = 1 << 11;
+/// An ability use is in its startup (`AbilityRules.delay`): it happens when the startup ends unless `A_CANCEL`
+/// or death stops it. Until then every primary action except `A_CANCEL` is refused with `ERR_NOT_READY`.
+inline constexpr int32_t S_CASTING = 1 << 12;
 
 inline constexpr int32_t SOUND_STEP = 1;
 inline constexpr int32_t SOUND_SHOT = 2;
@@ -143,10 +163,15 @@ inline constexpr int32_t EFFECT_RECON = 5;
 inline constexpr int32_t EFFECT_HEAL = 6;
 inline constexpr int32_t EFFECT_DECOY = 7;
 inline constexpr int32_t EFFECT_DASH = 8;
+inline constexpr int32_t EFFECT_TRAP = 9;
+inline constexpr int32_t EFFECT_SONAR = 10;
+inline constexpr int32_t EFFECT_CONCUSSION = 11;
 
 inline constexpr int32_t DROP_CHARGE = 1;
 inline constexpr int32_t DROP_WEAPON = 2;
 
+/// actor = killer, or -1 for a death nobody caused (the detonation blast); target = victim; value = weapon id,
+/// or -1 when no weapon did it.
 inline constexpr int32_t EVENT_KILL = 1;
 inline constexpr int32_t EVENT_PLANT = 2;
 inline constexpr int32_t EVENT_DEFUSE = 3;
@@ -154,16 +179,23 @@ inline constexpr int32_t EVENT_DETONATE = 4;
 inline constexpr int32_t EVENT_ROUND_END = 5;
 inline constexpr int32_t EVENT_DAMAGE = 6;
 
+/// `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real
+/// position: check for it before using the coordinates.
+inline constexpr int32_t POS_HIDDEN = -2147483648;
+
 inline constexpr int32_t ROUND_WIN_ELIMINATION = 1;
 inline constexpr int32_t ROUND_WIN_DETONATION = 2;
 inline constexpr int32_t ROUND_WIN_DEFUSE = 3;
 inline constexpr int32_t ROUND_WIN_TIMEOUT = 4;
 
 // mem scopes
-/// Team scratchpad, read/write all match. Later-running teammates see writes in the same tick.
+/// Team scratchpad, kept all match. Readable always, writable only in the action phases (`PHASE_ACTION`,
+/// `PHASE_PLANTED`). Later-running teammates see writes in the same tick.
 inline constexpr uint32_t MEM_TEAM = 0;
 /// Written in the draft phase, read-only afterwards.
 inline constexpr uint32_t MEM_DRAFT = 1;
+/// Buy-phase team scratchpad: zeroed at every round start, writable only in the buy phase, readable always.
+inline constexpr uint32_t MEM_BUY = 2;
 
 // debug_draw kinds
 /// Line from (x0, y0) to (x1, y1).
@@ -187,7 +219,8 @@ inline constexpr uint64_t FUEL_DEBUG = 0;
 
 // ---- records ----
 
-/// A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `ammo`, `reserve` are 0.
+/// A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, `cooldown`, `ammo`, `reserve`,
+/// `blind`, `other_weapon` and `fire_cooldown` are 0.
 struct UnitInfo {
     int32_t id;
     int32_t team;
@@ -197,7 +230,7 @@ struct UnitInfo {
     int32_t x;
     int32_t y;
     int32_t facing;
-    /// Velocity of the previous tick in units/tick.
+    /// Velocity of the previous tick in units/tick: the distance actually moved, so a move into a wall reads 0.
     int32_t vx;
     int32_t vy;
     int32_t hp;
@@ -215,8 +248,14 @@ struct UnitInfo {
     /// Recoil heat, 0 = settled.
     int32_t recoil;
     int32_t blind;
+    /// Unsteadiness heat, 0 = steady: builds while moving, decays standing, lengthens the next startup.
+    int32_t unsteadiness;
+    /// Weapon id in the slot not in hand, -1 if that slot is empty.
+    int32_t other_weapon;
+    /// Ticks before the weapon in hand may start a new wind-up (0 = ready, unless reloading or empty).
+    int32_t fire_cooldown;
 };
-static_assert(sizeof(UnitInfo) == 96);
+static_assert(sizeof(UnitInfo) == 108);
 
 struct SoundInfo {
     int32_t kind;
@@ -228,6 +267,8 @@ struct SoundInfo {
 static_assert(sizeof(SoundInfo) == 16);
 
 struct ProjectileInfo {
+    /// 0 = a bullet (`weapon` says whose); otherwise a thrown ability device, `kind` = ability id + 1 (`T_ABILITY`)
+    /// and `weapon` = -1. A thrown device hits nobody: it lands at the first wall or barrier, or after `range`.
     int32_t kind;
     int32_t team;
     int32_t x;
@@ -317,6 +358,7 @@ struct EventInfo {
     int32_t actor;
     /// Target unit id or -1.
     int32_t target;
+    /// Where it happened, or `POS_HIDDEN` in both `x` and `y` when the receiving team does not know.
     int32_t x;
     int32_t y;
     int32_t value;
@@ -359,8 +401,11 @@ struct CoreRules {
     int32_t items;
     int32_t kits;
     int32_t max_ticks;
+    /// On detonation every living unit within this distance of the charge dies, through walls.
+    int32_t blast_radius;
+    int32_t buy_mem_bytes;
 };
-static_assert(sizeof(CoreRules) == 128);
+static_assert(sizeof(CoreRules) == 136);
 
 struct WeaponRules {
     int32_t id;
@@ -370,14 +415,15 @@ struct WeaponRules {
     int32_t pellets;
     /// Angle between adjacent pellets when standing still and settled.
     int32_t spread;
-    /// Extra spread per unit of speed (per 1024 units/tick), and per recoil point.
-    int32_t move_spread;
+    /// Reserved, always 0 (was `move_spread`: movement no longer adds spread).
+    int32_t _reserved0;
+    /// Extra spread between pellets per recoil point.
     int32_t recoil_spread;
     int32_t recoil_per_shot;
     int32_t recoil_recovery;
-    /// Ticks between `A_FIRE` and the bullets leaving.
+    /// Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced.
     int32_t windup;
-    /// Ticks after a shot before the next wind-up may start.
+    /// Ticks after a shot before the next pull is accepted.
     int32_t cooldown;
     int32_t magazine;
     int32_t reload_ticks;
@@ -391,8 +437,16 @@ struct WeaponRules {
     int32_t move_pct;
     int32_t kill_reward;
     int32_t slot;
+    /// Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered.
+    int32_t unsteady_gain;
+    /// Unsteadiness lost per tick without moving.
+    int32_t unsteady_decay;
+    /// Unsteadiness never exceeds this.
+    int32_t unsteady_max;
+    /// Startup added per point of unsteadiness, in hundredths of a tick (rounded half up).
+    int32_t startup_per_point;
 };
-static_assert(sizeof(WeaponRules) == 80);
+static_assert(sizeof(WeaponRules) == 96);
 
 struct AbilityRules {
     int32_t id;
@@ -404,10 +458,13 @@ struct AbilityRules {
     int32_t radius;
     int32_t duration;
     int32_t power;
-    /// Ticks between use and the effect starting.
+    /// Startup: ticks between `A_ABILITY` and the ability happening (0 = in the tick it is used). See `S_CASTING`.
     int32_t delay;
+    /// Units per tick a thrown device flies (a projectile in `T_PROJECTILES`); 0 = it appears where it lands at
+    /// once. Only smoke, flash, incendiary, recon and decoy are thrown.
+    int32_t speed;
 };
-static_assert(sizeof(AbilityRules) == 40);
+static_assert(sizeof(AbilityRules) == 44);
 
 struct ItemRules {
     int32_t id;
@@ -425,6 +482,35 @@ struct KitRules {
     int32_t speed_pct;
 };
 static_assert(sizeof(KitRules) == 20);
+
+/// One unit in `T_ROSTER`. Public to both teams: kits and round-start credits, not equipment.
+struct RosterInfo {
+    int32_t id;
+    int32_t team;
+    int32_t kit;
+    /// Credits when this round's buy phase began (0 during the draft).
+    int32_t credits;
+    /// 1 if the unit is alive.
+    int32_t alive;
+};
+static_assert(sizeof(RosterInfo) == 20);
+
+/// One finished round in `T_ROUNDS`.
+struct RoundInfo {
+    int32_t round;
+    /// Winning team (`TEAM_A` / `TEAM_B`).
+    int32_t winner;
+    /// How it ended: `ROUND_WIN_*`.
+    int32_t reason;
+    /// Team that attacked in this round.
+    int32_t attackers;
+    /// Ticks from the start of the buy phase to the end of the round.
+    int32_t ticks;
+    /// Score after this round.
+    int32_t score_a;
+    int32_t score_b;
+};
+static_assert(sizeof(RoundInfo) == 28);
 
 }  // namespace ibc
 

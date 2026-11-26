@@ -203,13 +203,16 @@ async fn h_get(mut caller: C<'_>, table: u32, index: u32, out: u32, cap: u32) ->
     if r < 0 {
         return Ok(r);
     }
-    if row.len() > cap as usize {
+    // Records only grow at the end, so a bot built against a shorter record gets the prefix it knows.
+    // A map row has no such prefix: it must fit.
+    if row.len() > cap as usize && table == ibc_abi::T_MAP_ROW {
         return Ok(-ibc_abi::ERR_BUFFER_TOO_SMALL);
     }
-    if !write_bytes(&mut caller, out, &row) {
+    let n = row.len().min(cap as usize);
+    if !write_bytes(&mut caller, out, &row[..n]) {
         return Ok(-ibc_abi::ERR_BAD_PTR);
     }
-    Ok(row.len() as i32)
+    Ok(n as i32)
 }
 
 async fn h_act(mut caller: C<'_>, kind: u32, a: i32, b: i32, c: i32) -> wasmtime::Result<i32> {
@@ -443,6 +446,11 @@ impl UnitVm {
             self.call = None;
         }
         Turn { used, end }
+    }
+
+    /// The log from byte `from` on (the log stops growing at its cap).
+    pub(crate) fn log_since(&mut self, from: usize) -> Vec<u8> {
+        self.store_mut().data().log.get(from..).unwrap_or_default().to_vec()
     }
 
     /// Stop the bot and return its log.

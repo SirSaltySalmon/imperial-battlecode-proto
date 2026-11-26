@@ -1,11 +1,20 @@
 //! `ibc`: the Imperial Battlecode command line.
 
+mod admin;
 mod batch;
 mod build;
+mod embedded;
+mod init;
 mod job;
+mod remote;
+mod new;
+mod play;
+mod replay_view;
 mod toolchain;
+mod update;
 mod view;
 mod view_library;
+mod workspace;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -35,9 +44,11 @@ enum Command {
     /// Run one match between two bots (bot directories or .wasm files)
     Run {
         bot_a: PathBuf,
-        bot_b: PathBuf,
+        /// Default: `[run] opponent` of the workspace's ibc.toml
+        bot_b: Option<PathBuf>,
+        /// Default: `[run] map` of the workspace's ibc.toml
         #[arg(long)]
-        map: PathBuf,
+        map: Option<PathBuf>,
         #[arg(long, default_value_t = 0)]
         seed: u64,
         /// Output directory for replay.ibcr, summary.json and the team logs
@@ -88,8 +99,22 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Create a new bot from a template (not implemented yet)
-    New {
+    /// Moderation terminal for organisers: overview, flags, audit, suspend / ban teams, workers, dead letters
+    Admin(admin::AdminArgs),
+    #[command(flatten)]
+    Remote(remote::RemoteCommand),
+    /// Create a participant workspace (SDK, maps, docs, a starter bot), or refresh one after an update
+    Init(init::InitArgs),
+    /// Create bots/NAME in the current workspace from a template
+    New(new::NewArgs),
+    /// Ask the server which ibc it runs and print the command that upgrades this one (never downloads)
+    Update {
+        /// Server base URL (default: IBC_SERVER)
+        #[arg(long)]
+        server: Option<String>,
+    },
+    /// Play one unit against a bot in the browser: ibc play OPPONENT [--map M] [--mode realtime|turn] ...
+    Play {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -118,6 +143,18 @@ enum ReplayCommand {
     Dump { file: PathBuf },
     /// Print the replay header as JSON
     Info { file: PathBuf },
+    /// Download the replay of a platform match
+    Download(remote::ReplayDownload),
+    /// Write a copy without the other team's memory writes, logs, fuel and debug drawings
+    Redact {
+        input: PathBuf,
+        output: PathBuf,
+        /// Team whose private data stays: A, B or none
+        #[arg(long, value_parser = replay_view::parse_keep)]
+        keep: ibc_replay::Keep,
+    },
+    /// Print the private records (memory writes, logs, per-turn fuel, debug drawings) as JSON
+    Records { file: PathBuf },
 }
 
 fn load_replay(file: &Path) -> Result<Replay> {
@@ -132,6 +169,9 @@ fn replay(command: ReplayCommand) -> Result<()> {
             ibc_replay::verify(&r).map_err(|e| anyhow!("{}: verification FAILED: {e}", file.display()))?;
             let res = &r.header.result;
             println!("ok: {} ticks, score {}-{}, every state hash matches", res.ticks, res.score[0], res.score[1]);
+            for t in (0..2).filter(|&t| r.header.redacted[t]) {
+                println!("(team {} is redacted: its memory was not checked)", ["A", "B"][t]);
+            }
         }
         ReplayCommand::Dump { file } => {
             let r = load_replay(&file)?;
@@ -156,6 +196,9 @@ fn replay(command: ReplayCommand) -> Result<()> {
             let r = load_replay(&file)?;
             println!("{}", serde_json::to_string_pretty(&r.header)?);
         }
+        ReplayCommand::Download(args) => remote::replay_download(args)?,
+        ReplayCommand::Redact { input, output, keep } => replay_view::redact(&input, &output, keep)?,
+        ReplayCommand::Records { file } => replay_view::records(&file)?,
     }
     Ok(())
 }
@@ -192,6 +235,7 @@ fn run(cli: Cli) -> Result<()> {
             println!("language {}", built.language.name());
         }
         Command::Run { bot_a, bot_b, map, seed, out, frames, max_ticks, fuel_mult_a, fuel_mult_b } => {
+            let (bot_b, map) = workspace::run_defaults(bot_b, map)?;
             let mut a = job::resolve_bot(&bot_a)?;
             let mut b = job::resolve_bot(&bot_b)?;
             a.fuel_multiplier = fuel_mult_a.unwrap_or(a.fuel_multiplier);
@@ -221,15 +265,18 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Toolchain { command: ToolchainCommand::Status } => toolchain::status()?,
         Command::View { args } => view::run(args)?,
-        Command::New { .. } => {
-            eprintln!("ibc new: not implemented yet");
-            std::process::exit(2);
-        }
+        Command::Admin(args) => admin::run(args)?,
+        Command::Remote(command) => remote::run(command)?,
+        Command::Init(args) => init::run(args)?,
+        Command::New(args) => new::run(args)?,
+        Command::Update { server } => update::run(server)?,
+        Command::Play { args } => play::run(args)?,
     }
     Ok(())
 }
 
 fn main() {
+    update::check_before(std::env::args_os().nth(1).as_deref().and_then(|a| a.to_str()));
     if let Err(e) = run(Cli::parse()) {
         eprintln!("error: {e:#}");
         std::process::exit(1);

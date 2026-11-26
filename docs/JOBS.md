@@ -4,6 +4,9 @@ Two layers. A **worker** leases match jobs from the **coordinator** over HTTPS (
 by feeding a local `ibc run-batch --jsonl` process (part A). A match is a pure function of
 `(patch, map, bot A, bot B, seed)`, so any two honest workers produce byte-identical replays.
 
+Accounts, sessions, teams of users and the credentials team routes accept are in
+[`docs/api/auth.md`](api/auth.md).
+
 ## A. `ibc run-batch --jsonl` (implemented in `crates/cli/src/batch.rs`)
 
 ```
@@ -112,6 +115,11 @@ going through a double. Unknown fields must be ignored; a job of an unknown `kin
 result where it does not. `wall_ms` is not part of the match's determinism (it is not compared); the
 coordinator uses it to size ranked batches to the fleet.
 
+The ladder is rated per series, not per job: when every map of a ranked series has finished, the series'
+`outcome`s (maps won, lost, drawn) move the two ratings once, from the pre-series ratings
+(`docs/api/league.md`). A ranked series is `IBC_RANKED_GAMES` maps (default 3), queued by the built-in
+scheduler every `IBC_RANKED_INTERVAL_SECS` (default 600, 0 = off) with each team's live bot.
+
 ### Worker procedure
 
 1. `patch` must equal the worker's own `ibc version --json` (`engine`, `ruleset_hash`, `wasmtime`), or a
@@ -168,6 +176,53 @@ opt-in** (it means running native code the coordinator serves), downloads the bl
 its hash, installs it side by side and checks that its own `version --json` is exactly the job's patch before
 using it. Without the opt-in, or without a blob for its platform, the worker `release`s the job as a patch
 mismatch. This lets a fleet move to a new patch without redeploying workers.
+
+### Patch boundary
+
+A job is pinned to the patch in its payload and is only ever run on that patch. When the organisers set a new
+current patch (`POST /v1/admin/patch`), nothing is voided:
+
+- **Started series finish on the old patch.** A series with a game running (leased) or finished keeps all
+  its games on the patch it started on; workers that still have the old runner (or fetch it through
+  `runner_blobs`) serve them. Tournament series always finish on their patch, started or not.
+- **Series that have not started are re-planned** on the new patch: same games (maps, seeds, sides), new
+  patch. The new jobs keep the old jobs' priority class and place in the queue; the old jobs are deleted.
+  A re-planned game may hit the result cache.
+- **Drain window.** Jobs of a superseded patch still *queued* `IBC_PATCH_DRAIN_SECS` (default 3600) after
+  the switch are dead-lettered with `error: "patch superseded: ..."`; their series close with the games that
+  were played (a series with none is void). Tournament jobs are never expired this way: keep a worker of the
+  old patch until the tournament is over. `GET /v1/patch` reports `draining_jobs`.
+- **Ratings.** Games are rated on the patch they were played on. With `{"balance": true}` the switch also
+  widens every team's rating uncertainty by `IBC_BALANCE_SIGMA_FACTOR` (default 1.5,
+  `RatingSystem::on_balance_patch`), recorded in the rating ledger as one `balance` event per team. Setting
+  the patch that is already current changes nothing but its runner blobs and ABI.
+- **Revalidation.** Every team's live submission is checked against the new patch (`imports` in the
+  request lists the imports it offers bots, `{"ibc": [...], "wasi": [...]}`; default: the coordinator's own
+  lists; the request body may be `ibc version --json` as printed, whose `abi` number is ignored).
+  One that fails keeps playing for `IBC_INVALID_GRACE_SECS` (default 86400); after that its team is left out
+  of ranked pairing until it makes a valid submission live. `GET /v1/team` shows `live_status` (`ok`,
+  `grace`, `invalid`, or null without a live submission) with `invalid_reason`, `invalid_since` and
+  `grace_until`; `GET /v1/submissions` shows each submission's `current_patch_check`; `GET /v1/patch` counts
+  `teams_in_grace` and `teams_invalid`. A submission uploaded under an older patch is checked when it is made
+  live, and refused (409 `invalid_on_patch`) if it fails.
+
+The response of `POST /v1/admin/patch` says what happened: `switched`, `replanned_series`, `kept_series`
+(running series still on an older patch), `ratings_widened`, `revalidated` and `invalid_submissions`.
+
+### Languages and fuel multipliers
+
+A submission's fuel multiplier is decided by the coordinator from its language table (`--language
+name=mult`, default `rust=1`, `cpp=1`), never by the upload: `POST /v1/submissions?language=<name>` names
+the language, an unknown one is a 400 `unknown_language` listing the accepted ones, and a `fuel_mult`
+parameter is refused. The coordinator also reads what the module says about itself: an `ibc.language`
+custom section (UTF-8 language name, for toolchains to embed), or else the `producers` section (`language`
+Rust, C or C++; `processed-by` rustc or clang). If the module names languages and the declared one is not
+among them, the upload is a 400 `language_mismatch`; without `?language=` a module naming exactly one
+language is entered as that language, anything else as `rust`. This catches mistakes, not fraud: a module
+can be stripped of both sections, and release builds often are.
+
+An upload may carry `?note=<text>` (at most 200 characters, `ibc submit --note`); it is stored with the
+submission and shown only in the team's own `GET /v1/submissions`.
 
 ### Spot verification
 

@@ -293,16 +293,22 @@ class Rows {
 inline UnitInfo me() { return read<UnitInfo>(T_SELF, 0).value_or(UnitInfo{}); }
 /// Teammates (always known), excluding this unit. Includes dead ones: check `alive()`.
 inline Rows<UnitInfo> allies() { return Rows<UnitInfo>(T_ALLIES); }
-/// Enemies THIS unit can see right now.
+/// Living enemies THIS unit's team sees right now (vision is shared). One may be behind a wall from here:
+/// check `los` before shooting.
 inline Rows<UnitInfo> enemies() { return Rows<UnitInfo>(T_ENEMIES); }
-/// Sounds heard during the previous tick.
+/// Sounds the team heard during the previous tick (hearing is shared).
 inline Rows<SoundInfo> sounds() { return Rows<SoundInfo>(T_SOUNDS); }
 inline Rows<ProjectileInfo> projectiles() { return Rows<ProjectileInfo>(T_PROJECTILES); }
 inline Rows<EffectInfo> effects() { return Rows<EffectInfo>(T_EFFECTS); }
 inline Rows<DropInfo> drops() { return Rows<DropInfo>(T_DROPS); }
-/// Public events of the previous tick.
+/// Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN`
+/// when the team did not see it. Damage arrives only when seen.
 inline Rows<EventInfo> events() { return Rows<EventInfo>(T_EVENTS); }
 inline Rows<SiteInfo> sites() { return Rows<SiteInfo>(T_SITES); }
+/// Every unit of both teams, by id: kit, credits at the start of this round's buy phase, alive.
+inline Rows<RosterInfo> roster() { return Rows<RosterInfo>(T_ROSTER); }
+/// Every finished round so far, oldest first: winner, how it ended, who attacked, score after it.
+inline Rows<RoundInfo> rounds() { return Rows<RoundInfo>(T_ROUNDS); }
 /// All shop items.
 inline Rows<ItemRules> items() { return Rows<ItemRules>(T_ITEM); }
 /// All weapons.
@@ -355,12 +361,17 @@ inline Error defuse() { return act(A_DEFUSE); }
 inline Error pickup() { return act(A_PICKUP); }
 /// Buy a shop item (buy phase only).
 inline Error buy(int32_t item_id) { return act(A_BUY, item_id); }
+/// Buy a shop item for the teammate in `slot` (`MatchInfo.unit_slot`); this unit pays. Buy phase only.
+inline Error buy_for(int32_t item_id, int32_t slot) { return act(A_BUY_FOR, item_id, slot); }
 /// Use the ability in `slot` (0 or 1) at a target point.
 inline Error use_ability(int32_t slot, Point target) { return act(A_ABILITY, slot, target.x, target.y); }
 inline Error swap(int32_t slot) { return act(A_SWAP, slot); }
 /// Drop something (`DROP_*`).
 inline Error drop_item(int32_t kind) { return act(A_DROP, kind); }
+/// Pick a kit (draft phase only). Kits other than 0 are unique within a team: `Error::NotAllowed` if taken.
 inline Error draft(int32_t kit_id) { return act(A_DRAFT, kit_id); }
+/// Pick a kit for the teammate in `slot` (draft phase only). Same uniqueness rule as `draft`.
+inline Error draft_for(int32_t kit_id, int32_t slot) { return act(A_DRAFT_FOR, kit_id, slot); }
 /// Cancel the current channel (plant, defuse, reload, wind-up).
 inline Error cancel() { return act(A_CANCEL); }
 
@@ -384,18 +395,24 @@ inline Error mem_write(uint32_t scope, uint32_t off, const void* data, uint32_t 
 inline Error team_mem_read(uint32_t off, void* out, uint32_t len) { return mem_read(MEM_TEAM, off, out, len); }
 /// Write to the team scratchpad. Teammates running later this tick already see it.
 inline Error team_mem_write(uint32_t off, const void* data, uint32_t len) { return mem_write(MEM_TEAM, off, data, len); }
-/// Read `N` little-endian int32s from team memory (zeros if the read fails).
+/// Read `N` little-endian int32s from a memory scope (`MEM_*`; zeros if the read fails).
 template <size_t N>
-std::array<int32_t, N> team_mem_get(uint32_t off) {
+std::array<int32_t, N> mem_get(uint32_t scope, uint32_t off) {
     std::array<int32_t, N> v{};
-    if (!ok(team_mem_read(off, v.data(), static_cast<uint32_t>(N * 4)))) v = {};
+    if (!ok(mem_read(scope, off, v.data(), static_cast<uint32_t>(N * 4)))) v = {};
     return v;
 }
-/// Write `N` little-endian int32s to team memory.
+/// Write `N` little-endian int32s to a memory scope (`MEM_*`).
 template <size_t N>
-Error team_mem_set(uint32_t off, const std::array<int32_t, N>& v) {
-    return team_mem_write(off, v.data(), static_cast<uint32_t>(N * 4));
+Error mem_set(uint32_t scope, uint32_t off, const std::array<int32_t, N>& v) {
+    return mem_write(scope, off, v.data(), static_cast<uint32_t>(N * 4));
 }
+/// Read `N` little-endian int32s from team memory (zeros if the read fails).
+template <size_t N>
+std::array<int32_t, N> team_mem_get(uint32_t off) { return mem_get<N>(MEM_TEAM, off); }
+/// Write `N` little-endian int32s to team memory (action phases only).
+template <size_t N>
+Error team_mem_set(uint32_t off, const std::array<int32_t, N>& v) { return mem_set<N>(MEM_TEAM, off, v); }
 
 /// Write a line to the match log (shown in the viewer; ignored in tournaments).
 inline void log(std::string_view msg) { ibc_sys_log(msg.data(), static_cast<uint32_t>(msg.size())); }

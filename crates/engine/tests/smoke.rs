@@ -102,7 +102,9 @@ fn fights_happen_and_matches_are_deterministic() {
     let s: serde_json::Value = serde_json::from_str(&a.summary_json()).unwrap();
     let kills: i64 = s["units"].as_array().unwrap().iter().map(|u| u["kills"].as_i64().unwrap()).sum();
     assert!(kills > 0, "nobody was ever hit: {s}");
-    assert!(a.winner().is_some());
+    // Both teams run the same script from mirrored spawns: level on rounds, kills and damage, so a draw.
+    assert!(a.finished());
+    assert_eq!((a.winner(), a.score()[0]), (None, a.score()[1]), "{s}");
 
     // Replay: the recorded inputs alone reproduce every state hash.
     let mut r = Match::new(Ruleset::builtin(), Map::parse(OPEN).unwrap(), 7);
@@ -122,15 +124,19 @@ fn fog_hides_enemies_behind_walls_and_outside_the_cone() {
     for _ in 0..5 {
         m.step(); // draft + buy
     }
-    // Unit 0 spawns on the open row 1; unit 1 on row 2, which has a wall tile at (6,2) in the way.
-    assert!(m.count(0, T_ENEMIES) >= 1, "unit 0 sees along the open row");
-    assert_eq!(m.count(1, T_ENEMIES), 0, "unit 1 is behind the wall");
-    // Turn unit 0 away: it then sees nobody.
+    // Unit 0 spawns on the open row 1; unit 1 on row 2, which has a wall tile at (6,2) in the way. Vision is
+    // shared, so unit 1 reads what unit 0 sees.
+    let seen: Vec<UnitInfo> = (0..m.count(0, T_ENEMIES)).map(|i| get(&m, 0, T_ENEMIES, i as u32).unwrap()).collect();
+    assert!(!seen.is_empty(), "unit 0 sees along the open row");
+    assert!(seen.iter().all(|e| !m.world.can_see_point(1, (e.x, e.y))), "unit 1 is behind the wall");
+    assert_eq!(m.count(1, T_ENEMIES), seen.len() as i32, "unit 1 shares unit 0's sight");
+    // Turn unit 0 away: then nobody on the team sees anyone.
     for _ in 0..4 {
         m.act(0, A_FACE, 32768, 0, 0);
         m.step();
     }
     assert_eq!(m.count(0, T_ENEMIES), 0);
+    assert_eq!(m.count(1, T_ENEMIES), 0);
     // Allies are always known.
     assert_eq!(m.count(0, T_ALLIES), 1);
 }

@@ -23,7 +23,8 @@ refund_pct = 100
 
 # Overtime, when regulation ends level: pairs of rounds, one per side. Every overtime round starts fresh with
 # overtime_credits each. Taking both rounds of a pair wins; after overtime_max_pairs split pairs the tie-break
-# (kills, damage, seed coin flip) decides. rules/core.toml max_ticks must cover regulation plus these rounds.
+# (kills, then damage) decides, and a level tie-break is a draw. rules/core.toml max_ticks must cover
+# regulation plus these rounds; running out of ticks is a draw.
 overtime_credits = 5000
 overtime_max_pairs = 3
 

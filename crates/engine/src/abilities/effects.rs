@@ -1,12 +1,13 @@
 //! What active effects do each tick. Runs once per action tick, after movement and before the core counts the
 //! unit statuses (`blind`, `revealed`) down, so a status meant to last n bot turns is set to n + 1.
 
-use super::{aux_of, clear_line, is_active, linger, max_hp, open_between, rules_of, touches_unit};
+use super::{aux_of, clear_line, control, is_active, max_hp, open_between, rules_of};
 use crate::fixed::{self, V2};
 use crate::world::{Effect, World};
 use ibc_abi::*;
 
-/// SEAM: once per action tick after movement: cooldowns, active effects, expiry.
+/// SEAM: once per action tick after movement: cooldowns, active effects, expiry. Ends by noting where every
+/// unit stands, where its path for the next tick's traps starts.
 pub fn step(w: &mut World) {
     for u in w.units.iter_mut() {
         for c in u.abil.cooldown.iter_mut() {
@@ -15,7 +16,7 @@ pub fn step(w: &mut World) {
     }
     for i in 0..w.effects.len() {
         let e = w.effects[i];
-        if !is_active(w, &e) {
+        if !is_active(&e) {
             continue;
         }
         let r = rules_of(w, &e);
@@ -25,21 +26,19 @@ pub fn step(w: &mut World) {
             EFFECT_RECON => ping(w, &e, &r),
             EFFECT_DECOY => fake_sounds(w, &e, &r),
             EFFECT_HEAL => mend(w, i, &r),
+            EFFECT_TRAP => control::spring(w, i, &r),
+            EFFECT_SONAR => control::sonar(w, &e, &r),
+            EFFECT_CONCUSSION => control::concuss(w, &e, &r),
             _ => {}
         }
     }
-    for i in 0..w.effects.len() {
-        w.effects[i].info.ticks_left -= 1;
-        let e = w.effects[i];
-        // A barrier that finishes arming on top of a unit fails instead of trapping it.
-        if e.info.kind == EFFECT_BARRIER && e.info.ticks_left == linger(&rules_of(w, &e)) {
-            let (a, b) = super::ends(&e);
-            if touches_unit(w, a, b) {
-                w.effects[i].info.ticks_left = 0;
-            }
-        }
+    for e in w.effects.iter_mut() {
+        e.info.ticks_left -= 1;
     }
     w.effects.retain(|e| e.info.ticks_left > 0);
+    for u in w.units.iter_mut() {
+        u.abil.last_pos = u.pos;
+    }
 }
 
 fn centre(e: &Effect) -> V2 {
@@ -102,24 +101,25 @@ fn ping(w: &mut World, e: &Effect, r: &AbilityRules) {
 }
 
 /// Decoy: enemies hear a footstep every tick and a shot every `power` ticks, exactly as real ones sound.
-/// Inside `radius` the device is recognisable and is heard as `SOUND_DECOY` instead.
+/// Inside `radius` the device is recognisable and is heard as `SOUND_DECOY` instead. Hearing is shared by the
+/// team, so once any listener is that close the whole team knows it is a decoy.
 fn fake_sounds(w: &mut World, e: &Effect, r: &AbilityRules) {
     let at = centre(e);
     let core = w.rules.core;
-    let snapped = (at.0.div_euclid(TILE) * TILE + TILE / 2, at.1.div_euclid(TILE) * TILE + TILE / 2);
     let shot = r.power > 0 && e.info.ticks_left % r.power == 0;
-    for u in w.units.iter_mut().filter(|u| u.alive && u.team != e.info.team) {
-        let mut hear = |kind: i32| u.sounds.push(SoundInfo { kind, x: snapped.0, y: snapped.1, team: e.info.team });
-        if within(u.pos, at, e.info.radius) {
-            hear(SOUND_DECOY);
-            continue;
-        }
-        if within(u.pos, at, core.step_sound_radius) {
-            hear(SOUND_STEP);
-        }
-        if shot && within(u.pos, at, core.shot_sound_radius) {
-            hear(SOUND_SHOT);
-        }
+    let source = e.info.team;
+    let listener = 1 - source;
+    let near =
+        |w: &World, radius: i32| w.units.iter().any(|u| u.alive && u.team == listener && within(u.pos, at, radius));
+    if near(w, e.info.radius) {
+        w.hear(listener, SOUND_DECOY, at, source);
+        return;
+    }
+    if near(w, core.step_sound_radius) {
+        w.hear(listener, SOUND_STEP, at, source);
+    }
+    if shot && near(w, core.shot_sound_radius) {
+        w.hear(listener, SOUND_SHOT, at, source);
     }
 }
 

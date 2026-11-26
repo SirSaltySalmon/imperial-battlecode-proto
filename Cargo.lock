@@ -86,6 +86,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
 
 [[package]]
+name = "argon2"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3610892ee6e0cbce8ae2700349fcf8f98adb0dbfbee85aec3c9179d29cc072"
+dependencies = [
+ "base64ct",
+ "blake2",
+ "cpufeatures",
+ "password-hash",
+]
+
+[[package]]
 name = "ascii"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -165,10 +177,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64ct"
+version = "1.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
+
+[[package]]
+name = "blake2"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+dependencies = [
+ "digest",
+]
 
 [[package]]
 name = "block-buffer"
@@ -489,6 +516,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -834,11 +862,11 @@ dependencies = [
 
 [[package]]
 name = "ibc-abi"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "ibc-bench"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ibc",
  "ibc-abi",
@@ -851,23 +879,26 @@ dependencies = [
 
 [[package]]
 name = "ibc-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
  "ibc-abi",
  "ibc-engine",
+ "ibc-maptool",
  "ibc-replay",
  "ibc-runner",
  "serde",
  "serde_json",
  "sha2",
  "toml",
+ "ureq",
+ "wat",
 ]
 
 [[package]]
 name = "ibc-combatviz"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ibc-engine",
  "serde",
@@ -876,13 +907,16 @@ dependencies = [
 
 [[package]]
 name = "ibc-coordinator"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
+ "argon2",
  "axum",
  "clap",
  "http-body-util",
+ "ibc-engine",
  "ibc-rating",
+ "ibc-replay",
  "rand",
  "rusqlite",
  "serde",
@@ -896,7 +930,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ibc-abi",
  "serde_json",
@@ -905,7 +939,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-engine-wasm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ibc-engine",
  "ibc-replay",
@@ -914,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-maptool"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ibc-engine",
  "serde",
@@ -924,14 +958,14 @@ dependencies = [
 
 [[package]]
 name = "ibc-rating"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ibc-replay"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ibc-engine",
  "miniz_oxide",
@@ -942,7 +976,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-runner"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "ibc-abi",
@@ -956,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-sim"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "forcer",
  "holder",
@@ -975,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-worker"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ctrlc",
  "ibc-coordinator",
@@ -1295,6 +1329,17 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "password-hash"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
+dependencies = [
+ "base64ct",
+ "rand_core",
+ "subtle",
+]
 
 [[package]]
 name = "percent-encoding"
@@ -1942,6 +1987,8 @@ dependencies = [
  "once_cell",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "url",
  "webpki-roots 0.26.11",
 ]
@@ -2441,7 +2488,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ibc-abi",
  "ibc-engine",
@@ -2450,6 +2497,8 @@ dependencies = [
  "ibc-sim",
  "serde",
  "serde_json",
+ "syn 3.0.10",
+ "toml",
 ]
 
 [[package]]

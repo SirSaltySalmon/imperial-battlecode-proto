@@ -7,7 +7,7 @@
 //! end_turn()                                            yield until the next tick
 //! fuel_remaining() -> i64                               fuel left in this tick's budget
 //! count(table: u32) -> i32                              rows in a table (>= 0) or -error
-//! get(table: u32, index: u32, out: *mut u8, cap: u32) -> i32   bytes written (>= 0) or -error
+//! get(table: u32, index: u32, out: *mut u8, cap: u32) -> i32   bytes written (>= 0, at most cap) or -error
 //! act(kind: u32, a: i32, b: i32, c: i32) -> i32         0 or error code (positive)
 //! los(x0: i32, y0: i32, x1: i32, y1: i32) -> i32        1 if no wall between the points
 //! raycast(x: i32, y: i32, angle: i32, max: i32) -> i32  distance to the first wall, capped at max
@@ -22,7 +22,9 @@
 //! Records are `#[repr(C)]`, little-endian, made only of `i32`, so they have no padding.
 #![cfg_attr(not(feature = "host"), no_std)]
 
-pub const ABI_VERSION: u32 = 0;
+/// 1: the batch of additions listed in docs/ABI.md ("Additions in v1"). Every v0 bot still loads and reads
+/// the prefix of each record it knows; the version says what the tables mean now (team fog, startup, ...).
+pub const ABI_VERSION: u32 = 1;
 pub const IMPORT_MODULE: &str = "ibc";
 
 /// Fixed-point units per tile.
@@ -48,13 +50,14 @@ pub const ERR_BAD_PTR: i32 = 8;
 pub const T_SELF: u32 = 1;
 /// `UnitInfo` per teammate (always known, like a radar), excluding self.
 pub const T_ALLIES: u32 = 2;
-/// `UnitInfo` per enemy currently visible to THIS unit.
+/// `UnitInfo` per living enemy currently seen by THIS unit's team (vision is shared by the team). Enemy rows
+/// hide hp, armour, credits, ammo, charges, cooldowns and the defuse kit; the weapon in hand is shown.
 pub const T_ENEMIES: u32 = 3;
-/// `SoundInfo` heard by this unit during the previous tick.
+/// `SoundInfo` heard by any living unit of THIS unit's team during the previous tick (shared by the team).
 pub const T_SOUNDS: u32 = 4;
-/// `ProjectileInfo` visible to this unit.
+/// `ProjectileInfo` seen by this unit's team (own team's bullets always).
 pub const T_PROJECTILES: u32 = 5;
-/// `EffectInfo` visible to this unit (smoke, fire, barriers, ...).
+/// `EffectInfo` seen by this unit's team (smoke, fire, barriers, ...; own team's effects always).
 pub const T_EFFECTS: u32 = 6;
 /// One `MatchInfo`.
 pub const T_MATCH: u32 = 7;
@@ -72,19 +75,27 @@ pub const T_ABILITY: u32 = 12;
 pub const T_ITEM: u32 = 13;
 /// `SiteInfo` per plant site.
 pub const T_SITES: u32 = 14;
-/// `DropInfo` per dropped item visible to this unit (the charge is always visible to attackers).
+/// `DropInfo` per dropped item seen by this unit's team (the charge is always visible to attackers).
 pub const T_DROPS: u32 = 15;
 /// `KitRules` per kit id.
 pub const T_KIT: u32 = 16;
-/// `EventInfo` per public event of the previous tick (kills, plant, defuse, round end).
+/// `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight;
+/// kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the
+/// team does not know the position. See docs/ABI.md for each kind.
 pub const T_EVENTS: u32 = 17;
+/// `RosterInfo` per unit of both teams, in unit id order. Readable in every phase.
+pub const T_ROSTER: u32 = 18;
+/// `RoundInfo` per finished round of the match, oldest first.
+pub const T_ROUNDS: u32 = 19;
 
 // ---- actions for `act(kind, a, b, c)` ----
 /// a = angle, b = speed in units/tick (clamped to the unit's max). Speed above `walk_speed` is a run (noisy).
 pub const A_MOVE: u32 = 1;
 /// a = desired facing angle (turn rate limited).
 pub const A_FACE: u32 = 2;
-/// a = aim angle. Starts the weapon's wind-up; bullets leave when it ends.
+/// a = aim angle. Starts the weapon's startup (`windup` plus the unit's unsteadiness); bullets leave when it
+/// ends and the unit is then braced: while it keeps firing and stays put, each pull leaves on the tick it is
+/// made. Refused with `ERR_NOT_ALLOWED` on a tick the unit also moves: a move cancels a startup and the brace.
 pub const A_FIRE: u32 = 3;
 pub const A_RELOAD: u32 = 4;
 pub const A_PLANT: u32 = 5;
@@ -103,6 +114,11 @@ pub const A_PICKUP: u32 = 11;
 pub const A_DRAFT: u32 = 12;
 /// Cancel the current channel (plant, defuse, reload, wind-up).
 pub const A_CANCEL: u32 = 13;
+/// a = item id, b = slot of the teammate who gets it (`MatchInfo.unit_slot`; your own slot works too).
+/// Buy phase only. The caller pays.
+pub const A_BUY_FOR: u32 = 14;
+/// a = kit id, b = slot of the teammate it is drafted for. Draft phase only.
+pub const A_DRAFT_FOR: u32 = 15;
 
 // ---- enums ----
 pub const TEAM_A: i32 = 0;
@@ -136,6 +152,11 @@ pub const S_RUNNING: i32 = 1 << 7;
 pub const S_HAS_KIT: i32 = 1 << 8;
 pub const S_SLOWED: i32 = 1 << 9;
 pub const S_REVEALED: i32 = 1 << 10;
+/// Startup done and still firing: the next pull leaves on the tick it is made.
+pub const S_BRACED: i32 = 1 << 11;
+/// An ability use is in its startup (`AbilityRules.delay`): it happens when the startup ends unless `A_CANCEL`
+/// or death stops it. Until then every primary action except `A_CANCEL` is refused with `ERR_NOT_READY`.
+pub const S_CASTING: i32 = 1 << 12;
 
 pub const SOUND_STEP: i32 = 1;
 pub const SOUND_SHOT: i32 = 2;
@@ -153,10 +174,18 @@ pub const EFFECT_HEAL: i32 = 6;
 pub const EFFECT_DECOY: i32 = 7;
 /// Ability effect id only (an instant move); never appears in `T_EFFECTS`.
 pub const EFFECT_DASH: i32 = 8;
+/// A hidden trigger area. Enemies get it in `T_EFFECTS` only within `sense_radius` of it.
+pub const EFFECT_TRAP: i32 = 9;
+/// A pulse that marks every unit around it, friend or foe, through walls.
+pub const EFFECT_SONAR: i32 = 10;
+/// A pop that slows every unit around it and interrupts what it was doing.
+pub const EFFECT_CONCUSSION: i32 = 11;
 
 pub const DROP_CHARGE: i32 = 1;
 pub const DROP_WEAPON: i32 = 2;
 
+/// actor = killer, or -1 for a death nobody caused (the detonation blast); target = victim; value = weapon id,
+/// or -1 when no weapon did it.
 pub const EVENT_KILL: i32 = 1;
 pub const EVENT_PLANT: i32 = 2;
 pub const EVENT_DEFUSE: i32 = 3;
@@ -164,16 +193,23 @@ pub const EVENT_DETONATE: i32 = 4;
 pub const EVENT_ROUND_END: i32 = 5;
 pub const EVENT_DAMAGE: i32 = 6;
 
+/// `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real
+/// position: check for it before using the coordinates.
+pub const POS_HIDDEN: i32 = -2147483648;
+
 pub const ROUND_WIN_ELIMINATION: i32 = 1;
 pub const ROUND_WIN_DETONATION: i32 = 2;
 pub const ROUND_WIN_DEFUSE: i32 = 3;
 pub const ROUND_WIN_TIMEOUT: i32 = 4;
 
 // mem scopes
-/// Team scratchpad, read/write all match. Later-running teammates see writes in the same tick.
+/// Team scratchpad, kept all match. Readable always, writable only in the action phases (`PHASE_ACTION`,
+/// `PHASE_PLANTED`). Later-running teammates see writes in the same tick.
 pub const MEM_TEAM: u32 = 0;
 /// Written in the draft phase, read-only afterwards.
 pub const MEM_DRAFT: u32 = 1;
+/// Buy-phase team scratchpad: zeroed at every round start, writable only in the buy phase, readable always.
+pub const MEM_BUY: u32 = 2;
 
 // debug_draw kinds
 /// Line from (x0, y0) to (x1, y1).
@@ -197,7 +233,8 @@ pub const FUEL_DEBUG: u64 = 0;
 
 // ---- records ----
 
-/// A unit as seen by the caller. For enemies, `credits`, `charges`, `cooldown`, `ammo`, `reserve` are 0.
+/// A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, `cooldown`, `ammo`, `reserve`,
+/// `blind`, `other_weapon` and `fire_cooldown` are 0.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UnitInfo {
@@ -209,7 +246,7 @@ pub struct UnitInfo {
     pub x: i32,
     pub y: i32,
     pub facing: i32,
-    /// Velocity of the previous tick in units/tick.
+    /// Velocity of the previous tick in units/tick: the distance actually moved, so a move into a wall reads 0.
     pub vx: i32,
     pub vy: i32,
     pub hp: i32,
@@ -227,6 +264,12 @@ pub struct UnitInfo {
     /// Recoil heat, 0 = settled.
     pub recoil: i32,
     pub blind: i32,
+    /// Unsteadiness heat, 0 = steady: builds while moving, decays standing, lengthens the next startup.
+    pub unsteadiness: i32,
+    /// Weapon id in the slot not in hand, -1 if that slot is empty.
+    pub other_weapon: i32,
+    /// Ticks before the weapon in hand may start a new wind-up (0 = ready, unless reloading or empty).
+    pub fire_cooldown: i32,
 }
 
 #[repr(C)]
@@ -242,6 +285,8 @@ pub struct SoundInfo {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ProjectileInfo {
+    /// 0 = a bullet (`weapon` says whose); otherwise a thrown ability device, `kind` = ability id + 1 (`T_ABILITY`)
+    /// and `weapon` = -1. A thrown device hits nobody: it lands at the first wall or barrier, or after `range`.
     pub kind: i32,
     pub team: i32,
     pub x: i32,
@@ -337,6 +382,7 @@ pub struct EventInfo {
     pub actor: i32,
     /// Target unit id or -1.
     pub target: i32,
+    /// Where it happened, or `POS_HIDDEN` in both `x` and `y` when the receiving team does not know.
     pub x: i32,
     pub y: i32,
     pub value: i32,
@@ -380,6 +426,9 @@ pub struct CoreRules {
     pub items: i32,
     pub kits: i32,
     pub max_ticks: i32,
+    /// On detonation every living unit within this distance of the charge dies, through walls.
+    pub blast_radius: i32,
+    pub buy_mem_bytes: i32,
 }
 
 #[repr(C)]
@@ -392,14 +441,15 @@ pub struct WeaponRules {
     pub pellets: i32,
     /// Angle between adjacent pellets when standing still and settled.
     pub spread: i32,
-    /// Extra spread per unit of speed (per 1024 units/tick), and per recoil point.
-    pub move_spread: i32,
+    /// Reserved, always 0 (was `move_spread`: movement no longer adds spread).
+    pub _reserved0: i32,
+    /// Extra spread between pellets per recoil point.
     pub recoil_spread: i32,
     pub recoil_per_shot: i32,
     pub recoil_recovery: i32,
-    /// Ticks between `A_FIRE` and the bullets leaving.
+    /// Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced.
     pub windup: i32,
-    /// Ticks after a shot before the next wind-up may start.
+    /// Ticks after a shot before the next pull is accepted.
     pub cooldown: i32,
     pub magazine: i32,
     pub reload_ticks: i32,
@@ -413,6 +463,14 @@ pub struct WeaponRules {
     pub move_pct: i32,
     pub kill_reward: i32,
     pub slot: i32,
+    /// Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered.
+    pub unsteady_gain: i32,
+    /// Unsteadiness lost per tick without moving.
+    pub unsteady_decay: i32,
+    /// Unsteadiness never exceeds this.
+    pub unsteady_max: i32,
+    /// Startup added per point of unsteadiness, in hundredths of a tick (rounded half up).
+    pub startup_per_point: i32,
 }
 
 #[repr(C)]
@@ -427,8 +485,11 @@ pub struct AbilityRules {
     pub radius: i32,
     pub duration: i32,
     pub power: i32,
-    /// Ticks between use and the effect starting.
+    /// Startup: ticks between `A_ABILITY` and the ability happening (0 = in the tick it is used). See `S_CASTING`.
     pub delay: i32,
+    /// Units per tick a thrown device flies (a projectile in `T_PROJECTILES`); 0 = it appears where it lands at
+    /// once. Only smoke, flash, incendiary, recon and decoy are thrown.
+    pub speed: i32,
 }
 
 #[repr(C)]
@@ -448,6 +509,37 @@ pub struct KitRules {
     pub abilities: [i32; 2],
     pub hp: i32,
     pub speed_pct: i32,
+}
+
+/// One unit in `T_ROSTER`. Public to both teams: kits and round-start credits, not equipment.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RosterInfo {
+    pub id: i32,
+    pub team: i32,
+    pub kit: i32,
+    /// Credits when this round's buy phase began (0 during the draft).
+    pub credits: i32,
+    /// 1 if the unit is alive.
+    pub alive: i32,
+}
+
+/// One finished round in `T_ROUNDS`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RoundInfo {
+    pub round: i32,
+    /// Winning team (`TEAM_A` / `TEAM_B`).
+    pub winner: i32,
+    /// How it ended: `ROUND_WIN_*`.
+    pub reason: i32,
+    /// Team that attacked in this round.
+    pub attackers: i32,
+    /// Ticks from the start of the buy phase to the end of the round.
+    pub ticks: i32,
+    /// Score after this round.
+    pub score_a: i32,
+    pub score_b: i32,
 }
 
 /// Bytes of a record. Sound only for the `repr(C)` all-`i32` records in this crate.

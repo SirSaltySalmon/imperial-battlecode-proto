@@ -10,7 +10,10 @@ How far to trust this file:
 - **Coordinator, CI and viewer claims are carried over from the first review and were only spot-checked.** They
   are grouped under "Carried over" at the end and agree with `docs/TODO.md`, but check them before relying on one.
 
-Nothing here is implemented.
+When it was written nothing here was implemented. **Update 2026-11-26:** the proof-of-concept batch (PRs 16 to
+35, merged through the `integration` branch) implemented steps 4 to 12 of section 5 and the platform around
+them; the status note at the end of section 5 says what landed and what is left. The analysis below is kept as
+the reasoning behind those changes.
 
 ## 1. What the revised vision settled
 
@@ -319,6 +322,30 @@ Nothing in `vision.md` is open any more.
 12. In parallel on `viewer/`: rules from the replay header, debug drawings, buy menu, then human play.
 
 Steps 4 to 10 each change the game bots are written against. Each is its own engine version.
+
+**Status, 2026-11-26.** Landed (engine 0.2.0, `ABI_VERSION` 1, one combined version bump rather than one per
+step):
+
+- Steps 4 to 10: one charge per ability; plant 12, defuse 21, kit defuse 16, fuse 80; draws (tie-break then
+  draw, out of ticks is a draw); team memory wiped each round; the 12-tile blast with a map lint that every
+  plant spot has a way out; shared team vision and hearing with fogged events (kills always delivered, damage
+  amount only); enemy hp and armour hidden; real velocity; the unsteadiness startup and braced fire with no
+  movement spread or kick; `A_BUY_FOR`, `A_DRAFT_FOR`, unique kits per team, buy-phase memory, `T_ROSTER`,
+  `T_ROUNDS`, second weapon and cooldown on `UnitInfo`; smoke, flash and incendiary thrown on the bullet step
+  with a startup; trap, sonar and concussion; ten kits.
+- Step 11: per-series rating with draws as half, Iron to Radiant tiers with "Provisional", ranked scheduler on by
+  default (3 games, sides alternate), private archive, scrims with "rematch the version from series X", replay
+  views (public / team / full), upload and API limits with 429, moderation terminal, tournaments (lock, seed,
+  single or double elimination, hidden maps, reveal), patch lifecycle (in-flight series finish, 24 h grace,
+  server-decided fuel multipliers), accounts with email + password and device-code CLI login, the web platform.
+- Step 12: rules and debug drawings from the replay, per-unit logs and fuel, buy menu, team tab, kill feed,
+  human play (`ibc play`), map editor (`ibc view --editor`).
+- Participant kit: `ibc init`, `ibc new`, the SDK embedded in the binary, `ibc submit`/`login`/`ladder`/`scrim`/
+  `maps pull`, `ibc update`, `cargo xtask dist`, `tools/devstack.sh`, generated handbook and LLM bundle.
+
+Not done: balance tuning (the league moved a lot; `docs/TODO.md` section 1 has the table), the Python SDK,
+cross-platform determinism runs, the C++ exceptions flag, the fmt/clippy clean-up, and the gaps listed in
+`docs/TODO.md`. The design questions in section 4 are all answered; what is left is measurement.
 
 ## 6. Carried over from the first review (spot-checked only)
 

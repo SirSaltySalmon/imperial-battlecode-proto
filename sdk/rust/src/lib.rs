@@ -129,7 +129,7 @@ use sealed::Record;
 
 macro_rules! records { ($($t:ty),*) => { $(impl Record for $t {})* } }
 records!(UnitInfo, SoundInfo, ProjectileInfo, EffectInfo, MatchInfo, MapInfo, SiteInfo, DropInfo, EventInfo);
-records!(CoreRules, WeaponRules, AbilityRules, ItemRules, KitRules);
+records!(CoreRules, WeaponRules, AbilityRules, ItemRules, KitRules, RosterInfo, RoundInfo);
 
 fn read<T: Record>(table: u32, index: u32) -> Option<T> {
     let mut v = T::default();
@@ -182,11 +182,12 @@ pub fn me() -> UnitInfo {
 pub fn allies() -> Rows<UnitInfo> {
     rows(T_ALLIES)
 }
-/// Enemies THIS unit can see right now.
+/// Living enemies THIS unit's team sees right now (vision is shared). One may be behind a wall from here:
+/// check `los` before shooting.
 pub fn enemies() -> Rows<UnitInfo> {
     rows(T_ENEMIES)
 }
-/// Sounds heard during the previous tick.
+/// Sounds the team heard during the previous tick (hearing is shared).
 pub fn sounds() -> Rows<SoundInfo> {
     rows(T_SOUNDS)
 }
@@ -199,12 +200,21 @@ pub fn effects() -> Rows<EffectInfo> {
 pub fn drops() -> Rows<DropInfo> {
     rows(T_DROPS)
 }
-/// Public events of the previous tick.
+/// Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN`
+/// when the team did not see it. Damage arrives only when seen.
 pub fn events() -> Rows<EventInfo> {
     rows(T_EVENTS)
 }
 pub fn sites() -> Rows<SiteInfo> {
     rows(T_SITES)
+}
+/// Every unit of both teams, by id: kit, credits at the start of this round's buy phase, alive.
+pub fn roster() -> Rows<RosterInfo> {
+    rows(T_ROSTER)
+}
+/// Every finished round so far, oldest first: winner, how it ended, who attacked, score after it.
+pub fn rounds() -> Rows<RoundInfo> {
+    rows(T_ROUNDS)
 }
 pub fn match_info() -> MatchInfo {
     read(T_MATCH, 0).unwrap_or_default()
@@ -252,7 +262,7 @@ pub trait UnitExt {
     fn has(&self, state_flag: i32) -> bool;
     fn alive(&self) -> bool;
     fn pos(&self) -> (i32, i32);
-    /// Winding up, reloading, planting or defusing.
+    /// Winding up, reloading, planting, defusing or in an ability's startup.
     fn busy(&self) -> bool;
 }
 
@@ -271,7 +281,7 @@ impl UnitExt for UnitInfo {
     }
     #[inline]
     fn busy(&self) -> bool {
-        self.has(S_WINDUP | S_RELOADING | S_PLANTING | S_DEFUSING)
+        self.has(S_WINDUP | S_RELOADING | S_PLANTING | S_DEFUSING | S_CASTING)
     }
 }
 
@@ -327,6 +337,10 @@ pub fn pickup() -> Result<(), Error> {
 pub fn buy(item: i32) -> Result<(), Error> {
     act(A_BUY, item, 0, 0)
 }
+/// Buy a shop item for the teammate in `slot` (`MatchInfo::unit_slot`); this unit pays. Buy phase only.
+pub fn buy_for(item: i32, slot: i32) -> Result<(), Error> {
+    act(A_BUY_FOR, item, slot, 0)
+}
 /// Use the ability in `slot` (0 or 1) at a target point.
 pub fn use_ability(slot: i32, x: i32, y: i32) -> Result<(), Error> {
     act(A_ABILITY, slot, x, y)
@@ -338,8 +352,13 @@ pub fn swap(slot: i32) -> Result<(), Error> {
 pub fn drop_item(kind: i32) -> Result<(), Error> {
     act(A_DROP, kind, 0, 0)
 }
+/// Pick a kit (draft phase only). Kits other than 0 are unique within a team: `Error::NOT_ALLOWED` if taken.
 pub fn draft(kit: i32) -> Result<(), Error> {
     act(A_DRAFT, kit, 0, 0)
+}
+/// Pick a kit for the teammate in `slot` (draft phase only). Same uniqueness rule as `draft`.
+pub fn draft_for(kit: i32, slot: i32) -> Result<(), Error> {
+    act(A_DRAFT_FOR, kit, slot, 0)
 }
 /// Cancel the current channel (plant, defuse, reload, wind-up).
 pub fn cancel() -> Result<(), Error> {
@@ -363,7 +382,7 @@ pub fn raycast(x: i32, y: i32, angle: i32, max: i32) -> i32 {
 pub fn team_mem_read(off: u32, out: &mut [u8]) -> Result<(), Error> {
     check(sys::sys_mem_read(MEM_TEAM, off, out))
 }
-/// Write to the team scratchpad. Teammates running later this tick already see it.
+/// Write to the team scratchpad (action phases only). Teammates running later this tick already see it.
 pub fn team_mem_write(off: u32, data: &[u8]) -> Result<(), Error> {
     check(sys::sys_mem_write(MEM_TEAM, off, data))
 }
@@ -374,22 +393,30 @@ pub fn mem_read(scope: u32, off: u32, out: &mut [u8]) -> Result<(), Error> {
 pub fn mem_write(scope: u32, off: u32, data: &[u8]) -> Result<(), Error> {
     check(sys::sys_mem_write(scope, off, data))
 }
-/// Read `N` little-endian i32s from team memory (zeros if the read fails).
-pub fn team_mem_get<const N: usize>(off: u32) -> [i32; N] {
+/// Read `N` little-endian i32s from a memory scope (`MEM_*`; zeros if the read fails).
+pub fn mem_get<const N: usize>(scope: u32, off: u32) -> [i32; N] {
     let mut v = [0i32; N];
     // SAFETY: an i32 array is valid for any bytes; length is exactly its size.
     let buf = unsafe { core::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u8, N * 4) };
-    if sys::sys_mem_read(MEM_TEAM, off, buf) != OK {
+    if sys::sys_mem_read(scope, off, buf) != OK {
         return [0; N];
     }
     v.map(i32::from_le)
 }
-/// Write `N` little-endian i32s to team memory.
-pub fn team_mem_set<const N: usize>(off: u32, v: [i32; N]) -> Result<(), Error> {
+/// Write `N` little-endian i32s to a memory scope (`MEM_*`).
+pub fn mem_set<const N: usize>(scope: u32, off: u32, v: [i32; N]) -> Result<(), Error> {
     let v = v.map(i32::to_le);
-    // SAFETY: as in `team_mem_get`.
+    // SAFETY: as in `mem_get`.
     let buf = unsafe { core::slice::from_raw_parts(v.as_ptr() as *const u8, N * 4) };
-    check(sys::sys_mem_write(MEM_TEAM, off, buf))
+    check(sys::sys_mem_write(scope, off, buf))
+}
+/// Read `N` little-endian i32s from team memory (zeros if the read fails).
+pub fn team_mem_get<const N: usize>(off: u32) -> [i32; N] {
+    mem_get(MEM_TEAM, off)
+}
+/// Write `N` little-endian i32s to team memory (action phases only).
+pub fn team_mem_set<const N: usize>(off: u32, v: [i32; N]) -> Result<(), Error> {
+    mem_set(MEM_TEAM, off, v)
 }
 
 // ---- debugging ----

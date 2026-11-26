@@ -38,7 +38,6 @@ pub struct WeaponOut {
     pub damage: i32,
     pub pellets: i32,
     pub spread: i32,
-    pub move_spread: i32,
     pub recoil_spread: i32,
     pub recoil_per_shot: i32,
     pub recoil_recovery: i32,
@@ -52,9 +51,13 @@ pub struct WeaponOut {
     pub falloff_min_pct: i32,
     pub move_pct: i32,
     pub kill_reward: i32,
+    pub unsteady_gain: i32,
+    pub unsteady_decay: i32,
+    pub unsteady_max: i32,
+    pub startup_per_point: i32,
     pub top_speed: i32,
-    /// Heat, sideways shift, and fan step at each release while holding the trigger, standing still.
-    pub hold: Vec<[i32; 3]>,
+    /// Recoil heat and fan step at each release while holding the trigger, standing still.
+    pub hold: Vec<[i32; 2]>,
 }
 
 #[derive(Serialize)]
@@ -100,9 +103,7 @@ pub struct FanCheck {
     pub weapon: i32,
     pub facing: i32,
     pub aim: i32,
-    pub speed: i32,
     pub recoil: i32,
-    pub shots: i32,
     pub centre: i32,
     pub step: i32,
 }
@@ -177,7 +178,7 @@ pub fn snap(m: &Match) -> Frame {
 pub struct Catalog {
     pub maps: Vec<MapOut>,
     pub scenes: Vec<Scene>,
-    pub hold: Vec<Vec<[i32; 3]>>,
+    pub hold: Vec<Vec<[i32; 2]>>,
 }
 
 impl Catalog {

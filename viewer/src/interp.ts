@@ -38,6 +38,8 @@ export function interpUnits(cur: UnitFrame[], next: UnitFrame[] | null, t: numbe
 
 export interface Shot {
   team: number;
+  /** `ProjectileInfo.kind`: 0 = a bullet, otherwise a thrown ability device (ability id + 1). */
+  kind: number;
   /** Head of the bullet. */
   x: number;
   y: number;
@@ -71,7 +73,7 @@ export function interpShots(
   const trail = (p: ProjectileFrame, x: number, y: number, travelled: number): Shot => {
     const speed = Math.hypot(p.vx, p.vy) || 1;
     const len = Math.min(TRAIL, travelled);
-    return { team: p.team, x, y, tx: x - (p.vx / speed) * len, ty: y - (p.vy / speed) * len };
+    return { team: p.team, kind: p.kind, x, y, tx: x - (p.vx / speed) * len, ty: y - (p.vy / speed) * len };
   };
   if (!next || t <= 0) {
     for (const p of cur) out.push(trail(p, p.x, p.y, TRAIL));

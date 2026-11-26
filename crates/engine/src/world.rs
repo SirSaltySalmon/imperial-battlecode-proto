@@ -11,6 +11,7 @@
 //! All units' intents come from the same start-of-tick snapshot, so nobody acts "first".
 
 use crate::fixed::{self, V2};
+use crate::vision::TeamView;
 use crate::{abilities, combat, economy, Map, Ruleset};
 use ibc_abi::*;
 
@@ -69,9 +70,6 @@ pub struct Unit {
     pub revealed: i32,
     pub running: bool,
     pub intent: Intent,
-    pub sounds: Vec<SoundInfo>,
-    /// Bitmask of unit ids this unit currently sees.
-    pub seen: u64,
     pub stats: UnitStats,
 }
 
@@ -86,7 +84,7 @@ pub struct Projectile {
     pub owner: u32,
     pub team: i32,
     pub weapon: i32,
-    /// 0 = bullet; abilities may use other kinds.
+    /// 0 = bullet; ability id + 1 = a thrown device (`abilities::thrown`).
     pub kind: i32,
     pub pos: V2,
     /// Units per tick.
@@ -131,13 +129,20 @@ pub struct World {
     pub charge_pos: V2,
     pub team_mem: [Vec<u8>; 2],
     pub draft_mem: [Vec<u8>; 2],
-    /// Public events of the tick that was just resolved.
+    /// `MEM_BUY` per team, and each unit's credits as the buy phase opened (`T_ROSTER`). See `teamplay`.
+    pub buy_mem: [Vec<u8>; 2],
+    pub round_credits: Vec<i32>,
+    /// Events of the tick that was just resolved, unfogged. Bots read them through `views`.
     pub events: Vec<EventInfo>,
+    /// Sounds each team heard during the tick that was just resolved.
+    pub team_sounds: [Vec<SoundInfo>; 2],
+    /// What each team perceives after the tick that was just resolved (`vision.rs`).
+    pub views: [TeamView; 2],
     pub econ: [economy::TeamEcon; 2],
     pub rounds: Vec<RoundLog>,
     pub winner: Option<i32>,
     /// Debug drawings of the current tick: (unit, kind, x0, y0, x1, y1, color). Not part of the state hash.
-    pub debug: Vec<(u32, u32, i32, i32, i32, i32, u32)>,
+    pub debug: Vec<crate::DebugDraw>,
 }
 
 impl World {
@@ -171,13 +176,12 @@ impl World {
                 revealed: 0,
                 running: false,
                 intent: Default::default(),
-                sounds: Vec::new(),
-                seen: 0,
                 stats: Default::default(),
             });
         }
         let tm = rules.core.team_mem_bytes.max(0) as usize;
         let dm = rules.core.draft_mem_bytes.max(0) as usize;
+        let bm = rules.core.buy_mem_bytes.max(0) as usize;
         let mut w = World {
             rules,
             map,
@@ -197,7 +201,11 @@ impl World {
             charge_pos: (0, 0),
             team_mem: [vec![0; tm], vec![0; tm]],
             draft_mem: [vec![0; dm], vec![0; dm]],
+            buy_mem: [vec![0; bm], vec![0; bm]],
+            round_credits: Vec::new(),
             events: Vec::new(),
+            team_sounds: Default::default(),
+            views: Default::default(),
             econ: Default::default(),
             rounds: Vec::new(),
             winner: None,
@@ -257,17 +265,6 @@ impl World {
         self.events.push(EventInfo { kind, actor, target, x: pos.0, y: pos.1, value });
     }
 
-    /// Let every living enemy of `team` within `radius` hear a sound, snapped to the tile centre.
-    pub fn emit_sound(&mut self, kind: i32, pos: V2, team: i32, radius: i32) {
-        let snapped = (pos.0.div_euclid(TILE) * TILE + TILE / 2, pos.1.div_euclid(TILE) * TILE + TILE / 2);
-        let r2 = (radius as i64) * (radius as i64);
-        for u in self.units.iter_mut() {
-            if u.alive && u.team != team && fixed::dist2(u.pos, pos) <= r2 {
-                u.sounds.push(SoundInfo { kind, x: snapped.0, y: snapped.1, team });
-            }
-        }
-    }
-
     /// Static line of sight plus dynamic blockers (smoke, barriers).
     pub fn sight_clear(&self, a: V2, b: V2) -> bool {
         self.map.segment_wall(a, b).is_none() && !abilities::blocks_vision(self, a, b)
@@ -297,25 +294,6 @@ impl World {
             return false;
         }
         self.sight_clear(unit.pos, p)
-    }
-
-    fn compute_vision(&mut self) {
-        let n = self.units.len();
-        for i in 0..n {
-            let mut seen = 0u64;
-            if self.units[i].alive {
-                for j in 0..n {
-                    if i == j || !self.units[j].alive {
-                        continue;
-                    }
-                    let other = &self.units[j];
-                    if other.team == self.units[i].team || other.revealed > 0 || self.can_see_point(i, other.pos) {
-                        seen |= 1 << j;
-                    }
-                }
-            }
-            self.units[i].seen = seen;
-        }
     }
 
     // ---------------------------------------------------------------- flow
@@ -348,13 +326,17 @@ impl World {
             u.slowed = 0;
             u.revealed = 0;
             u.running = false;
-            u.sounds.clear();
         }
         self.charge_state = CHARGE_CARRIED;
         self.charge_pos = (0, 0);
+        // Team memory does not carry across rounds; draft memory does (read-only).
+        for m in self.team_mem.iter_mut() {
+            m.fill(0);
+        }
         combat::on_round_start(self);
         abilities::on_round_start(self);
         economy::on_round_start(self, &survived);
+        crate::teamplay::on_round_start(self);
         self.phase = PHASE_BUY;
         self.phase_left = self.rules.core.buy_ticks;
     }
@@ -385,18 +367,19 @@ impl World {
         // economy seam decides, so that both rounds of an overtime pair are played.
         let regulation = self.round <= 2 * c.rounds_per_half.max(1);
         if regulation && self.score[lead] >= c.rounds_to_win && self.score[0] != self.score[1] {
-            return self.finish(lead as i32);
+            return self.finish(Some(lead as i32));
         }
         if self.round >= 2 * c.rounds_per_half {
-            if let Some(w) = economy::after_regulation(self) {
-                return self.finish(w);
+            if let Some(outcome) = economy::after_regulation(self) {
+                return self.finish(outcome);
             }
         }
         self.start_round();
     }
 
-    pub fn finish(&mut self, winner: i32) {
-        self.winner = Some(winner);
+    /// End the match. `None` is a draw.
+    pub fn finish(&mut self, winner: Option<i32>) {
+        self.winner = winner;
         self.phase = PHASE_MATCH_END;
         self.phase_left = 0;
     }
@@ -407,8 +390,8 @@ impl World {
             return;
         }
         self.events.clear();
-        for u in self.units.iter_mut() {
-            u.sounds.clear();
+        for sounds in self.team_sounds.iter_mut() {
+            sounds.clear();
         }
         match self.phase {
             PHASE_DRAFT => {
@@ -438,9 +421,9 @@ impl World {
         }
         self.debug.clear();
         self.tick += 1;
+        // Running out of ticks is a draw, whatever the score.
         if self.phase != PHASE_MATCH_END && self.tick as i32 >= self.rules.core.max_ticks {
-            let w = economy::tiebreak(self);
-            self.finish(w);
+            self.finish(None);
         }
         self.compute_vision();
     }
@@ -448,6 +431,9 @@ impl World {
     fn step_action(&mut self) {
         let n = self.units.len();
         let core = self.rules.core;
+
+        // Where everyone stood, to report the velocity that actually happened (a dash included).
+        let start: Vec<V2> = self.units.iter().map(|u| u.pos).collect();
 
         // 1. intents
         for i in 0..n {
@@ -498,13 +484,16 @@ impl World {
                         }
                     }
                     A_ABILITY => {
-                        abilities::use_ability(self, i, a, (b, c));
+                        if abilities::use_ability(self, i, a, (b, c)) == OK {
+                            combat::on_cast(self, i);
+                        }
                     }
                     A_PICKUP => self.pickup(i),
                     A_DROP => self.drop_item(i, a),
                     A_CANCEL => {
                         self.cancel_channel(i);
                         combat::cancel(self, i);
+                        abilities::cancel(self, i);
                     }
                     _ => {}
                 }
@@ -533,7 +522,8 @@ impl World {
             }
         }
 
-        // 2. weapons
+        // 2. weapons (abilities unit: startups that end happen first)
+        abilities::pre_step(self);
         combat::pre_step(self);
 
         // 3. sub-stepped movement and projectiles
@@ -557,7 +547,13 @@ impl World {
             }
             self.step_projectiles(s, sub);
         }
-        // Velocity reported to bots is what actually happened this tick is not tracked; keep the commanded one.
+        // Report the velocity that actually happened: a wall can stop all or part of a move.
+        for (u, from) in self.units.iter_mut().zip(start) {
+            if u.alive {
+                u.vel = (u.pos.0 - from.0, u.pos.1 - from.1);
+            }
+        }
+        combat::after_move(self);
 
         // 4. effects, statuses
         abilities::step(self);
@@ -584,70 +580,6 @@ impl World {
         self.map.circle_blocked(p, r) || abilities::blocks_move(self, p, r)
     }
 
-    fn step_projectiles(&mut self, s: i32, sub: i32) {
-        let radius = self.rules.core.unit_radius;
-        let mut hits: Vec<(usize, Projectile)> = Vec::new();
-        // Abilities unit: projectiles stopped by a dynamic effect, with the point they were heading for.
-        let mut blocked: Vec<(Projectile, V2)> = Vec::new();
-        let mut keep = Vec::with_capacity(self.projectiles.len());
-        let projectiles = std::mem::take(&mut self.projectiles);
-        for mut p in projectiles {
-            let d = (p.vel.0 * (s + 1) / sub - p.vel.0 * s / sub, p.vel.1 * (s + 1) / sub - p.vel.1 * s / sub);
-            let a = p.pos;
-            let b = (a.0 + d.0, a.1 + d.1);
-            let seg_len = fixed::dist(a, b).max(1);
-            // Earliest stop along the segment, as a Q14 fraction.
-            let mut stop: Option<i64> = None;
-            if let Some(hit) = self.map.segment_wall(a, b) {
-                stop = Some(fixed::dist(a, hit) as i64 * fixed::ONE / seg_len as i64);
-            }
-            let mut by_effect = false;
-            if let Some(t) = abilities::blocks_segment(self, a, b) {
-                by_effect = stop.map_or(true, |s| t < s);
-                stop = Some(stop.map_or(t, |s| s.min(t)));
-            }
-            let mut victim: Option<(usize, i64)> = None;
-            for (j, u) in self.units.iter().enumerate() {
-                if !u.alive || u.team == p.team || u.id == p.owner {
-                    continue;
-                }
-                if let Some(t) = fixed::segment_circle(a, b, u.pos, radius) {
-                    if victim.map_or(true, |(_, bt)| t < bt) {
-                        victim = Some((j, t));
-                    }
-                }
-            }
-            if let Some((j, t)) = victim {
-                if stop.map_or(true, |st| t <= st) {
-                    p.travelled += (seg_len as i64 * t / fixed::ONE) as i32;
-                    hits.push((j, p));
-                    continue;
-                }
-            }
-            if stop.is_some() {
-                if by_effect {
-                    blocked.push((p, b));
-                }
-                continue;
-            }
-            p.pos = b;
-            p.travelled += seg_len;
-            if p.travelled < p.range {
-                keep.push(p);
-            }
-        }
-        self.projectiles = keep;
-        // Apply all hits of this substep together so simultaneous shots trade.
-        for (j, p) in hits {
-            let dmg = combat::bullet_damage(self, &p);
-            self.damage(j, dmg, Some(p.owner as usize), p.weapon);
-        }
-        // Abilities unit: tell the effect what it stopped (barriers have hit points).
-        if !blocked.is_empty() {
-            abilities::on_blocked(self, &blocked);
-        }
-    }
-
     /// Apply damage to a unit. `attacker` is the unit index credited, if any.
     pub fn damage(&mut self, target: usize, amount: i32, attacker: Option<usize>, weapon: i32) {
         if amount <= 0 || !self.units[target].alive {
@@ -669,7 +601,7 @@ impl World {
         }
     }
 
-    fn kill(&mut self, target: usize, attacker: Option<usize>, weapon: i32) {
+    pub(crate) fn kill(&mut self, target: usize, attacker: Option<usize>, weapon: i32) {
         let pos = self.units[target].pos;
         {
             let t = &mut self.units[target];
@@ -696,143 +628,29 @@ impl World {
         self.emit_event(EVENT_KILL, attacker.map_or(-1, |a| a as i32), target as i32, pos, weapon);
     }
 
-    pub fn cancel_channel(&mut self, u: usize) {
-        self.units[u].channel_kind = CHANNEL_NONE;
-        self.units[u].channel_left = 0;
-    }
-
-    pub fn can_plant(&self, u: usize) -> i32 {
-        let unit = &self.units[u];
-        if self.phase != PHASE_ACTION || !unit.alive || !unit.has_charge {
-            return ERR_NOT_ALLOWED;
-        }
-        if self.map.site_at(unit.pos).is_none() {
-            return ERR_OUT_OF_RANGE;
-        }
-        OK
-    }
-
-    pub fn can_defuse(&self, u: usize) -> i32 {
-        let unit = &self.units[u];
-        if self.phase != PHASE_PLANTED || !unit.alive || self.side_of(unit.team) != SIDE_DEFEND {
-            return ERR_NOT_ALLOWED;
-        }
-        let reach = self.rules.core.interact_reach as i64;
-        if fixed::dist2(unit.pos, self.charge_pos) > reach * reach {
-            return ERR_OUT_OF_RANGE;
-        }
-        OK
-    }
-
-    fn pickup(&mut self, u: usize) {
-        let reach = self.rules.core.pickup_reach as i64;
-        let pos = self.units[u].pos;
-        let side = self.side_of(self.units[u].team);
-        let mut best: Option<(usize, i64)> = None;
-        for (i, d) in self.drops.iter().enumerate() {
-            if d.kind == DROP_CHARGE && side != SIDE_ATTACK {
-                continue;
-            }
-            let d2 = fixed::dist2(pos, (d.x, d.y));
-            // The charge always wins over a weapon in reach, so a dropped gun can never block the objective.
-            let key = if d.kind == DROP_CHARGE { -1 } else { d2 };
-            if d2 <= reach * reach && best.map_or(true, |(_, b)| key < b) {
-                best = Some((i, key));
-            }
-        }
-        if let Some((i, _)) = best {
-            let d = self.drops.remove(i);
-            if d.kind == DROP_CHARGE {
-                self.units[u].has_charge = true;
-                self.charge_state = CHARGE_CARRIED;
-            } else {
-                combat::on_pickup(self, u, d);
-            }
-        }
-    }
-
-    fn drop_item(&mut self, u: usize, kind: i32) {
-        let pos = self.units[u].pos;
-        if kind == DROP_CHARGE && self.units[u].has_charge {
-            self.units[u].has_charge = false;
-            self.charge_state = CHARGE_DROPPED;
-            self.charge_pos = pos;
-            self.drops.push(DropInfo { kind: DROP_CHARGE, x: pos.0, y: pos.1, item: 0 });
-        } else if kind == DROP_WEAPON {
-            combat::on_drop(self, u);
-        }
-    }
-
-    fn step_objective(&mut self) {
-        let n = self.units.len();
-        let attackers = self.team_with_side(SIDE_ATTACK);
-        let defenders = 1 - attackers;
-        for i in 0..n {
-            if !self.units[i].alive || self.units[i].channel_kind == CHANNEL_NONE {
-                continue;
-            }
-            match self.units[i].channel_kind {
-                CHANNEL_PLANT => {
-                    if self.can_plant(i) != OK {
-                        self.cancel_channel(i);
-                        continue;
-                    }
-                    self.units[i].channel_left -= 1;
-                    if self.units[i].channel_left <= 0 {
-                        let pos = self.units[i].pos;
-                        self.cancel_channel(i);
-                        self.units[i].has_charge = false;
-                        self.units[i].stats.plants += 1;
-                        self.charge_state = CHARGE_PLANTED;
-                        self.charge_pos = pos;
-                        self.phase = PHASE_PLANTED;
-                        self.phase_left = self.rules.core.fuse_ticks + 1; // +1: decremented below this tick
-                        self.emit_event(EVENT_PLANT, i as i32, -1, pos, self.map.site_at(pos).unwrap_or(0) as i32);
-                        economy::on_plant(self, i);
-                    }
-                }
-                CHANNEL_DEFUSE => {
-                    if self.can_defuse(i) != OK {
-                        self.cancel_channel(i);
-                        continue;
-                    }
-                    self.units[i].channel_left -= 1;
-                    if self.units[i].channel_left <= 0 {
-                        self.cancel_channel(i);
-                        self.units[i].stats.defuses += 1;
-                        self.emit_event(EVENT_DEFUSE, i as i32, -1, self.charge_pos, 0);
-                        return self.end_round(defenders, ROUND_WIN_DEFUSE);
-                    }
-                }
-                _ => {}
-            }
-        }
-        self.phase_left -= 1;
-        let (att_alive, def_alive) = (self.alive_count(attackers), self.alive_count(defenders));
-        if self.phase == PHASE_PLANTED {
-            if self.phase_left <= 0 {
-                self.emit_event(EVENT_DETONATE, -1, -1, self.charge_pos, 0);
-                return self.end_round(attackers, ROUND_WIN_DETONATION);
-            }
-            if def_alive == 0 {
-                return self.end_round(attackers, ROUND_WIN_ELIMINATION);
-            }
-        } else {
-            if att_alive == 0 {
-                return self.end_round(defenders, ROUND_WIN_ELIMINATION);
-            }
-            if def_alive == 0 {
-                return self.end_round(attackers, ROUND_WIN_ELIMINATION);
-            }
-            if self.phase_left <= 0 {
-                return self.end_round(defenders, ROUND_WIN_TIMEOUT);
-            }
-        }
-    }
-
     // ---------------------------------------------------------------- hashing
 
+    /// The state hash: the world hash and both teams' memory hashes, combined.
     pub fn state_hash(&self) -> u64 {
+        self.state_hashes().combined()
+    }
+
+    pub fn state_hashes(&self) -> crate::StateHashes {
+        crate::StateHashes { world: self.world_hash(), memory: [self.memory_hash(0), self.memory_hash(1)] }
+    }
+
+    /// Hash of one team's private memory (team, draft and buy scratchpads). Kept apart from `world_hash` so a
+    /// replay without that team's memory writes still verifies: memory is read by bots, never by the simulation.
+    pub fn memory_hash(&self, team: usize) -> u64 {
+        let mut h = crate::Fnv::new();
+        h.bytes(&self.team_mem[team]);
+        h.bytes(&self.draft_mem[team]);
+        h.bytes(&self.buy_mem[team]);
+        h.finish()
+    }
+
+    /// Hash of every state field that affects simulation, except team memory (`memory_hash`).
+    pub fn world_hash(&self) -> u64 {
         let mut h = crate::Fnv::new();
         h.u64(self.seed);
         for v in [self.tick as i32, self.round, self.phase, self.phase_left, self.score[0], self.score[1]] {
@@ -874,10 +692,9 @@ impl World {
             }
             u.combat.hash(&mut h);
             u.abil.hash(&mut h);
-            h.u64(u.seen);
         }
         for p in &self.projectiles {
-            for v in [p.owner as i32, p.weapon, p.kind, p.pos.0, p.pos.1, p.vel.0, p.vel.1, p.travelled] {
+            for v in [p.owner as i32, p.weapon, p.kind, p.pos.0, p.pos.1, p.vel.0, p.vel.1, p.travelled, p.range] {
                 h.i32(v);
             }
         }
@@ -890,10 +707,14 @@ impl World {
             h.bytes(bytes_of(d));
         }
         for t in 0..2 {
-            h.bytes(&self.team_mem[t]);
-            h.bytes(&self.draft_mem[t]);
             self.econ[t].hash(&mut h);
+            self.views[t].hash(&mut h);
+            h.i32(self.team_sounds[t].len() as i32);
+            for s in &self.team_sounds[t] {
+                h.bytes(bytes_of(s));
+            }
         }
+        crate::teamplay::hash(self, &mut h);
         h.finish()
     }
 }

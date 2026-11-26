@@ -5,7 +5,7 @@
 // re-simulates the match and checks every state hash.
 
 import { parseHeaderJson } from "./ibcr";
-import type { Frame, Header } from "./types";
+import type { DebugDraw, Frame, Header } from "./types";
 import type { ViewRules } from "./vision";
 
 /** The numeric fields of the engine's rules export. */
@@ -37,6 +37,9 @@ interface EngineExports {
   /** Absent in engine builds older than the rules export. */
   ibc_rules_ptr?(): number;
   ibc_rules_len?(): number;
+  /** Absent in engine builds older than replay format 2. */
+  ibc_records_ptr?(): number;
+  ibc_records_len?(): number;
 }
 
 /** Where frame JSON comes from: the engine's memory in the app, plain strings in tests. */
@@ -69,17 +72,25 @@ export class Engine {
   }
 
   /**
-   * The rules this engine build simulates with (sizes, timings, weapon names by id), or `null` for a build
-   * that predates the export. Only fields of the right type are kept.
+   * The engine's whole rules export as parsed JSON (the buy menu reads its tables), or `null` for a build
+   * that predates the export.
    */
-  rules(): Partial<ViewRules> | null {
+  rawRules(): unknown {
     if (!this.x.ibc_rules_ptr || !this.x.ibc_rules_len) return null;
-    let raw: unknown;
     try {
-      raw = JSON.parse(this.str(this.x.ibc_rules_ptr(), this.x.ibc_rules_len()));
+      return JSON.parse(this.str(this.x.ibc_rules_ptr(), this.x.ibc_rules_len()));
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The rules (sizes, timings, weapon names by id) of the replay loaded last, which are the rules in its
+   * header if it has them, else the rules built into this engine; `null` for a build that predates the
+   * export. Only fields of the right type are kept.
+   */
+  rules(): Partial<ViewRules> | null {
+    const raw = this.rawRules();
     if (typeof raw !== "object" || raw === null) return null;
     const fields = raw as Record<string, unknown>;
     const out: Partial<ViewRules> = {};
@@ -89,6 +100,12 @@ export class Engine {
     const names = fields.weapons;
     if (Array.isArray(names) && names.every((n) => typeof n === "string")) out.weapons = names as string[];
     return out;
+  }
+
+  /** Records JSON of the replay loaded last (`ibc_replay::records_json`), or `null` if the build has none. */
+  records(): string | null {
+    if (!this.x.ibc_records_ptr || !this.x.ibc_records_len) return null;
+    return this.str(this.x.ibc_records_ptr(), this.x.ibc_records_len());
   }
 
   /**
@@ -164,9 +181,14 @@ async function shippedVersions(base: string): Promise<string[]> {
 export class FrameStore {
   private readonly cache = new Map<number, Frame>();
 
+  /**
+   * `draws` are the recorded debug drawings by tick; re-simulation cannot produce them (they are not inputs),
+   * so they are put into the frame of their tick here.
+   */
   constructor(
     private readonly source: FrameSource,
     private readonly capacity = 48,
+    private readonly draws: Map<number, DebugDraw[]> = new Map(),
   ) {}
 
   get count(): number {
@@ -176,7 +198,10 @@ export class FrameStore {
   /** Parse frame `i` without caching it (for one-off scans). */
   parse(i: number): Frame {
     if (i < 0 || i >= this.source.count) throw new RangeError(`frame ${i} out of range`);
-    return JSON.parse(this.source.text(i)) as Frame;
+    const frame = JSON.parse(this.source.text(i)) as Frame;
+    const recorded = this.draws.get(frame.tick);
+    if (recorded && !frame.debug?.length) frame.debug = recorded;
+    return frame;
   }
 
   get(i: number): Frame {

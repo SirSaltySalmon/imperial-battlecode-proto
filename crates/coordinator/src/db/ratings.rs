@@ -1,25 +1,29 @@
 //! Ratings, their event ledger and the ladder.
 //!
-//! `rating_events` is the history every rating is a fold of: one `game` event per rated game (in the order
-//! the games were rated) and one `submission` event per change of a team's live submission. The `ratings`
-//! table holds the result, computed once, as each event happens, and stored: ratings are `f64` and may
-//! differ in the last bit across platforms, so they are never recomputed on read. They are recomputed from
-//! the ledger, here, in two cases only: a quarantine invalidated results that were already rated (their
-//! events are dropped first), and the configured rating system changed.
+//! `rating_events` is the history every rating is a fold of: one `series` event per rated series (in the
+//! order the series were rated; `outcome` lists its map results in game order, e.g. `a,draw,b`), one
+//! `submission` event per change of a team's live submission and one `balance` event per team whose
+//! uncertainty a balance patch widened (`outcome` holds the factor). A ledger written before ratings moved
+//! per series holds `game` events instead, one map each; they replay as one-map series. The `ratings` table
+//! holds the result, computed once, as each event happens, and stored: ratings are `f64` and may differ in
+//! the last bit across platforms, so they are never recomputed on read. They are recomputed from the ledger,
+//! here, in two cases only: a quarantine invalidated results that were already rated (their events are
+//! dropped first), and the configured rating system changed.
 
 use super::{set_setting, setting};
+use crate::config::Config;
 use crate::error::ApiResult;
 use crate::rating::{Outcome, Rating, RatingHook};
 use crate::util::rfc3339;
 use rusqlite::{params, OptionalExtension, Transaction};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 /// A team's stored rating with its game record.
 #[derive(Clone, Copy, Debug)]
 pub struct Standing {
     pub rating: Rating,
-    /// Wins, losses, draws over rated games.
+    /// Wins, losses, draws over rated games (maps).
     pub wld: (i64, i64, i64),
     pub last_played: Option<i64>,
 }
@@ -33,20 +37,35 @@ impl Standing {
         }
     }
 
-    /// Record one rated game of this team; `as_a`: it was the series' team A, from whose side `outcome` is.
-    fn played(&mut self, rating: Rating, outcome: Outcome, as_a: bool, at: i64) {
-        self.rating = rating;
-        let win = matches!(
-            (outcome, as_a),
-            (Outcome::AWins, true) | (Outcome::BWins, false)
-        );
-        match outcome {
-            Outcome::Draw => self.wld.2 += 1,
-            _ if win => self.wld.0 += 1,
-            _ => self.wld.1 += 1,
+    /// Count the rated maps of a series in this team's record; `as_a`: it was the series' team A, from
+    /// whose side the outcomes are.
+    fn record(&mut self, outcomes: &[Outcome], as_a: bool, at: i64) {
+        for &outcome in outcomes {
+            let win = matches!(
+                (outcome, as_a),
+                (Outcome::AWins, true) | (Outcome::BWins, false)
+            );
+            match outcome {
+                Outcome::Draw => self.wld.2 += 1,
+                _ if win => self.wld.0 += 1,
+                _ => self.wld.1 += 1,
+            }
         }
         self.last_played = Some(at);
     }
+}
+
+/// Rate one series between two standings: one update from the pre-series ratings.
+fn apply_series(
+    hook: &dyn RatingHook,
+    a: &mut Standing,
+    b: &mut Standing,
+    outcomes: &[Outcome],
+    at: i64,
+) {
+    (a.rating, b.rating) = hook.update_series(&a.rating, &b.rating, outcomes);
+    a.record(outcomes, true, at);
+    b.record(outcomes, false, at);
 }
 
 pub fn outcome_code(o: Outcome) -> &'static str {
@@ -63,6 +82,27 @@ fn parse_outcome(code: &str) -> Option<Outcome> {
         "b" => Some(Outcome::BWins),
         "draw" => Some(Outcome::Draw),
         _ => None,
+    }
+}
+
+/// The `outcome` column of a rating event: map results in game order, comma-separated.
+fn encode_outcomes(outcomes: &[Outcome]) -> String {
+    outcomes
+        .iter()
+        .map(|&o| outcome_code(o))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn parse_outcomes(text: &str) -> Option<Vec<Outcome>> {
+    text.split(',').map(parse_outcome).collect()
+}
+
+/// Rated maps recorded by a `game` or `series` event (0 for anything else).
+pub fn event_games(kind: &str, outcome: Option<&str>) -> u32 {
+    match (kind, outcome.and_then(parse_outcomes)) {
+        ("game" | "series", Some(o)) => o.len() as u32,
+        _ => 0,
     }
 }
 
@@ -100,40 +140,39 @@ fn save(tx: &Transaction, team_id: &str, s: &Standing, now: i64) -> ApiResult<()
     Ok(())
 }
 
-/// One finished game of a ranked series, `outcome` seen from the series' team A.
-pub struct RatedGame<'a> {
+/// A finished ranked series: the results of its finished maps, in game order, seen from team A.
+pub struct RatedSeries<'a> {
     pub series_id: &'a str,
-    pub game_idx: i64,
     pub team_a: &'a str,
     pub team_b: &'a str,
-    pub outcome: Outcome,
+    pub outcomes: &'a [Outcome],
 }
 
-/// Rate one game and record it in the ledger.
-pub fn rate_game(
+/// Rate a series once and record it in the ledger. A series without a rated map changes nothing.
+pub fn rate_series(
     tx: &Transaction,
     hook: &dyn RatingHook,
-    g: &RatedGame,
+    s: &RatedSeries,
     now: i64,
 ) -> ApiResult<()> {
+    if s.outcomes.is_empty() {
+        return Ok(());
+    }
     tx.execute(
-        "INSERT INTO rating_events(kind, team_a, team_b, series_id, game_idx, outcome, created_at)
-         VALUES ('game', ?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO rating_events(kind, team_a, team_b, series_id, outcome, created_at)
+         VALUES ('series', ?1, ?2, ?3, ?4, ?5)",
         params![
-            g.team_a,
-            g.team_b,
-            g.series_id,
-            g.game_idx,
-            outcome_code(g.outcome),
+            s.team_a,
+            s.team_b,
+            s.series_id,
+            encode_outcomes(s.outcomes),
             now
         ],
     )?;
-    let (mut a, mut b) = (load(tx, hook, g.team_a)?, load(tx, hook, g.team_b)?);
-    let (ra, rb) = hook.update(&a.rating, &b.rating, g.outcome);
-    a.played(ra, g.outcome, true, now);
-    b.played(rb, g.outcome, false, now);
-    save(tx, g.team_a, &a, now)?;
-    save(tx, g.team_b, &b, now)
+    let (mut a, mut b) = (load(tx, hook, s.team_a)?, load(tx, hook, s.team_b)?);
+    apply_series(hook, &mut a, &mut b, s.outcomes, now);
+    save(tx, s.team_a, &a, now)?;
+    save(tx, s.team_b, &b, now)
 }
 
 /// The team's live submission was replaced: widen its uncertainty, and record that in the ledger.
@@ -158,10 +197,44 @@ pub fn submission_changed(
     save(tx, team_id, &s, now)
 }
 
+/// A balance patch went live: widen the uncertainty of every rated team by `factor`
+/// (`RatingSystem::on_balance_patch`) and record one `balance` event per team that changed. Returns how
+/// many teams changed.
+pub fn balance_patch(
+    tx: &Transaction,
+    hook: &dyn RatingHook,
+    factor: f64,
+    now: i64,
+) -> ApiResult<usize> {
+    let teams: Vec<String> = {
+        let mut st = tx.prepare("SELECT team_id FROM ratings ORDER BY team_id")?;
+        let rows = st.query_map([], |r| r.get(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    let mut changed = 0;
+    for team_id in &teams {
+        let mut s = load(tx, hook, team_id)?;
+        let widened = hook.on_balance_patch(&s.rating, factor);
+        if widened.mu == s.rating.mu && widened.sigma == s.rating.sigma {
+            continue;
+        }
+        // `f64`'s `Display` is the shortest text that parses back to the same value.
+        tx.execute(
+            "INSERT INTO rating_events(kind, team_a, outcome, created_at) VALUES ('balance', ?1, ?2, ?3)",
+            params![team_id, factor.to_string(), now],
+        )?;
+        s.rating = widened;
+        save(tx, team_id, &s, now)?;
+        changed += 1;
+    }
+    Ok(changed)
+}
+
 /// Drop the rating events of these series (their results were invalidated). Call `recompute` afterwards.
 pub fn forget_series(tx: &Transaction, series_ids: &[String]) -> ApiResult<usize> {
-    let mut st =
-        tx.prepare_cached("DELETE FROM rating_events WHERE kind = 'game' AND series_id = ?1")?;
+    let mut st = tx.prepare_cached(
+        "DELETE FROM rating_events WHERE kind IN ('game', 'series') AND series_id = ?1",
+    )?;
     let mut n = 0;
     for id in series_ids {
         n += st.execute([id])?;
@@ -201,13 +274,11 @@ pub fn recompute(tx: &Transaction, hook: &dyn RatingHook, now: i64) -> ApiResult
         match (
             e.kind.as_str(),
             &e.team_b,
-            e.outcome.as_deref().and_then(parse_outcome),
+            e.outcome.as_deref().and_then(parse_outcomes),
         ) {
-            ("game", Some(team_b), Some(outcome)) => {
+            ("game" | "series", Some(team_b), Some(outcomes)) => {
                 let (mut a, mut b) = (standing(&e.team_a), standing(team_b));
-                let (ra, rb) = hook.update(&a.rating, &b.rating, outcome);
-                a.played(ra, outcome, true, e.at);
-                b.played(rb, outcome, false, e.at);
+                apply_series(hook, &mut a, &mut b, &outcomes, e.at);
                 teams.insert(e.team_a.clone(), a);
                 teams.insert(team_b.clone(), b);
             }
@@ -215,6 +286,13 @@ pub fn recompute(tx: &Transaction, hook: &dyn RatingHook, now: i64) -> ApiResult
                 let mut s = standing(&e.team_a);
                 s.rating = hook.on_new_submission(&s.rating);
                 teams.insert(e.team_a.clone(), s);
+            }
+            ("balance", _, _) => {
+                if let Some(factor) = e.outcome.as_deref().and_then(|f| f.parse().ok()) {
+                    let mut s = standing(&e.team_a);
+                    s.rating = hook.on_balance_patch(&s.rating, factor);
+                    teams.insert(e.team_a.clone(), s);
+                }
             }
             _ => {}
         }
@@ -255,8 +333,21 @@ pub fn adopt_system(
 pub struct LadderRow {
     pub team_id: String,
     pub name: String,
+    /// The live submission (internal: seeding snapshots it; never served).
     pub submission: String,
     pub standing: Standing,
+    /// Rated series played.
+    pub series: i64,
+}
+
+/// Rated series per team.
+fn rated_series(tx: &Transaction) -> ApiResult<BTreeMap<String, i64>> {
+    let mut st = tx.prepare_cached(
+        "SELECT team, COUNT(*) FROM (SELECT team_a AS team FROM series WHERE rated = 1
+                                     UNION ALL SELECT team_b FROM series WHERE rated = 1) GROUP BY team",
+    )?;
+    let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// Teams with a live submission and their ratings, best displayed rating first.
@@ -267,10 +358,12 @@ pub fn ladder_rows(tx: &Transaction, hook: &dyn RatingHook) -> ApiResult<Vec<Lad
     let teams: Vec<(String, String, String)> = st
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<Result<_, _>>()?;
+    let series = rated_series(tx)?;
     let mut rows = Vec::with_capacity(teams.len());
     for (team_id, name, submission) in teams {
         let standing = load(tx, hook, &team_id)?;
         rows.push(LadderRow {
+            series: series.get(&team_id).copied().unwrap_or(0),
             team_id,
             name,
             submission,
@@ -285,24 +378,51 @@ pub fn ladder_rows(tx: &Transaction, hook: &dyn RatingHook) -> ApiResult<Vec<Lad
     Ok(rows)
 }
 
-/// Write the ladder as it is now. `rating` is the displayed number, rounded; `provisional` says whether it
-/// is still too uncertain to mean much (clients show "provisional" in its place). `mu`/`sigma` are the raw
-/// estimate of the system named in `system`.
+/// The public ladder (`GET /v1/ladder`): rated teams by displayed rating, then the provisional ones (fewer
+/// than `cfg.provisional_series` rated series), which show no rating and no tier. Nothing here identifies
+/// a submission.
+pub fn public_ladder(
+    tx: &Transaction,
+    hook: &dyn RatingHook,
+    cfg: &Config,
+) -> ApiResult<Vec<Value>> {
+    let (rated, provisional): (Vec<LadderRow>, Vec<LadderRow>) = ladder_rows(tx, hook)?
+        .into_iter()
+        .partition(|row| row.series >= cfg.provisional_series);
+    let rows = rated.iter().map(|row| (row, false));
+    let rows = rows.chain(provisional.iter().map(|row| (row, true)));
+    Ok(rows
+        .enumerate()
+        .map(|(i, (row, provisional))| {
+            let (r, wld) = (&row.standing.rating, row.standing.wld);
+            let shown = hook.display(r);
+            json!({"rank": i + 1, "team_id": row.team_id, "team_name": row.name,
+                   "rating": (!provisional).then(|| shown.round() as i64),
+                   "tier": (!provisional).then(|| cfg.tier(shown)),
+                   "provisional": provisional, "games": r.games, "series": row.series,
+                   "wins": wld.0, "losses": wld.1, "draws": wld.2})
+        })
+        .collect())
+}
+
+/// Write the ladder as it is now, for the organisers' history (it is not served: `public_ladder` is
+/// computed on read). `rating` is the displayed number, rounded; `provisional` is the rating system's own
+/// flag; `mu`/`sigma` are the raw estimate of the system named in `system`.
 pub fn write_snapshot(
     tx: &Transaction,
     hook: &dyn RatingHook,
     now: i64,
     kept: i64,
 ) -> ApiResult<()> {
-    let teams: Vec<serde_json::Value> = ladder_rows(tx, hook)?
+    let teams: Vec<Value> = ladder_rows(tx, hook)?
         .iter()
         .enumerate()
         .map(|(i, row)| {
             let (r, wld) = (&row.standing.rating, row.standing.wld);
             json!({"rank": i + 1, "team_id": row.team_id, "name": row.name,
                    "rating": hook.display(r).round() as i64, "provisional": hook.is_provisional(r),
-                   "mu": r.mu, "sigma": r.sigma, "games": r.games,
-                   "wins": wld.0, "losses": wld.1, "draws": wld.2, "submission_id": row.submission})
+                   "mu": r.mu, "sigma": r.sigma, "games": r.games, "series": row.series,
+                   "wins": wld.0, "losses": wld.1, "draws": wld.2})
         })
         .collect();
     let body = json!({"generated_at": rfc3339(now), "system": hook.name(), "teams": teams});
@@ -315,15 +435,4 @@ pub fn write_snapshot(
         [kept.max(1)],
     )?;
     Ok(())
-}
-
-/// The body of the latest snapshot (already JSON).
-pub fn latest_snapshot(tx: &Transaction) -> ApiResult<Option<String>> {
-    Ok(tx
-        .query_row(
-            "SELECT body FROM ladder_snapshots ORDER BY id DESC LIMIT 1",
-            [],
-            |r| r.get(0),
-        )
-        .optional()?)
 }

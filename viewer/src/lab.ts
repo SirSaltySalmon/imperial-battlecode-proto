@@ -5,11 +5,11 @@ import { fitCamera, pan, zoomAt, type Camera } from "./camera";
 import { stateTags, unitLabel } from "./draw-units";
 import {
   damageAt,
-  extraSpread,
   fanOf,
   mismatches,
   pelletAngle,
   polar,
+  startupTicks,
   tilesOf,
   type Fan,
   type LabFile,
@@ -69,7 +69,7 @@ let height = 1;
 let dpr = 1;
 const maps = new Map<string, GameMap>();
 let studioMap: GameMap | null = null;
-const studio = { speed: 0, recoil: 0, shots: 0, tiles: 10, weapon: 1 };
+const studio = { unsteady: 0, recoil: 0, tiles: 10, weapon: 1 };
 
 function rulesOf(file: LabFile): ViewRules {
   return {
@@ -166,7 +166,7 @@ function studioFrame(file: LabFile, gun: Weapon): Frame {
   const ox = 2 * TILE;
   const oy = 9 * TILE;
   const dist = studio.tiles * TILE;
-  const shooter = toUnit([ox, oy, 0, 0, 1, file.maxHp, 0, gun.id, gun.magazine, studio.recoil, 0, 0, 0, 0, 0, studio.shots, gun.id, gun.magazine, -1, 0, gun.slot], 0);
+  const shooter = toUnit([ox, oy, 0, 0, 1, file.maxHp, 0, gun.id, gun.magazine, studio.recoil, 0, 0, 0, 0, 0, 0, gun.id, gun.magazine, -1, 0, gun.slot], 0);
   const target = toUnit([ox + dist, oy, 32768, 1, 1, file.maxHp, 0, -1, 0, 0, 0, 0, 0, 32768, 0, 0, -1, 0, -1, 0, 1], 1);
   return {
     tick: 0,
@@ -267,8 +267,8 @@ function draw(): void {
     const ox = 2 * TILE;
     const oy = 9 * TILE;
     marks = (pen) => {
-      paintFan(pen, gun, fanOf(gun, 0, 0, lab!.fovHalf, 0, 0, 0), ox, oy, true);
-      paintFan(pen, gun, fanOf(gun, 0, 0, lab!.fovHalf, studio.speed, studio.recoil, studio.shots), ox, oy, false);
+      paintFan(pen, gun, fanOf(gun, 0, 0, lab!.fovHalf, 0), ox, oy, true);
+      paintFan(pen, gun, fanOf(gun, 0, 0, lab!.fovHalf, studio.recoil), ox, oy, false);
     };
   } else if (scene) {
     frame = toFrame(scene.frames[index], index);
@@ -296,7 +296,7 @@ function draw(): void {
 function drawInset(): void {
   if (!lab) return;
   const gun = lab.weapons.find((w) => w.id === studio.weapon) ?? lab.weapons[0];
-  const fan = fanOf(gun, 0, 0, lab.fovHalf, studio.speed, studio.recoil, studio.shots);
+  const fan = fanOf(gun, 0, 0, lab.fovHalf, studio.recoil);
   const dist = studio.tiles * TILE;
   const covers = Math.trunc((lab.radius * 10430) / Math.max(1, dist));
   const size = 150;
@@ -498,31 +498,30 @@ function renderStudio(panel: HTMLElement): void {
     b.className = w.id === gun.id ? "on" : "";
     b.addEventListener("click", () => {
       studio.weapon = w.id;
-      studio.speed = Math.min(studio.speed, w.topSpeed);
+      studio.unsteady = Math.min(studio.unsteady, w.unsteadyMax);
       renderPanel();
     });
     guns.append(b);
   }
   panel.append(guns);
-  slider(panel, "Speed", 0, gun.topSpeed, 10, studio.speed, (v) => (studio.speed = v));
+  slider(panel, "Unsteady", 0, gun.unsteadyMax, 1, studio.unsteady, (v) => (studio.unsteady = v));
   slider(panel, "Recoil", 0, 24, 1, studio.recoil, (v) => (studio.recoil = v));
-  slider(panel, "Shot", 0, 8, 1, studio.shots, (v) => (studio.shots = v));
   slider(panel, "Target", 1, 42, 1, studio.tiles, (v) => (studio.tiles = v));
   const table = document.createElement("table");
   table.id = "readouts";
   panel.append(table);
   refreshReadouts();
-  panel.append(paragraph("The time-to-kill duel gates on recoil shift only. Movement still pushes the bullets. Yellow is the wind-up, white the release, then cooldown, then the next pull."));
+  panel.append(paragraph("Movement adds no spread; it lengthens the startup. Yellow is the startup at this unsteadiness, white the release, then cooldown, then the next braced pull."));
   const tl = document.createElement("div");
   tl.className = "timeline";
   const swatch: Record<string, string> = { wind: palette.warn, shot: palette.text, cool: palette.border, ready: palette.heal };
-  for (const kind of pullTicks(gun)) {
+  for (const kind of pullTicks(gun, startupTicks(gun, studio.unsteady))) {
     const i = document.createElement("i");
     i.style.background = swatch[kind];
     tl.append(i);
   }
   panel.append(tl);
-  panel.append(paragraph("Sideways shift of each pull while holding the trigger, standing. Measured in the engine."));
+  panel.append(paragraph("Pellet step of each pull while holding the trigger braced. Measured in the engine."));
   const hold = document.createElement("canvas");
   hold.id = "hold";
   hold.className = "chart";
@@ -535,9 +534,9 @@ function renderStudio(panel: HTMLElement): void {
   requestAnimationFrame(() => paintCharts(gun));
 }
 
-function pullTicks(w: Weapon): string[] {
+function pullTicks(w: Weapon, startup: number): string[] {
   const ticks: string[] = [];
-  for (let i = 0; i < w.windup; i++) ticks.push("wind");
+  for (let i = 0; i < startup; i++) ticks.push("wind");
   ticks.push("shot");
   for (let i = 0; i < w.cooldown; i++) ticks.push("cool");
   ticks.push("ready");
@@ -545,18 +544,18 @@ function pullTicks(w: Weapon): string[] {
 }
 
 function studioRows(gun: Weapon): [string, string][] {
-  const fan = fanOf(gun, 0, 0, lab!.fovHalf, studio.speed, studio.recoil, studio.shots);
+  const fan = fanOf(gun, 0, 0, lab!.fovHalf, studio.recoil);
   const dist = studio.tiles * lab!.tile;
   const covers = Math.trunc((lab!.radius * 10430) / Math.max(1, dist));
-  const recoilShift = Math.trunc(extraSpread(gun, 0, studio.recoil) / 2);
+  const inner = fan.pellets % 2 === 0 ? Math.trunc(fan.step / 2) : 0;
   let onDisc = 0;
   for (let i = 0; i < fan.pellets; i++) if (Math.abs(angleDiffSafe(pelletAngle(fan, i))) <= covers) onDisc++;
   return [
     ["Slot", gun.slot === 1 ? "sidearm" : "primary"],
-    ["Ticks per pull", String(gun.windup + 1 + gun.cooldown)],
+    ["Startup", String(startupTicks(gun, studio.unsteady))],
+    ["Ticks per braced shot", String(1 + gun.cooldown)],
     ["Extra spread", String(fan.extra)],
     ["Pellet step", String(fan.step)],
-    ["Shift", String(fan.bias)],
     ["Full fan", String((gun.pellets - 1) * fan.step)],
     ["Close / at range", `${gun.damage * gun.pellets} / ${damageAt(gun, gun.range) * gun.pellets}`],
     ["Range", tilesOf(lab!.tile, gun.range) + " tiles"],
@@ -564,7 +563,7 @@ function studioRows(gun: Weapon): [string, string][] {
     ["Top speed", String(gun.topSpeed)],
     ["Target covers", covers + " angle"],
     ["Pellets on disc", `${onDisc} / ${fan.pellets}`],
-    ["Duel fires", recoilShift <= covers ? "yes" : "holds"],
+    ["Duel fires", inner <= covers ? "yes" : "holds"],
   ];
 }
 
@@ -629,18 +628,12 @@ function paintHold(canvasEl: HTMLCanvasElement, gun: Weapon): void {
   g.clearRect(0, 0, w, h);
   const samples = gun.hold;
   if (!samples.length) return;
-  const maxAbs = Math.max(1, ...samples.map((s) => Math.abs(s[1])));
-  const mid = h / 2;
-  g.strokeStyle = palette.border;
-  g.beginPath();
-  g.moveTo(0, mid);
-  g.lineTo(w, mid);
-  g.stroke();
+  const most = Math.max(1, ...samples.map((s) => s[1]));
   const gap = w / samples.length;
   samples.forEach((s, i) => {
-    const bh = (s[1] / maxAbs) * (mid - 8);
-    g.fillStyle = s[1] === 0 ? palette.border : palette.warn;
-    g.fillRect(i * gap + 1, mid - Math.max(0, bh), Math.max(1, gap - 2), Math.max(1, Math.abs(bh)));
+    const bh = (s[1] / most) * (h - 8);
+    g.fillStyle = s[1] > gun.spread ? palette.warn : palette.border;
+    g.fillRect(i * gap + 1, h - Math.max(1, bh), Math.max(1, gap - 2), Math.max(1, bh));
   });
 }
 
@@ -697,7 +690,7 @@ function ttkTable(panel: HTMLElement): void {
     const head = document.createElement("tr");
     head.append(document.createElement("th"));
     for (const d of [5, 10, 20]) {
-      for (const label of ["still", "run"]) {
+      for (const label of ["still", "ran"]) {
         const th = document.createElement("th");
         th.textContent = `${d} ${label}`;
         head.append(th);
