@@ -23,6 +23,12 @@ stack up for you to point `ibc`, a browser or the web front end at (`IBC_SERVER=
 Everything lives in `out/devstack/` (data directory, worker caches, logs) and is wiped at the next start.
 It needs bash (Git Bash on Windows), curl, and the `wasm32-wasip1` Rust target.
 
+Both devstack workers register with the trusted registration token, so the stack runs unattended. With only
+untrusted workers it would not: a share of their results (`IBC_VERIFY_FRACTION`, default 0.05, and every
+tournament job) is re-run by a trusted worker before the series closes, and with no trusted worker those
+series wait. On a real deployment keep at least one trusted worker running, or set `IBC_VERIFY_FRACTION=0`
+if every worker is trusted.
+
 ## On a server
 
 Pick one of the two. Both run the coordinator behind a TLS-terminating proxy (Caddy or nginx) and keep all
