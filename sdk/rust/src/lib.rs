@@ -262,7 +262,7 @@ pub trait UnitExt {
     fn has(&self, state_flag: i32) -> bool;
     fn alive(&self) -> bool;
     fn pos(&self) -> (i32, i32);
-    /// Winding up, reloading, planting or defusing.
+    /// Winding up, reloading, planting, defusing or in an ability's startup.
     fn busy(&self) -> bool;
 }
 
@@ -281,7 +281,7 @@ impl UnitExt for UnitInfo {
     }
     #[inline]
     fn busy(&self) -> bool {
-        self.has(S_WINDUP | S_RELOADING | S_PLANTING | S_DEFUSING)
+        self.has(S_WINDUP | S_RELOADING | S_PLANTING | S_DEFUSING | S_CASTING)
     }
 }
 

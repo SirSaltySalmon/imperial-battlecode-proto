@@ -64,6 +64,17 @@ clock and random source, empty args and environment. There is no filesystem, net
   so compiled bots keep their layout. `WeaponRules._reserved0` was `move_spread` (movement no longer adds spread).
 - **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed.
 
+## Additions
+
+Additive changes since v0, each at the end of its group or record:
+
+- `S_CASTING` (`1 << 12`): the unit is in an ability's startup (`AbilityRules.delay` ticks). Meanwhile `act`
+  refuses every primary action except `A_CANCEL` with `ERR_NOT_READY`; moving and turning still work.
+- `AbilityRules.speed`: units per tick a thrown device flies; 0 = it is not thrown and appears at once.
+  `AbilityRules.delay` keeps its name and is the ability's startup.
+- `ProjectileInfo.kind` (already in v0) is now used: 0 = a bullet, otherwise a thrown ability device with
+  `kind` = ability id + 1 and `weapon` = -1. Devices hit nobody; they land at a wall, a barrier or their range.
+
 ## For engine and SDK authors
 
 - New mechanics must fit the existing tables and action kinds. If you believe you need a new id, stop and raise

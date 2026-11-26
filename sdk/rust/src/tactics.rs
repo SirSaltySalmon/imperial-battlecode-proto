@@ -184,3 +184,13 @@ pub fn hold_spot(nav: &Navigator, anchor: (i32, i32), watch: (i32, i32), radius_
         best[skip % best.len().min(4)].1
     }
 }
+
+/// Ticks from using ability `a` at `from` towards `target` until it takes effect: its startup, then for a
+/// thrown device the flight (it acts in the tick it lands). Walls on the way only make it sooner.
+pub fn ticks_to_effect(a: &AbilityRules, from: (i32, i32), target: (i32, i32)) -> i32 {
+    if a.speed <= 0 {
+        return a.delay;
+    }
+    let flight = dist(from, target).min(a.range).max(1);
+    a.delay + (flight + a.speed - 1) / a.speed - 1
+}

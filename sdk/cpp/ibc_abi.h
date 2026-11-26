@@ -143,6 +143,9 @@ inline constexpr int32_t S_SLOWED = 1 << 9;
 inline constexpr int32_t S_REVEALED = 1 << 10;
 /// Startup done and still firing: the next pull leaves on the tick it is made.
 inline constexpr int32_t S_BRACED = 1 << 11;
+/// An ability use is in its startup (`AbilityRules.delay`): it happens when the startup ends unless `A_CANCEL`
+/// or death stops it. Until then every primary action except `A_CANCEL` is refused with `ERR_NOT_READY`.
+inline constexpr int32_t S_CASTING = 1 << 12;
 
 inline constexpr int32_t SOUND_STEP = 1;
 inline constexpr int32_t SOUND_SHOT = 2;
@@ -260,6 +263,8 @@ struct SoundInfo {
 static_assert(sizeof(SoundInfo) == 16);
 
 struct ProjectileInfo {
+    /// 0 = a bullet (`weapon` says whose); otherwise a thrown ability device, `kind` = ability id + 1 (`T_ABILITY`)
+    /// and `weapon` = -1. A thrown device hits nobody: it lands at the first wall or barrier, or after `range`.
     int32_t kind;
     int32_t team;
     int32_t x;
@@ -449,10 +454,13 @@ struct AbilityRules {
     int32_t radius;
     int32_t duration;
     int32_t power;
-    /// Ticks between use and the effect starting.
+    /// Startup: ticks between `A_ABILITY` and the ability happening (0 = in the tick it is used). See `S_CASTING`.
     int32_t delay;
+    /// Units per tick a thrown device flies (a projectile in `T_PROJECTILES`); 0 = it appears where it lands at
+    /// once. Only smoke, flash, incendiary, recon and decoy are thrown.
+    int32_t speed;
 };
-static_assert(sizeof(AbilityRules) == 40);
+static_assert(sizeof(AbilityRules) == 44);
 
 struct ItemRules {
     int32_t id;

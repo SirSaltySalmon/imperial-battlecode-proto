@@ -42,8 +42,9 @@ fn controller(m: &mut Match, unit: u32) {
         let e: UnitInfo = row(m, unit, T_ENEMIES, 0);
         let aim = fixed::atan2(e.y - me.y, e.x - me.x);
         m.act(unit, A_FACE, aim, 0, 0);
-        // Throw at the enemy first; the gun is the fallback.
-        if m.act(unit, A_ABILITY, 0, e.x, e.y) != OK && m.act(unit, A_ABILITY, 1, e.x, e.y) != OK {
+        // Throw at the enemy first, or heal ourselves; the gun is the fallback.
+        let used = |m: &mut Match, slot: i32, at: (i32, i32)| m.act(unit, A_ABILITY, slot, at.0, at.1) == OK;
+        if !used(m, 0, (e.x, e.y)) && !used(m, 1, (e.x, e.y)) && !used(m, 0, (me.x, me.y)) {
             m.act(unit, if me.ammo == 0 { A_RELOAD } else { A_FIRE }, aim, 0, 0);
         }
     } else if info.tick % 3 == unit as i32 % 3 {
@@ -62,12 +63,14 @@ struct Run {
     /// EFFECT_* kinds that existed at some point, as a bitmask.
     kinds: u32,
     dashes: u32,
+    /// Ticks that ended with a thrown device in the air.
+    thrown: u32,
 }
 
 fn play(seed: u64, stock_bought: bool) -> Run {
     let mut m = Match::new(Ruleset::builtin(), Map::parse(YARD).unwrap(), seed);
     let dash = m.world.rules.abilities.iter().position(|a| a.effect == abilities::EFFECT_DASH).unwrap() as i32;
-    let mut run = Run { summary: String::new(), log: Vec::new(), hashes: Vec::new(), kinds: 0, dashes: 0 };
+    let mut run = Run { summary: String::new(), log: Vec::new(), hashes: Vec::new(), kinds: 0, dashes: 0, thrown: 0 };
     let mut round = 0;
     while !m.finished() {
         if stock_bought && m.world.round != round && m.world.phase == PHASE_ACTION {
@@ -90,6 +93,11 @@ fn play(seed: u64, stock_bought: bool) -> Run {
         for e in &m.world.effects {
             run.kinds |= 1 << e.info.kind;
         }
+        // A thrown flash pops in the tick it lands and is gone by its end: count devices in the air too.
+        for p in m.world.projectiles.iter().filter(|p| p.kind != 0) {
+            run.kinds |= 1 << m.world.rules.abilities[p.kind as usize - 1].effect;
+        }
+        run.thrown += m.world.projectiles.iter().any(|p| p.kind != 0) as u32;
         run.log.push(inputs);
         run.hashes.push(m.state_hash());
         assert!(m.tick() < 5000, "match did not finish");
@@ -130,5 +138,6 @@ fn all_eight_abilities_are_deterministic() {
         assert!(a.kinds & (1 << kind) != 0, "effect {kind} never appeared");
     }
     assert!(a.dashes > 0);
+    assert!(a.thrown > 0, "no device was ever in the air");
     assert_ne!(play(6, true).hashes, a.hashes, "the seed is part of the state");
 }

@@ -152,6 +152,9 @@ pub const S_SLOWED: i32 = 1 << 9;
 pub const S_REVEALED: i32 = 1 << 10;
 /// Startup done and still firing: the next pull leaves on the tick it is made.
 pub const S_BRACED: i32 = 1 << 11;
+/// An ability use is in its startup (`AbilityRules.delay`): it happens when the startup ends unless `A_CANCEL`
+/// or death stops it. Until then every primary action except `A_CANCEL` is refused with `ERR_NOT_READY`.
+pub const S_CASTING: i32 = 1 << 12;
 
 pub const SOUND_STEP: i32 = 1;
 pub const SOUND_SHOT: i32 = 2;
@@ -274,6 +277,8 @@ pub struct SoundInfo {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ProjectileInfo {
+    /// 0 = a bullet (`weapon` says whose); otherwise a thrown ability device, `kind` = ability id + 1 (`T_ABILITY`)
+    /// and `weapon` = -1. A thrown device hits nobody: it lands at the first wall or barrier, or after `range`.
     pub kind: i32,
     pub team: i32,
     pub x: i32,
@@ -472,8 +477,11 @@ pub struct AbilityRules {
     pub radius: i32,
     pub duration: i32,
     pub power: i32,
-    /// Ticks between use and the effect starting.
+    /// Startup: ticks between `A_ABILITY` and the ability happening (0 = in the tick it is used). See `S_CASTING`.
     pub delay: i32,
+    /// Units per tick a thrown device flies (a projectile in `T_PROJECTILES`); 0 = it appears where it lands at
+    /// once. Only smoke, flash, incendiary, recon and decoy are thrown.
+    pub speed: i32,
 }
 
 #[repr(C)]

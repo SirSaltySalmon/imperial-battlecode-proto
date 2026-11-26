@@ -28,6 +28,7 @@ export const S_RUNNING = 1 << 7;
 export const S_HAS_KIT = 1 << 8;
 export const S_SLOWED = 1 << 9;
 export const S_REVEALED = 1 << 10;
+export const S_CASTING = 1 << 12;
 
 export const SOUND_STEP = 1;
 export const SOUND_SHOT = 2;

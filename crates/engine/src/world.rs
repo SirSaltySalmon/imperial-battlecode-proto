@@ -84,7 +84,7 @@ pub struct Projectile {
     pub owner: u32,
     pub team: i32,
     pub weapon: i32,
-    /// 0 = bullet; abilities may use other kinds.
+    /// 0 = bullet; ability id + 1 = a thrown device (`abilities::thrown`).
     pub kind: i32,
     pub pos: V2,
     /// Units per tick.
@@ -491,6 +491,7 @@ impl World {
                     A_CANCEL => {
                         self.cancel_channel(i);
                         combat::cancel(self, i);
+                        abilities::cancel(self, i);
                     }
                     _ => {}
                 }
@@ -519,7 +520,8 @@ impl World {
             }
         }
 
-        // 2. weapons
+        // 2. weapons (abilities unit: startups that end happen first)
+        abilities::pre_step(self);
         combat::pre_step(self);
 
         // 3. sub-stepped movement and projectiles
@@ -581,6 +583,7 @@ impl World {
         let mut hits: Vec<(usize, Projectile)> = Vec::new();
         // Abilities unit: projectiles stopped by a dynamic effect, with the point they were heading for.
         let mut blocked: Vec<(Projectile, V2)> = Vec::new();
+        let mut landed: Vec<(Projectile, V2)> = Vec::new();
         let mut keep = Vec::with_capacity(self.projectiles.len());
         let projectiles = std::mem::take(&mut self.projectiles);
         for mut p in projectiles {
@@ -597,6 +600,14 @@ impl World {
             if let Some(t) = abilities::blocks_segment(self, a, b) {
                 by_effect = stop.map_or(true, |s| t < s);
                 stop = Some(stop.map_or(t, |s| s.min(t)));
+            }
+            if p.kind != 0 {
+                // Abilities unit: a thrown device flies over units and lands at a wall, a barrier or its range.
+                match abilities::fly(self, &mut p, a, b, stop, (s, sub)) {
+                    Some(at) => landed.push((p, at)),
+                    None => keep.push(p),
+                }
+                continue;
             }
             let mut victim: Option<(usize, i64)> = None;
             for (j, u) in self.units.iter().enumerate() {
@@ -637,6 +648,9 @@ impl World {
         // Abilities unit: tell the effect what it stopped (barriers have hit points).
         if !blocked.is_empty() {
             abilities::on_blocked(self, &blocked);
+        }
+        if !landed.is_empty() {
+            abilities::on_landed(self, &landed);
         }
     }
 
@@ -900,7 +914,7 @@ impl World {
             u.abil.hash(&mut h);
         }
         for p in &self.projectiles {
-            for v in [p.owner as i32, p.weapon, p.kind, p.pos.0, p.pos.1, p.vel.0, p.vel.1, p.travelled] {
+            for v in [p.owner as i32, p.weapon, p.kind, p.pos.0, p.pos.1, p.vel.0, p.vel.1, p.travelled, p.range] {
                 h.i32(v);
             }
         }

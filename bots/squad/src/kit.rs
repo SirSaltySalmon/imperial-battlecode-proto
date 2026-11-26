@@ -95,7 +95,7 @@ impl Kit {
             if a.effect == EFFECT_FLASH {
                 let away = angle_to(me.x - t.0, me.y - t.1);
                 let _ = face(away);
-                self.look_away = Some((away, info.tick + a.delay));
+                self.look_away = Some((away, info.tick + tactics::ticks_to_effect(&a, me.pos(), t)));
             }
             return true;
         }

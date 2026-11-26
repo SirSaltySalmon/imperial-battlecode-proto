@@ -2,22 +2,28 @@
 //! Exact behaviour and counters are documented in docs/rules/abilities.md; every number comes from
 //! rules/abilities.toml.
 //!
-//! State: charges and cooldowns live in `UnitAbilities`; everything placed in the world is a `World.effects`
-//! entry (hashed by the core). `Effect.data` packs the ability id (high bits) with 16 bits of per-effect
-//! state: a barrier's hit points, a heal's target unit.
+//! State: charges, cooldowns and a use in its startup live in `UnitAbilities`; a thrown device in flight is a
+//! `World.projectiles` entry; everything placed in the world is a `World.effects` entry (all hashed by the core).
+//! `Effect.data` packs the ability id (high bits) with 16 bits of per-effect state: a barrier's hit points, a
+//! heal's target unit.
 //!
-//! An effect lives `delay + linger` ticks, where `linger` is `duration` (one tick for a flash, which only
-//! pops). It is arming while `ticks_left > linger` and active afterwards.
+//! A use waits out its startup (`AbilityRules.delay`, see `cast`), then happens: a thrown device takes off
+//! (`thrown`) or the effect appears. An effect is active from the tick it appears for `linger` ticks, which is
+//! `duration` (one tick for a flash, which only pops).
 
+mod cast;
 mod effects;
 mod geom;
+mod thrown;
 
 use crate::fixed::{self, V2};
 use crate::world::{Effect, Projectile, World};
 use crate::{combat, Fnv};
 use ibc_abi::*;
 
+pub use cast::{cancel, casting, pre_step};
 pub use effects::step;
+pub use thrown::{fly, on_landed};
 
 /// `AbilityRules.effect` of the dash, which leaves nothing in the world. The ABI has no constant for it yet:
 /// this is the next free id of the `EFFECT_*` group.
@@ -34,11 +40,25 @@ const AUX_MASK: i32 = (1 << AUX_BITS) - 1;
 pub struct UnitAbilities {
     pub charges: [i32; 2],
     pub cooldown: [i32; 2],
+    /// Ticks left in the startup of a pending use; 0 = none.
+    pub cast_left: i32,
+    /// Slot and target point of the pending use.
+    pub cast_slot: i32,
+    pub cast_target: V2,
 }
 
 impl UnitAbilities {
     pub fn hash(&self, h: &mut Fnv) {
-        for v in [self.charges[0], self.charges[1], self.cooldown[0], self.cooldown[1]] {
+        for v in [
+            self.charges[0],
+            self.charges[1],
+            self.cooldown[0],
+            self.cooldown[1],
+            self.cast_left,
+            self.cast_slot,
+            self.cast_target.0,
+            self.cast_target.1,
+        ] {
             h.i32(v);
         }
     }
@@ -66,8 +86,9 @@ fn linger(r: &AbilityRules) -> i32 {
     }
 }
 
-fn is_active(w: &World, e: &Effect) -> bool {
-    e.info.ticks_left > 0 && e.info.ticks_left <= linger(&rules_of(w, e))
+/// Effects do not arm: whatever is in the world acts until its time runs out (the startup comes before).
+fn is_active(e: &Effect) -> bool {
+    e.info.ticks_left > 0
 }
 
 fn ends(e: &Effect) -> (V2, V2) {
@@ -75,7 +96,7 @@ fn ends(e: &Effect) -> (V2, V2) {
 }
 
 fn active_barriers(w: &World) -> impl Iterator<Item = (usize, &Effect)> {
-    w.effects.iter().enumerate().filter(move |(_, e)| e.info.kind == EFFECT_BARRIER && is_active(w, e))
+    w.effects.iter().enumerate().filter(move |(_, e)| e.info.kind == EFFECT_BARRIER && is_active(e))
 }
 
 /// No wall and no barrier between the points (smoke does not count).
@@ -101,8 +122,10 @@ fn slot_ability(w: &World, u: usize, slot: i32) -> Result<AbilityRules, i32> {
 
 /// What a use would do, decided from the current state.
 enum Plan {
-    /// A device thrown to a point: smoke, flash, incendiary, recon, decoy.
+    /// A device that appears at once where it lands (`speed` 0).
     Device(V2),
+    /// A device that flies towards this point (`speed` > 0): at most `range` from the thrower.
+    Throw(V2),
     Barrier(V2, V2),
     Dash(V2),
     /// Index of the unit to heal.
@@ -112,11 +135,10 @@ enum Plan {
 /// Where a device thrown from `from` at `target` lands: at most `range` away, and short of the first wall or
 /// barrier on the way.
 fn throw_point(w: &World, from: V2, target: V2, range: i32) -> V2 {
-    let d = fixed::dist(from, target) as i64;
-    if d == 0 {
+    let aim = reach(from, target, range);
+    if aim == from {
         return from;
     }
-    let aim = geom::lerp(from, target, d.min(range.max(0) as i64), d);
     let len = fixed::dist(from, aim).max(1) as i64;
     let mut stop = w.map.segment_wall(from, aim).map(|hit| fixed::dist(from, hit) as i64);
     if let Some(t) = blocks_segment(w, from, aim) {
@@ -127,6 +149,15 @@ fn throw_point(w: &World, from: V2, target: V2, range: i32) -> V2 {
         Some(s) => geom::lerp(from, aim, (s - THROW_STANDOFF).clamp(0, len), len),
         None => aim,
     }
+}
+
+/// `target`, or the point `range` away from `from` on the way to it if it is further.
+fn reach(from: V2, target: V2, range: i32) -> V2 {
+    let d = fixed::dist(from, target) as i64;
+    if d == 0 {
+        return from;
+    }
+    geom::lerp(from, target, d.min(range.max(0) as i64), d)
 }
 
 /// Where a dash from `from` towards `target` ends: the last free position on the straight line, at most
@@ -187,13 +218,17 @@ fn plan(w: &World, u: usize, slot: i32, target: V2) -> Result<(AbilityRules, Pla
     if !unit.alive || !w.in_action() {
         return Err(ERR_NOT_ALLOWED);
     }
-    if unit.abil.charges[slot as usize] <= 0 || unit.abil.cooldown[slot as usize] > 0 {
+    let used = unit.abil.charges[slot as usize] <= 0 || unit.abil.cooldown[slot as usize] > 0;
+    if used || casting(w, u) {
         return Err(ERR_NOT_READY);
     }
     if !in_map(w, target) {
         return Err(ERR_BAD_ARG);
     }
     let plan = match rules.effect {
+        EFFECT_SMOKE | EFFECT_FLASH | EFFECT_FIRE | EFFECT_RECON | EFFECT_DECOY if rules.speed > 0 => {
+            Plan::Throw(reach(unit.pos, target, rules.range))
+        }
         EFFECT_SMOKE | EFFECT_FLASH | EFFECT_FIRE | EFFECT_RECON | EFFECT_DECOY => {
             Plan::Device(throw_point(w, unit.pos, target, rules.range))
         }
@@ -257,42 +292,47 @@ pub fn can_use(w: &World, u: usize, slot: i32, target: V2) -> i32 {
     plan(w, u, slot, target).err().unwrap_or(OK)
 }
 
-/// SEAM: A_ABILITY resolved at the start of the tick. A use that is no longer possible costs nothing.
+/// SEAM: A_ABILITY resolved at the start of the tick: the use starts its startup, or happens at once if the
+/// ability has none. It interrupts a plant or defuse channel. A use that is no longer possible costs nothing.
 pub fn use_ability(w: &mut World, u: usize, slot: i32, target: V2) -> i32 {
     let (rules, plan) = match plan(w, u, slot, target) {
         Ok(p) => p,
         Err(e) => return e,
     };
+    w.cancel_channel(u);
+    if rules.delay > 0 {
+        cast::start(w, u, slot, target, rules.delay);
+    } else {
+        perform(w, u, slot, &rules, plan);
+    }
+    OK
+}
+
+/// The ability happens: this is where the charge is spent.
+fn perform(w: &mut World, u: usize, slot: i32, rules: &AbilityRules, plan: Plan) {
     let (id, team, from) = (w.units[u].id, w.units[u].team, w.units[u].pos);
-    let place = |w: &mut World, a: V2, b: V2, radius: i32, aux: i32| {
-        let info = EffectInfo {
-            kind: rules.effect,
-            team,
-            x: a.0,
-            y: a.1,
-            radius,
-            ticks_left: rules.delay.max(0) + linger(&rules),
-            x2: b.0,
-            y2: b.1,
-        };
-        w.effects.push(Effect { info, owner: id, data: pack(rules.id, aux) });
-    };
     match plan {
-        Plan::Device(at) => place(w, at, (0, 0), rules.radius, 0),
-        Plan::Barrier(a, b) => place(w, a, b, 0, rules.power.clamp(1, AUX_MASK)),
+        Plan::Device(at) => place(w, rules, id, team, (at, (0, 0)), rules.radius, 0),
+        Plan::Throw(aim) => thrown::throw(w, u, rules, aim),
+        Plan::Barrier(a, b) => place(w, rules, id, team, (a, b), 0, rules.power.clamp(1, AUX_MASK)),
         Plan::Dash(to) => w.units[u].pos = to,
         Plan::Heal(j) => {
             let at = w.units[j].pos;
-            place(w, at, (0, 0), 0, j as i32)
+            place(w, rules, id, team, (at, (0, 0)), 0, j as i32)
         }
     }
     let abil = &mut w.units[u].abil;
     abil.charges[slot as usize] -= 1;
     // `step` counts it down once later this tick, leaving `cooldown` whole ticks without the ability.
     abil.cooldown[slot as usize] = rules.cooldown.max(0) + 1;
-    w.cancel_channel(u);
     w.emit_sound(SOUND_ABILITY, from, team, w.rules.core.step_sound_radius);
-    OK
+}
+
+/// Put an effect of this ability in the world, active at once for its whole `linger`.
+fn place(w: &mut World, rules: &AbilityRules, owner: u32, team: i32, ends: (V2, V2), radius: i32, aux: i32) {
+    let ((x, y), (x2, y2)) = ends;
+    let info = EffectInfo { kind: rules.effect, team, x, y, radius, ticks_left: linger(rules), x2, y2 };
+    w.effects.push(Effect { info, owner, data: pack(rules.id, aux) });
 }
 
 /// SEAM: buying an ability charge (ITEM_KIND_ABILITY_CHARGE) for a kit slot. The shop item is the same for
@@ -340,7 +380,7 @@ fn sight_blocked(w: &World, a: V2, b: V2, effects_show: bool) -> bool {
         };
         let own_point = b == p || (e.info.kind == EFFECT_BARRIER && b == q);
         let shown = effects_show && own_point && !w.units.iter().any(|u| u.alive && u.pos == b);
-        crosses && !shown && is_active(w, e)
+        crosses && !shown && is_active(e)
     })
 }
 
@@ -394,6 +434,7 @@ pub fn on_blocked(w: &mut World, stopped: &[(Projectile, V2)]) {
 pub fn on_round_start(w: &mut World) {
     for u in 0..w.units.len() {
         w.units[u].abil.cooldown = [0, 0];
+        w.units[u].abil.cast_left = 0;
         for slot in 0..2 {
             match slot_ability(w, u, slot) {
                 Ok(r) if r.price <= 0 => w.units[u].abil.charges[slot as usize] = r.max_charges.max(0),

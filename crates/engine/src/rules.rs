@@ -145,7 +145,8 @@ impl Ruleset {
                     radius: gi(t, "radius", 0),
                     duration: gi(t, "duration", 0),
                     power: gi(t, "power", 0),
-                    delay: gi(t, "delay", 0),
+                    delay: gi(t, "delay", 0).max(0),
+                    speed: gi(t, "speed", 0).max(0),
                 }
             })
             .collect();

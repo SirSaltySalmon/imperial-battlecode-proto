@@ -2,7 +2,7 @@
 # Exact behaviour: docs/rules/abilities.md.
 #
 # [[ability]] name, effect (EFFECT_* id; 8 = dash), price, max_charges, cooldown, range, radius, duration,
-# power, delay. What each field means per effect:
+# power, delay, speed. What each field means per effect:
 #   smoke (1)       radius = cloud radius, duration = ticks it blocks sight
 #   incendiary (2)  radius = fire radius, duration = ticks it burns, power = damage per tick
 #   barrier (3)     range = how far in front it is placed, radius = half its length, duration = ticks it stands,
@@ -16,8 +16,10 @@
 #   decoy (7)       radius = inside it the decoy is heard as a decoy, duration = ticks it plays,
 #                   power = ticks between fake shots
 #   dash (8)        range = distance
-# delay = ticks between the use and the effect arming. price 0 = refilled to max_charges every round;
-# otherwise charges are bought (up to max_charges) and kept until used.
+# delay = startup: ticks between A_ABILITY and the ability happening (the unit's hands are busy meanwhile).
+# speed = units per tick a thrown device flies (slower than any bullet); 0 = it appears where it lands at once.
+# price 0 = refilled to max_charges every round; otherwise charges are bought (up to max_charges) and kept until
+# used.
 
 [[ability]]
 name = "smoke"
@@ -30,6 +32,7 @@ radius = 1792
 duration = 14
 power = 0
 delay = 1
+speed = 3072
 
 [[ability]]
 name = "flash"
@@ -42,6 +45,7 @@ radius = 12288
 duration = 6
 power = 30
 delay = 1
+speed = 4096
 
 [[ability]]
 name = "incendiary"
@@ -54,6 +58,7 @@ radius = 1536
 duration = 8
 power = 12
 delay = 1
+speed = 2560
 
 [[ability]]
 name = "recon"
@@ -66,6 +71,7 @@ radius = 6144
 duration = 5
 power = 3
 delay = 1
+speed = 0
 
 [[ability]]
 name = "barrier"
@@ -77,7 +83,8 @@ range = 2560
 radius = 1536
 duration = 20
 power = 120
-delay = 0
+delay = 1
+speed = 0
 
 [[ability]]
 name = "dash"
@@ -90,6 +97,7 @@ radius = 0
 duration = 0
 power = 0
 delay = 0
+speed = 0
 
 [[ability]]
 name = "decoy"
@@ -101,7 +109,8 @@ range = 10240
 radius = 2048
 duration = 12
 power = 3
-delay = 0
+delay = 1
+speed = 0
 
 [[ability]]
 name = "heal"
@@ -113,7 +122,8 @@ range = 4096
 radius = 1024
 duration = 6
 power = 7
-delay = 0
+delay = 1
+speed = 0
 
 # [[kit]] name, abilities = [slot 0, slot 1] (ability ids, -1 = none), hp, speed_pct.
 # Kit 0 is what a unit plays if it never drafts. Slot 0 is the kit's free ability, slot 1 the bought one.
