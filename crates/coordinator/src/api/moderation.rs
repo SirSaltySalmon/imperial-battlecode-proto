@@ -3,7 +3,7 @@
 //! writes by suspended teams and records every admin write in the audit log.
 
 use super::{auth_admin, bearer, is_admin, parse, AppState};
-use crate::db::{self, moderation as m, TeamRow};
+use crate::db::{self, moderation as m, users, TeamRow};
 use crate::error::{ApiError, ApiResult};
 use crate::ratelimit::{Kind, Limiter};
 use crate::util::{now_ms, opt_rfc3339, rfc3339, sha256_hex};
@@ -151,6 +151,30 @@ pub async fn unban(
     ))
 }
 
+/// Ban a user account (by id or email): sign-in, sessions and tokens stop working. The team stays.
+pub async fn ban_user(
+    State(app): AppState,
+    Path(user): Path<String>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    auth_admin(&app, &headers)?;
+    let user = app
+        .db
+        .tx(|tx| users::set_banned(tx, &user, Some(now_ms())))?;
+    Ok(Json(json!({"user": user.json(), "banned": true})))
+}
+
+/// Lift a user ban. The body (`{reason}`) is optional and only goes into the audit log.
+pub async fn unban_user(
+    State(app): AppState,
+    Path(user): Path<String>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    auth_admin(&app, &headers)?;
+    let user = app.db.tx(|tx| users::set_banned(tx, &user, None))?;
+    Ok(Json(json!({"user": user.json(), "banned": false})))
+}
+
 pub async fn sanctions(State(app): AppState, headers: HeaderMap) -> ApiResult<Json<Value>> {
     auth_admin(&app, &headers)?;
     Ok(Json(
@@ -262,10 +286,24 @@ fn is_worker_route(path: &str) -> bool {
         || path.starts_with("/v1/blobs/")
 }
 
-/// The team behind a credential, if it is a team token. Other credentials (unknown tokens, and user tokens
-/// or sessions until sign-in teaches this function about them) count against the client IP.
-fn credential_team(app: &App, hash: &str) -> ApiResult<Option<TeamRow>> {
-    app.db.tx(|tx| db::team_by_token(tx, hash))
+/// The team behind a credential: a team token's team, or the team of the user behind a user token
+/// (`ibu_`) or a session (`ibs_`, bearer or cookie). A user without a team, or an unknown credential,
+/// counts against the client IP.
+fn credential_team(app: &App, credential: &str, hash: &str) -> ApiResult<Option<TeamRow>> {
+    let now = now_ms();
+    app.db.tx(|tx| {
+        let user = if credential.starts_with(super::auth::USER_TOKEN_PREFIX) {
+            users::user_by_token(tx, hash, now)?
+        } else if credential.starts_with(super::auth::SESSION_TOKEN_PREFIX) {
+            users::user_by_session(tx, hash, now)?
+        } else {
+            return db::team_by_token(tx, hash);
+        };
+        match user {
+            Some(user) => users::team_of_user(tx, &user.id),
+            None => Ok(None),
+        }
+    })
 }
 
 fn session_cookie(headers: &HeaderMap) -> Option<&str> {
@@ -355,7 +393,7 @@ pub async fn guard(State(g): State<Guard>, req: Request, next: Next) -> Response
     let team = match &credential {
         Some(c) => {
             let hash = sha256_hex(c.as_bytes());
-            match credential_team(&g.app, &hash) {
+            match credential_team(&g.app, c, &hash) {
                 Ok(team) => team.map(|t| (hash, t)),
                 Err(e) => return e.into_response(),
             }

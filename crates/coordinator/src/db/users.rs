@@ -311,6 +311,25 @@ pub fn user_by_id(tx: &Transaction, user_id: &str) -> ApiResult<UserRow> {
     .ok_or_else(|| ApiError::not_found("no such user"))
 }
 
+/// Ban (`Some(now)`) or unban (`None`) a user, found by id or email. A ban also ends the user's sessions
+/// and revokes their tokens; the auth layer refuses a banned account in any case.
+pub fn set_banned(tx: &Transaction, id_or_email: &str, at: Option<i64>) -> ApiResult<UserRow> {
+    let id: String = tx
+        .query_row(
+            "SELECT id FROM users WHERE id = ?1 OR email = ?1 ORDER BY id = ?1 DESC LIMIT 1",
+            [id_or_email],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| ApiError::not_found(format!("no user {id_or_email:?}")))?;
+    tx.execute("UPDATE users SET banned_at = ?2 WHERE id = ?1", params![id, at])?;
+    if at.is_some() {
+        tx.execute("DELETE FROM sessions WHERE user_id = ?1", [&id])?;
+        tx.execute("DELETE FROM user_tokens WHERE user_id = ?1", [&id])?;
+    }
+    user_by_id(tx, &id)
+}
+
 // ---- team membership ----
 
 pub fn team_of_user(tx: &Transaction, user_id: &str) -> ApiResult<Option<TeamRow>> {

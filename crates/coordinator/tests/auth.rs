@@ -484,3 +484,50 @@ async fn admin_users_and_banned_users() {
         .is(FORBIDDEN, Some("banned"));
     t.login("ada@x.org", PW).await.is(FORBIDDEN, Some("banned"));
 }
+
+#[tokio::test]
+async fn organisers_ban_and_unban_a_user() {
+    let t = T::new(|_| {});
+    let ada = t.register("ada@x.org").await;
+    t.create_team(&ada, "alpha").await;
+    let token = t.device_login(&ada).await;
+    let out = t
+        .post("/v1/admin/users/ada@x.org/ban", Bearer(ADMIN), Value::Null)
+        .await
+        .is(OK, None);
+    assert_eq!(out.body["banned"], true);
+    // Sessions and tokens end with the ban; signing in is refused.
+    t.get("/v1/me", Cookie(&ada)).await.is(UNAUTH, None);
+    t.get("/v1/team", Bearer(&token)).await.is(UNAUTH, None);
+    t.login("ada@x.org", PW).await.is(FORBIDDEN, Some("banned"));
+    t.post("/v1/admin/users/ada@x.org/unban", Bearer(ADMIN), Value::Null)
+        .await
+        .is(OK, None);
+    t.login("ada@x.org", PW).await.is(OK, None);
+    t.post("/v1/admin/users/nobody@x.org/ban", Bearer(ADMIN), Value::Null)
+        .await
+        .is(NOT_FOUND, None);
+}
+
+#[tokio::test]
+async fn a_suspended_team_cannot_write_with_a_user_credential() {
+    let t = T::new(|_| {});
+    let ada = t.register("ada@x.org").await;
+    t.create_team(&ada, "alpha").await;
+    let token = t.device_login(&ada).await;
+    t.post(
+        "/v1/admin/teams/alpha/suspend",
+        Bearer(ADMIN),
+        json!({"reason": "test"}),
+    )
+    .await
+    .is(OK, None);
+    // The moderation guard resolves user tokens and sessions to their team, so every write is refused
+    // (not only the routes that check the sanction themselves); reads still work.
+    for auth in [Bearer(&token), Cookie(&ada)] {
+        t.post("/v1/teams/join-code/rotate", auth, Value::Null)
+            .await
+            .is(FORBIDDEN, None);
+        t.get("/v1/team", auth).await.is(OK, None);
+    }
+}

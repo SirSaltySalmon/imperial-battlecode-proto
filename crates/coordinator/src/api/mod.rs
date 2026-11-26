@@ -107,6 +107,8 @@ pub fn router(app: Arc<App>) -> Router {
         )
         .route("/v1/admin/teams/{team_id}/ban", post(moderation::ban))
         .route("/v1/admin/teams/{team_id}/unban", post(moderation::unban))
+        .route("/v1/admin/users/{user}/ban", post(moderation::ban_user))
+        .route("/v1/admin/users/{user}/unban", post(moderation::unban_user))
         // public
         .route("/v1/ladder", get(public::ladder))
         .route("/v1/matches", get(public::matches))
