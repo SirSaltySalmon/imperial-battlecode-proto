@@ -86,7 +86,6 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [ ] **`lead` and `dist` in the Rust SDK overflow** on extreme inputs (a bullet speed near 1): wraps in
   release, panics in debug. Clamp or use wider arithmetic in `sdk/rust/src/geom.rs` and mirror it in
   `sdk/cpp/ibc.h` (the C++ port matches release behaviour on purpose).
-- [ ] **`ibc new` is a stub.** Create a bot from a template for Rust and C++.
 - [ ] **`ibc build --debug`** and bots that print to stdout have never been exercised.
 
 ## 3. Job system and platform

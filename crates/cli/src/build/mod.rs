@@ -55,6 +55,7 @@ pub fn detect(bot_dir: &Path) -> Result<Language> {
 /// Build the bot in `bot_dir` and install the module at `<bot_dir>/.ibc/bot.wasm`.
 pub fn build_bot(bot_dir: &Path, release: bool) -> Result<BuiltBot> {
     let language = detect(bot_dir)?;
+    crate::workspace::warn_if_stale(bot_dir);
     // ---- language dispatch ----
     let artifact = match language {
         Language::Rust => rust::build(bot_dir, release)?,
