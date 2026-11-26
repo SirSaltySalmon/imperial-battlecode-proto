@@ -136,6 +136,7 @@ pub fn create_series_with(
     if team_a.id == team_b.id {
         return Err(ApiError::bad_request("a team cannot play itself"));
     }
+    super::moderation::ensure_can_play(tx, [team_a, team_b], spec.requested_by, now)?;
     let games = u32::try_from(spec.games)
         .ok()
         .filter(|g| *g > 0)
@@ -395,6 +396,11 @@ pub fn matchmaking_pool(
         })?;
         rows.collect::<Result<_, _>>()?
     };
+    let blocked = super::moderation::blocked_teams(tx, now)?;
+    let teams: Vec<TeamRow> = teams
+        .into_iter()
+        .filter(|t| !blocked.contains(&t.id))
+        .collect();
     let index: BTreeMap<&str, u64> = teams
         .iter()
         .enumerate()

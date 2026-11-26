@@ -120,7 +120,7 @@ pub fn check_quota(
         left -= g;
         if left + games <= limit {
             let wait_ms = created_at + QUOTA_WINDOW_MS - now;
-            return Err(ApiError::too_many(
+            return Err(ApiError::rate_limited(
                 "quota_exceeded",
                 message,
                 (wait_ms.max(0) as u64).div_ceil(1000),

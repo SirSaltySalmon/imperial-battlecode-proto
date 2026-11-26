@@ -1,5 +1,6 @@
 //! `ibc`: the Imperial Battlecode command line.
 
+mod admin;
 mod batch;
 mod build;
 mod job;
@@ -93,6 +94,8 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Moderation terminal for organisers: overview, flags, audit, suspend / ban teams, workers, dead letters
+    Admin(admin::AdminArgs),
 }
 
 #[derive(Subcommand)]
@@ -221,6 +224,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Toolchain { command: ToolchainCommand::Status } => toolchain::status()?,
         Command::View { args } => view::run(args)?,
+        Command::Admin(args) => admin::run(args)?,
         Command::New { .. } => {
             eprintln!("ibc new: not implemented yet");
             std::process::exit(2);

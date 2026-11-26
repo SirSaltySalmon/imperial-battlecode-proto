@@ -131,15 +131,10 @@ pub(crate) async fn csrf_guard(req: Request, next: Next) -> Response {
     next.run(req).await
 }
 
-/// 429 with `retry_after` in the body and a `Retry-After` header.
-pub(crate) fn too_many(code: &str, message: &str, retry_after: i64) -> Response {
-    let retry_after = retry_after.max(1);
-    (
-        StatusCode::TOO_MANY_REQUESTS,
-        [(header::RETRY_AFTER, retry_after.to_string())],
-        Json(json!({"error": code, "message": message, "retry_after": retry_after})),
-    )
-        .into_response()
+/// 429 through the one constructor (`ApiError::rate_limited`): `retry_after` in the body and a
+/// `Retry-After` header.
+pub(crate) fn too_many(code: &'static str, message: &str, retry_after: i64) -> Response {
+    ApiError::rate_limited(code, message, retry_after.max(1) as u64).into_response()
 }
 
 fn cookie(app: &App, value: &str, max_age_secs: i64) -> String {

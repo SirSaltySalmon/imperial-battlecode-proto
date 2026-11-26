@@ -5,6 +5,7 @@
 
 pub mod jobs;
 pub mod league;
+pub mod moderation;
 pub mod ratings;
 pub mod users;
 pub mod scrims;
@@ -95,6 +96,21 @@ CREATE TABLE IF NOT EXISTS tournament_matches(
 CREATE INDEX IF NOT EXISTS tournament_matches_series ON tournament_matches(series_id);
 CREATE TABLE IF NOT EXISTS tournament_series(
   series_id TEXT PRIMARY KEY, tournament_id TEXT NOT NULL REFERENCES tournaments(id), idx INTEGER NOT NULL);
+-- moderation (db/moderation.rs, docs/MODERATION.md)
+CREATE TABLE IF NOT EXISTS team_sanctions(
+  team_id TEXT PRIMARY KEY REFERENCES teams(id), kind TEXT NOT NULL, reason TEXT NOT NULL, until INTEGER,
+  created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS admin_audit(
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL, status INTEGER NOT NULL,
+  payload TEXT, created_at INTEGER NOT NULL);
+CREATE TRIGGER IF NOT EXISTS admin_audit_no_update BEFORE UPDATE ON admin_audit
+  BEGIN SELECT RAISE(ABORT, 'admin_audit is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS admin_audit_no_delete BEFORE DELETE ON admin_audit
+  BEGIN SELECT RAISE(ABORT, 'admin_audit is append-only'); END;
+CREATE TABLE IF NOT EXISTS flags_seen(
+  kind TEXT NOT NULL, subject TEXT NOT NULL, first_seen INTEGER NOT NULL, PRIMARY KEY(kind, subject));
+CREATE INDEX IF NOT EXISTS submissions_sha ON submissions(sha256);
+CREATE INDEX IF NOT EXISTS submissions_created ON submissions(created_at);
 ";
 
 /// Columns added after the first release: `CREATE TABLE IF NOT EXISTS` does not add them to an existing data

@@ -71,6 +71,8 @@ pub struct Config {
     pub tier_floors: [f64; 8],
     /// How long a tournament lock pauses ranked matchmaking (unless the organisers resume it sooner).
     pub tournament_pause_ms: i64,
+    /// Rate limits, submission retention and moderation flags (`docs/MODERATION.md`).
+    pub moderation: crate::ratelimit::ModerationCfg,
 }
 
 /// Ladder tiers, lowest first. Iron is everything below `tier_floors[0]`.
@@ -125,6 +127,7 @@ impl Default for Config {
             provisional_series: 5,
             tier_floors: DEFAULT_TIER_FLOORS,
             tournament_pause_ms: 3_600_000,
+            moderation: Default::default(),
         }
     }
 }

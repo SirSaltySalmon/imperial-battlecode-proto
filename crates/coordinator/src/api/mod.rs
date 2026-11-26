@@ -5,6 +5,7 @@
 
 mod auth;
 mod manage;
+mod moderation;
 mod public;
 mod teams;
 mod scrims;
@@ -93,6 +94,17 @@ pub fn router(app: Arc<App>) -> Router {
             "/v1/admin/workers/{worker_id}/quarantine",
             post(manage::quarantine_worker),
         )
+        // moderation (docs/api/moderation.md)
+        .route("/v1/admin/overview", get(moderation::overview))
+        .route("/v1/admin/flags", get(moderation::flags))
+        .route("/v1/admin/audit", get(moderation::audit))
+        .route("/v1/admin/sanctions", get(moderation::sanctions))
+        .route(
+            "/v1/admin/teams/{team_id}/suspend",
+            post(moderation::suspend),
+        )
+        .route("/v1/admin/teams/{team_id}/ban", post(moderation::ban))
+        .route("/v1/admin/teams/{team_id}/unban", post(moderation::unban))
         // public
         .route("/v1/ladder", get(public::ladder))
         .route("/v1/matches", get(public::matches))
@@ -108,6 +120,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/healthz", get(public::healthz))
         .layer(DefaultBodyLimit::max(limit))
         .layer(axum::middleware::from_fn(auth::csrf_guard))
+        .layer(axum::middleware::from_fn_with_state(
+            moderation::Guard::new(app.clone()),
+            moderation::guard,
+        ))
         .with_state(app)
 }
 

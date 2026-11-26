@@ -82,6 +82,8 @@ struct Args {
     languages: Vec<(String, f64)>,
     #[command(flatten)]
     auth: ibc_coordinator::accounts::AuthArgs,
+    #[command(flatten)]
+    moderation: ibc_coordinator::ratelimit::ModerationArgs,
 }
 
 fn parse_language(s: &str) -> Result<(String, f64), String> {
@@ -158,6 +160,7 @@ fn config(args: &Args) -> anyhow::Result<Config> {
             args.languages.clone()
         },
         auth: args.auth.config(args.listen)?,
+        moderation: args.moderation.to_config(),
         ..defaults
     })
 }
