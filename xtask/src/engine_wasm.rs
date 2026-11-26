@@ -31,7 +31,7 @@ struct NodeLine {
 }
 
 fn load_native(path: &Path) -> Result<Loaded> {
-    let (frames, header) = ibc_engine_wasm::load(&util::read(path)?)
+    let ibc_engine_wasm::Replay { frames, header, .. } = ibc_engine_wasm::load(&util::read(path)?)
         .map_err(|e| format!("{}: the native engine rejects it: {e}", util::rel(path)))?;
     let mut all = String::new();
     for f in &frames {

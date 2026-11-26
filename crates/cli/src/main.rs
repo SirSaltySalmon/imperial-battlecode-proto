@@ -3,6 +3,7 @@
 mod batch;
 mod build;
 mod job;
+mod replay_view;
 mod toolchain;
 mod view;
 mod view_library;
@@ -118,6 +119,16 @@ enum ReplayCommand {
     Dump { file: PathBuf },
     /// Print the replay header as JSON
     Info { file: PathBuf },
+    /// Write a copy without the other team's memory writes, logs, fuel and debug drawings
+    Redact {
+        input: PathBuf,
+        output: PathBuf,
+        /// Team whose private data stays: A, B or none
+        #[arg(long, value_parser = replay_view::parse_keep)]
+        keep: ibc_replay::Keep,
+    },
+    /// Print the private records (memory writes, logs, per-turn fuel, debug drawings) as JSON
+    Records { file: PathBuf },
 }
 
 fn load_replay(file: &Path) -> Result<Replay> {
@@ -132,6 +143,9 @@ fn replay(command: ReplayCommand) -> Result<()> {
             ibc_replay::verify(&r).map_err(|e| anyhow!("{}: verification FAILED: {e}", file.display()))?;
             let res = &r.header.result;
             println!("ok: {} ticks, score {}-{}, every state hash matches", res.ticks, res.score[0], res.score[1]);
+            for t in (0..2).filter(|&t| r.header.redacted[t]) {
+                println!("(team {} is redacted: its memory was not checked)", ["A", "B"][t]);
+            }
         }
         ReplayCommand::Dump { file } => {
             let r = load_replay(&file)?;
@@ -156,6 +170,8 @@ fn replay(command: ReplayCommand) -> Result<()> {
             let r = load_replay(&file)?;
             println!("{}", serde_json::to_string_pretty(&r.header)?);
         }
+        ReplayCommand::Redact { input, output, keep } => replay_view::redact(&input, &output, keep)?,
+        ReplayCommand::Records { file } => replay_view::records(&file)?,
     }
     Ok(())
 }

@@ -232,16 +232,20 @@ pub fn record_native(
         }
     }
     let rules = Ruleset::builtin();
+    let header_rules = ibc_replay::HeaderRules::of(&rules);
     let map = Map::parse(map_text)?;
     let info = |name: &str| BotInfo {
         name: name.to_string(),
         sha256: String::new(),
         fuel_multiplier: 1.0,
     };
+    let ruleset_hash = hash_hex(rules.hash());
+    let map_hash = hash_hex(map.hash());
+    let mut m = Match::new(rules, map, seed);
     let mut writer = ReplayWriter::new(Header {
         engine_version: ibc_engine::ENGINE_VERSION.to_string(),
-        ruleset_hash: hash_hex(rules.hash()),
-        map_hash: hash_hex(map.hash()),
+        ruleset_hash,
+        map_hash,
         map_text: map_text.to_string(),
         seed,
         wasmtime_version: String::new(),
@@ -253,8 +257,10 @@ pub fn record_native(
             ticks: 0,
             finished: false,
         },
+        team_size: m.unit_count() / 2,
+        redacted: [false, false],
+        rules: header_rules,
     });
-    let mut m = Match::new(rules, map, seed);
     let mut bots: Vec<Option<Box<dyn ibc::Bot>>> = (0..m.unit_count()).map(|_| None).collect();
     while !m.finished() && m.tick() < max_ticks {
         for unit in m.turn_order() {
@@ -268,8 +274,9 @@ pub fn record_native(
             });
         }
         writer.inputs(m.take_inputs());
+        writer.draws(m.take_debug());
         m.step();
-        writer.end_tick(m.state_hash());
+        writer.end_tick(m.state_hashes());
     }
     let result = MatchResult {
         winner: m.winner(),

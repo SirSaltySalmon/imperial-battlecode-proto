@@ -174,6 +174,12 @@ export interface Header {
   abi_version: number;
   bots: [BotInfo, BotInfo];
   result: { winner: number | null; score: [number, number]; ticks: number; finished: boolean };
+  /** Units per team: ids below this are team A. */
+  team_size: number;
+  /** Teams whose memory writes, logs, fuel and debug drawings were removed from this file. */
+  redacted: [boolean, boolean];
+  /** The rules TOML texts; the engine turns them into `Engine.rules()`. Absent in some replays. */
+  rules?: { core: string; weapons: string; abilities: string; economy: string };
 }
 
 export type Vec2 = [number, number];

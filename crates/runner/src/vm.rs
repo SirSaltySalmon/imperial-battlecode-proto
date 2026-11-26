@@ -445,6 +445,11 @@ impl UnitVm {
         Turn { used, end }
     }
 
+    /// The log from byte `from` on (the log stops growing at its cap).
+    pub(crate) fn log_since(&mut self, from: usize) -> Vec<u8> {
+        self.store_mut().data().log.get(from..).unwrap_or_default().to_vec()
+    }
+
     /// Stop the bot and return its log.
     pub(crate) fn finish(mut self, note: Option<&str>) -> Vec<u8> {
         self.call = None;

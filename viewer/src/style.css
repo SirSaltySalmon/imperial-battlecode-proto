@@ -641,3 +641,31 @@ main {
     min-width: 0;
   }
 }
+
+/* Bot log and fuel of the selected unit (placeholder). */
+.fuel-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 36px;
+  margin: 4px 0;
+}
+
+.fuel-bars i {
+  flex: 1;
+  min-height: 1px;
+  background: var(--dim);
+}
+
+.fuel-bars i.out {
+  background: #d9534f;
+}
+
+.bot-log {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

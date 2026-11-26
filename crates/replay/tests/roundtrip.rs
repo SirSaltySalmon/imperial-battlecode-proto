@@ -15,6 +15,9 @@ fn header() -> Header {
         abi_version: ibc_engine::abi::ABI_VERSION,
         bots: [bot("a"), bot("b")],
         result: MatchResult { winner: None, score: [0, 0], ticks: 0, finished: false },
+        team_size: Match::new(Ruleset::builtin(), Map::parse(MAP).unwrap(), 7).unit_count() / 2,
+        redacted: [false, false],
+        rules: HeaderRules::of(&Ruleset::builtin()),
     }
 }
 
@@ -29,6 +32,20 @@ fn record(ticks: u32) -> Replay {
             if t % 5 == 0 {
                 m.mem_write(unit, ibc_engine::abi::MEM_TEAM, unit, &[t as u8, unit as u8]);
             }
+            m.debug_draw(unit, ibc_engine::abi::DEBUG_LINE, 0, 0, t as i32, unit as i32, 0xff0000);
+            let team = m.unit_team(unit) as usize;
+            w.record(
+                team,
+                Record::Log {
+                    unit,
+                    text: format!(
+                        "t{t} u{unit}
+"
+                    )
+                    .into_bytes(),
+                },
+            );
+            w.record(team, Record::Fuel { unit, used: 1000 + t as u64, out_of_fuel: t % 7 == 0 });
         }
         if t == 3 {
             w.inputs(m.take_inputs());
@@ -36,8 +53,9 @@ fn record(ticks: u32) -> Replay {
             m.fault(1);
         }
         w.inputs(m.take_inputs());
+        w.draws(m.take_debug());
         m.step();
-        w.end_tick(m.state_hash());
+        w.end_tick(m.state_hashes());
     }
     w.finish(MatchResult { winner: m.winner(), score: m.score(), ticks, finished: m.finished() })
 }
@@ -73,7 +91,7 @@ fn verify_rejects_tampering() {
     let good = record(60);
 
     let mut r = good.clone();
-    r.ticks[30].hash ^= 1;
+    r.ticks[30].hashes.world ^= 1;
     assert!(verify(&r).unwrap_err().contains("tick 30"));
 
     let mut r = good.clone();
@@ -96,4 +114,150 @@ fn decode_rejects_garbage() {
     let mut bytes = record(5).encode();
     bytes.truncate(bytes.len() - 3);
     assert!(Replay::decode(&bytes).is_err());
+}
+
+#[test]
+fn records_round_trip_and_are_split_by_team() {
+    let r = record(12);
+    let team_size = r.header.team_size;
+    for t in &r.ticks {
+        for (team, recs) in t.private.iter().enumerate() {
+            assert!(!recs.is_empty());
+            for rec in recs {
+                let unit = match rec {
+                    Record::Log { unit, .. } | Record::Fuel { unit, .. } => *unit,
+                    Record::Draw(d) => d.0,
+                };
+                assert_eq!((unit >= team_size) as usize, team, "{rec:?} filed under the wrong team");
+            }
+        }
+    }
+    assert!(r.ticks[0].private[0].iter().any(|rec| matches!(rec, Record::Draw(_))));
+    assert_eq!(Replay::decode(&r.encode()).unwrap(), r);
+}
+
+#[test]
+fn header_rules_round_trip() {
+    let r = record(3);
+    let back = Replay::decode(&r.encode()).unwrap();
+    let rules = back.header.rules.as_ref().expect("header carries the rules");
+    assert_eq!(rules.parse().unwrap().hash(), Ruleset::builtin().hash());
+    assert_eq!(back.rules().unwrap().hash(), Ruleset::builtin().hash());
+
+    // Header rules are what re-simulation uses: a changed rule that the header hash agrees with is accepted
+    // even though this build's built-in rules differ...
+    let mut changed = back.clone();
+    let h = changed.header.rules.as_mut().unwrap();
+    h.core = h.core.replace("sense_radius = 1536", "sense_radius = 1600");
+    let other = h.parse().unwrap();
+    assert_ne!(other.hash(), Ruleset::builtin().hash());
+    changed.header.ruleset_hash = hash_hex(other.hash());
+    assert_eq!(changed.rules().unwrap().hash(), other.hash());
+    // ...but rules that do not hash to the header's ruleset hash are not.
+    changed.header.ruleset_hash = hash_hex(Ruleset::builtin().hash());
+    assert!(changed.rules().unwrap_err().contains("ruleset mismatch"));
+
+    // Without header rules the reader falls back to its built-in ruleset.
+    let mut old = back;
+    old.header.rules = None;
+    verify(&old).unwrap();
+
+    // A ruleset edited after parsing has no trustworthy source.
+    let mut edited = Ruleset::builtin();
+    edited.core.max_ticks += 1;
+    assert!(HeaderRules::of(&edited).is_none());
+}
+
+#[test]
+fn records_do_not_change_state_hashes() {
+    let full = record(60);
+    let mut bare = full.clone();
+    for t in &mut bare.ticks {
+        t.private = Default::default();
+    }
+    verify(&bare).unwrap();
+    // Debug drawings in the engine are not state either.
+    use ibc_engine::abi::Host;
+    let mut a = Match::new(Ruleset::builtin(), Map::parse(MAP).unwrap(), 7);
+    let mut b = Match::new(Ruleset::builtin(), Map::parse(MAP).unwrap(), 7);
+    for _ in 0..30 {
+        for unit in a.turn_order() {
+            a.debug_draw(unit, ibc_engine::abi::DEBUG_DOT, 5, 6, 7, 8, 0x00ff00);
+        }
+        assert_eq!(a.state_hashes(), b.state_hashes());
+        a.step();
+        b.step();
+    }
+    assert_eq!(a.state_hash(), b.state_hash());
+}
+
+#[test]
+fn redacted_replays_verify() {
+    let full = record(80);
+    let mem_writes = |r: &Replay, team: usize| {
+        r.ticks
+            .iter()
+            .flat_map(|t| &t.events)
+            .filter(|e| matches!(e, Event::Input(Input::MemWrite { unit, .. }) if r.header.unit_team(*unit) == team))
+            .count()
+    };
+    assert!(mem_writes(&full, 0) > 0 && mem_writes(&full, 1) > 0);
+    for keep in [Keep::Team(0), Keep::Team(1), Keep::None, Keep::Both] {
+        let view = full.view(keep);
+        let back = Replay::decode(&view.encode()).unwrap();
+        assert_eq!(back, view);
+        verify(&back).unwrap_or_else(|e| panic!("{keep:?}: {e}"));
+        for team in 0..2 {
+            let kept = keep == Keep::Both || keep == Keep::Team(team);
+            assert_eq!(back.header.redacted[team], !kept);
+            assert_eq!(mem_writes(&back, team) > 0, kept, "{keep:?} team {team}");
+            assert_eq!(back.ticks.iter().any(|t| !t.private[team].is_empty()), kept);
+            assert_eq!(back.ticks.iter().all(|t| t.hashes.memory[team] == 0), !kept);
+        }
+    }
+    // A redacted file is smaller, and redacting twice changes nothing.
+    let public = full.view(Keep::None);
+    assert!(public.encode().len() < full.encode().len());
+    assert_eq!(public.view(Keep::Team(0)), public);
+}
+
+#[test]
+fn tampering_with_a_kept_memory_write_fails() {
+    let full = record(40);
+    let view = full.view(Keep::Team(1));
+    let mut r = view.clone();
+    let write = r
+        .ticks
+        .iter_mut()
+        .flat_map(|t| &mut t.events)
+        .find_map(|e| match e {
+            Event::Input(Input::MemWrite { data, .. }) => Some(data),
+            _ => None,
+        })
+        .expect("team B memory write");
+    write[0] ^= 0x55;
+    assert!(verify(&r).unwrap_err().contains("team B memory hash"));
+
+    // Dropping it is caught as well, and so is a forged memory hash of the kept team.
+    let mut r = view.clone();
+    for t in &mut r.ticks {
+        t.events.retain(|e| !matches!(e, Event::Input(Input::MemWrite { .. })));
+    }
+    assert!(verify(&r).is_err());
+    let mut r = view;
+    r.ticks[10].hashes.memory[1] ^= 1;
+    assert!(verify(&r).unwrap_err().contains("tick 10"));
+}
+
+#[test]
+fn records_json_lists_only_kept_teams() {
+    let full = record(10);
+    let all: serde_json::Value = serde_json::from_str(&records_json(&full, true)).unwrap();
+    assert!(!all["logs"].as_array().unwrap().is_empty());
+    assert!(!all["mem"].as_array().unwrap().is_empty());
+    let none: serde_json::Value = serde_json::from_str(&records_json(&full.view(Keep::None), true)).unwrap();
+    for key in ["logs", "fuel", "draws", "mem"] {
+        assert!(none[key].as_array().unwrap().is_empty(), "{key}");
+    }
+    assert_eq!(none["redacted"], serde_json::json!([true, true]));
 }

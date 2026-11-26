@@ -137,7 +137,7 @@ pub struct World {
     pub rounds: Vec<RoundLog>,
     pub winner: Option<i32>,
     /// Debug drawings of the current tick: (unit, kind, x0, y0, x1, y1, color). Not part of the state hash.
-    pub debug: Vec<(u32, u32, i32, i32, i32, i32, u32)>,
+    pub debug: Vec<crate::DebugDraw>,
 }
 
 impl World {
@@ -832,7 +832,26 @@ impl World {
 
     // ---------------------------------------------------------------- hashing
 
+    /// The state hash: the world hash and both teams' memory hashes, combined.
     pub fn state_hash(&self) -> u64 {
+        self.state_hashes().combined()
+    }
+
+    pub fn state_hashes(&self) -> crate::StateHashes {
+        crate::StateHashes { world: self.world_hash(), memory: [self.memory_hash(0), self.memory_hash(1)] }
+    }
+
+    /// Hash of one team's private memory (team and draft scratchpads). Kept apart from `world_hash` so a replay
+    /// without that team's memory writes still verifies: memory is read by bots, never by the simulation.
+    pub fn memory_hash(&self, team: usize) -> u64 {
+        let mut h = crate::Fnv::new();
+        h.bytes(&self.team_mem[team]);
+        h.bytes(&self.draft_mem[team]);
+        h.finish()
+    }
+
+    /// Hash of every state field that affects simulation, except team memory (`memory_hash`).
+    pub fn world_hash(&self) -> u64 {
         let mut h = crate::Fnv::new();
         h.u64(self.seed);
         for v in [self.tick as i32, self.round, self.phase, self.phase_left, self.score[0], self.score[1]] {
@@ -890,8 +909,6 @@ impl World {
             h.bytes(bytes_of(d));
         }
         for t in 0..2 {
-            h.bytes(&self.team_mem[t]);
-            h.bytes(&self.draft_mem[t]);
             self.econ[t].hash(&mut h);
         }
         h.finish()
