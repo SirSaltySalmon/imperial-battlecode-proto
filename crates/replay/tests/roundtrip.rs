@@ -210,6 +210,7 @@ fn redacted_replays_verify() {
         for team in 0..2 {
             let kept = keep == Keep::Both || keep == Keep::Team(team);
             assert_eq!(back.header.redacted[team], !kept);
+            assert_eq!(back.header.bots[team].sha256.is_empty(), !kept, "module identity");
             assert_eq!(mem_writes(&back, team) > 0, kept, "{keep:?} team {team}");
             assert_eq!(back.ticks.iter().any(|t| !t.private[team].is_empty()), kept);
             assert_eq!(back.ticks.iter().all(|t| t.hashes.memory[team] == 0), !kept);

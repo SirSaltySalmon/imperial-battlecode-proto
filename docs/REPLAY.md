@@ -12,11 +12,12 @@ Code: `crates/replay` (format, verification, redaction), `crates/runner` (record
 
 | In every replay | Private to the team (removed by redaction) |
 |---|---|
-| map, rules, seed, bot names and module hashes, result | memory writes (`MemWrite` inputs, team and draft scope) |
+| map, rules, seed, result | memory writes (`MemWrite` inputs, team, draft and buy scope) |
 | every action (`Act` input) of both teams, in order | the team's memory hash per tick |
 | bot crashes (`Fault`) | logs: what each unit wrote to `ibc.log`, stdout or stderr, per turn |
 | the world hash per tick | fuel used per turn, and whether the turn ran out of fuel |
 | | debug drawings (`debug_draw`) per tick |
+| | the bot's name and module hash in the header (they would let others count the team's versions); a redacted side reads `A` or `B` and an empty hash |
 
 Every action stays public, so behaviour can be watched and imitated; what is protected is intent (memory and
 logs). Workers see both modules, so this assumes trusted workers.

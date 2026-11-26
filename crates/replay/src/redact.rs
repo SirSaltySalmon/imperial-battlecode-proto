@@ -1,6 +1,7 @@
-//! Views of a replay that hide a team's private data: its memory writes, its memory hashes and its records
-//! (logs, per-turn fuel, debug drawings). Actions, faults and the world hash stay, so every view re-simulates
-//! to the same world and still verifies.
+//! Views of a replay that hide a team's private data: its memory writes, its memory hashes, its records
+//! (logs, per-turn fuel, debug drawings) and which module it fielded (the header's bot name and hash, which
+//! would let others count a team's versions). Actions, faults and the world hash stay, so every view
+//! re-simulates to the same world and still verifies.
 
 use crate::{Event, Replay};
 use ibc_engine::Input;
@@ -30,6 +31,9 @@ impl Replay {
     /// Remove one team's private data. Idempotent.
     pub fn redact(&mut self, team: usize) {
         let team = team & 1;
+        let bot = &mut self.header.bots[team];
+        bot.name = ["A", "B"][team].to_string();
+        bot.sha256.clear();
         let h = &self.header;
         let owner = |unit: u32| h.unit_team(unit);
         for t in &mut self.ticks {
