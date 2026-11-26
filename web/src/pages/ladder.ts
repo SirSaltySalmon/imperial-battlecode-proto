@@ -15,7 +15,7 @@ export const ladder: Page = (ctx) =>
     h(
       "p",
       { class: "muted" },
-      "New teams are provisional until their rating settles; tiers are labels only and do not affect matchmaking.",
+      "Every team starts at 1500. A new bot plays its placement series right away and shows Provisional until they finish; tiers are labels only and do not affect matchmaking.",
     ),
     section("Standings", async () => {
       const rows = await ctx.api.ladder();

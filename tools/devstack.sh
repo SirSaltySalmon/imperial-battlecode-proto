@@ -137,7 +137,7 @@ print_ladder() {
     [ -n "$name" ] || name="$(str team_name "$row")"
     rating="$(num rating "$row")"
     tier="$(str tier "$row")"
-    # A provisional team has no rating or tier yet (fewer than IBC_PROVISIONAL_SERIES rated series).
+    # A provisional team is still placing its live submission: a rating but no tier yet.
     grep -q '"provisional":true' <<<"$row" && tier="Provisional"
     printf '%-5s %-12s %7s %-11s %6s %5s %7s %6s\n' "$(num rank "$row")" "$name" "${rating:--}" "${tier:--}" \
       "$(num games "$row")" "$(num wins "$row")" "$(num losses "$row")" "$(num draws "$row")"

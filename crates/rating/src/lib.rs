@@ -4,7 +4,8 @@
 //! explicit seed. The coordinator owns the state (ratings, history, map usage) and calls in:
 //!
 //! 1. [`series_per_batch`] turns spare hardware into a number of series for the next ranked batch.
-//! 2. [`plan_batch`] picks who plays whom ([`Pairing`]).
+//! 2. [`plan_batch`] picks who plays whom ([`Pairing`]); between batches, [`plan_placement`] picks the
+//!    opponent of each placement series of a team with a new submission.
 //! 3. [`plan_series`] expands a pairing into games: maps, engine seeds and A/B slots ([`SeriesPlan`]).
 //! 4. As each game result arrives, [`SeriesPlan::result`] turns the engine's [`Winner`] slot into a
 //!    [`GameResult`]. When the series is over, [`rate_series`] updates the two ratings once, from every
@@ -23,7 +24,7 @@ mod weng_lin;
 
 pub use budget::{series_per_batch, BudgetConfig};
 pub use elo::Elo;
-pub use matchmaking::{plan_batch, MatchmakingConfig, Pairing, TeamState};
+pub use matchmaking::{plan_batch, plan_placement, MatchmakingConfig, Pairing, TeamState};
 pub use series::{game_seed, plan_series, PlannedGame, SeriesPlan, Winner};
 pub use series_rating::rate_series;
 pub use weng_lin::WengLin;

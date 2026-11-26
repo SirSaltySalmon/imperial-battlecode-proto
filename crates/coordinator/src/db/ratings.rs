@@ -378,26 +378,24 @@ pub fn ladder_rows(tx: &Transaction, hook: &dyn RatingHook) -> ApiResult<Vec<Lad
     Ok(rows)
 }
 
-/// The public ladder (`GET /v1/ladder`): rated teams by displayed rating, then the provisional ones (fewer
-/// than `cfg.provisional_series` rated series), which show no rating and no tier. Nothing here identifies
-/// a submission.
+/// The public ladder (`GET /v1/ladder`): every team by displayed rating. A team still placing its live
+/// submission (`db::placement`) is `provisional`: it shows its rating, which starts at 1500, but no tier.
+/// Nothing here identifies a submission.
 pub fn public_ladder(
     tx: &Transaction,
     hook: &dyn RatingHook,
     cfg: &Config,
 ) -> ApiResult<Vec<Value>> {
-    let (rated, provisional): (Vec<LadderRow>, Vec<LadderRow>) = ladder_rows(tx, hook)?
-        .into_iter()
-        .partition(|row| row.series >= cfg.provisional_series);
-    let rows = rated.iter().map(|row| (row, false));
-    let rows = rows.chain(provisional.iter().map(|row| (row, true)));
-    Ok(rows
+    let placing = super::placement::placing_teams(tx, cfg.placement_series)?;
+    Ok(ladder_rows(tx, hook)?
+        .iter()
         .enumerate()
-        .map(|(i, (row, provisional))| {
+        .map(|(i, row)| {
             let (r, wld) = (&row.standing.rating, row.standing.wld);
             let shown = hook.display(r);
+            let provisional = placing.contains(&row.team_id);
             json!({"rank": i + 1, "team_id": row.team_id, "team_name": row.name,
-                   "rating": (!provisional).then(|| shown.round() as i64),
+                   "rating": shown.round() as i64,
                    "tier": (!provisional).then(|| cfg.tier(shown)),
                    "provisional": provisional, "games": r.games, "series": row.series,
                    "wins": wld.0, "losses": wld.1, "draws": wld.2})

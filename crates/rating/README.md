@@ -36,6 +36,9 @@ if let Some(w) = Winner::from_job_outcome(outcome) {
 // When the series is over: one update from the pre-series ratings.
 let (a, b) = rate_series(&system, &rating_of[plan.team_a], &rating_of[plan.team_b], &outcomes);
 
+// Placement: a team with a new submission, between batches, one series at a time
+if let Some(opponent) = plan_placement(&system, &teams[newcomer], &teams, &mm, seed) { /* plan_series as above */ }
+
 // Events
 rating = system.on_new_submission(&rating);      // team uploads a new bot
 rating = system.on_balance_patch(&rating, 1.5);  // for every team, when the ruleset changes
@@ -95,20 +98,20 @@ Both sides are computed from the pre-game values. Draws use `s = 1/2`, the tie m
 | `mu0`, `sigma0` | 25, 25/3 | paper section 6.1 (TrueSkill's convention) |
 | `beta` | 25/6 | paper section 6.1 |
 | `kappa` | 0.0001 | paper section 6.1 |
-| `tau` | 25/300 per game | OpenSkill default; keeps sigma from collapsing so a rating can follow a team that improves |
+| `tau` | 25/300 per game | OpenSkill default; keeps sigma from collapsing so a rating can follow a field that changes. Bots only change by upload (handled below), but lowering `tau` to 25/600, 25/1200 or 0 moved the mean rank correlation over batches 100..200 by less than 0.003, with or without a 5-point-per-batch drift of every team's skill, so it stays |
 | `inactivity_tau` | 25/300 per idle period | `sigma^2 += periods * tau^2`, capped at `sigma0`; only if the coordinator calls `on_inactive` |
-| resubmission | `sigma = max(sigma, 0.5 sigma0)`, mu kept | a new bot is usually near the old one, but not certainly |
+| resubmission | `sigma = max(sigma, 0.85 sigma0)`, mu kept | a new bot can be a different bot: the old estimate is a starting point, not much more (measured below) |
 | balance patch | `sigma = min(sigma * factor, sigma0)` | everyone's bot is now playing a slightly different game |
-| provisional | `sigma > 0.6 sigma0` (= 5.0) | about 25 games in the simulation below; a resubmission (0.5 sigma0) does not re-hide a team |
+| provisional | `sigma > 0.6 sigma0` (= 5.0) | about 25 games in the simulation below; a resubmission makes a team provisional again until it has played. The coordinator's ladder shows "placing" by series count instead; this flag orders tournament seeds |
 
-**Display rating.** `display = 1500 + k * ((mu - 3 sigma) - mu0)` with `k = 400 / (sqrt(2) * beta * ln 10) = 29.48`.
-`mu - 3 sigma` is the conservative estimate (the skill the team almost surely exceeds). `k` is chosen so that,
-between two settled teams, 400 display points mean 10:1 odds, as in Elo (the model's logistic has scale
-`c -> sqrt(2) beta` as sigma -> 0; with real sigmas of 1.5 to 2.5 the scale is 5 to 15 % wider, so 400 points are
-slightly less than 10:1). Consequences to explain to competitors: a new team shows `1500 - 3 * 8.33 * 29.48 = 763`
-and climbs as its sigma shrinks; a settled average team (sigma about 1.6) shows about 1360; a resubmission drops
-the displayed number (sigma goes up) until games are played. Sorting the leaderboard by `display` is sorting by
-the conservative estimate.
+**Display rating.** `display = 1500 + k * ((mu - z sigma) - mu0)` with `k = 400 / (sqrt(2) * beta * ln 10) = 29.48`
+and `z = display_z`, 0 by default: the ladder shows the estimate itself. `k` is chosen so that, between two
+settled teams, 400 display points mean 10:1 odds, as in Elo (the model's logistic has scale `c -> sqrt(2) beta`
+as sigma -> 0; with real sigmas of 1.5 to 2.5 the scale is 5 to 15 % wider, so 400 points are slightly less than
+10:1). A new team shows 1500 and moves with its results; an upload leaves the number where it is. TrueSkill's
+conservative `z = 3` would show a new team at 763 and make every team climb for as long as its sigma shrinks,
+long after its estimate is right; after three placement series it showed a newcomer 13 places from its true
+rank, against 6 for `mu` (table below). Uncertainty is shown by the coordinator as "placing" instead.
 
 ### Elo
 
@@ -143,6 +146,17 @@ Halite III's scheme. Repeat until the budget is used or fewer than two teams are
 
 Teams with `live = false` are never paired. A seed with no legal opponent sits the batch out, so the result
 may be shorter than the budget.
+
+## Placement (`plan_placement`)
+
+Placement matches, as in most ranked games: a team with a new submission plays a few series back to back,
+outside the batches, so the ladder knows roughly where it belongs within minutes instead of after several
+batches. Each series is planned after the previous one is rated: the opponent is drawn uniformly among the
+`placement_window` (3) live teams nearest the newcomer's current mu, close games being the most informative.
+Settled opponents come first, since a game against a provisional team places neither; on a fresh ladder,
+where everyone is provisional, anyone near will do. The rematch rules of `plan_batch` apply. How many series
+and how often is the coordinator's business (3 series of 3 maps by default, at most 9 placement series per
+team per day).
 
 ## Series plan (`plan_series`)
 
@@ -179,38 +193,49 @@ between the displayed leaderboard and true skill (ties share a rank). The number
 
 ```
 batch  games/team  rho(Elo)  rho(WL)  rho(WL mu)  WL mean sigma  provisional Elo/WL
-    1         2.0     0.513    0.446       0.513           7.85         60/60
-    2         4.0     0.542    0.673       0.694           7.40         60/60
-    3         6.0     0.672    0.697       0.721           7.00         60/60
-    5        10.0     0.774    0.789       0.809           6.31         38/60
-    8        16.0     0.872    0.820       0.834           5.50          0/56
-   12        24.0     0.931    0.891       0.886           4.73          0/14
-   20        40.0     0.926    0.923       0.926           3.77          0/0
-   35        70.0     0.955    0.971       0.970           2.88          0/0
-   60       120.0     0.969    0.986       0.985           2.28          0/0
-  100       200.0     0.978    0.987       0.988           1.88          0/0
-  150       300.0     0.975    0.985       0.984           1.69          0/0
+    1         2.0     0.513    0.513       0.513           7.85         60/60
+    2         4.0     0.542    0.694       0.694           7.40         60/60
+    3         6.0     0.672    0.721       0.721           7.00         60/60
+    5        10.0     0.774    0.809       0.809           6.31         38/60
+    8        16.0     0.872    0.834       0.834           5.50          0/56
+   12        24.0     0.931    0.886       0.886           4.73          0/14
+   20        40.0     0.926    0.926       0.926           3.77          0/0
+   35        70.0     0.955    0.970       0.970           2.88          0/0
+   60       120.0     0.969    0.985       0.985           2.28          0/0
+  100       200.0     0.978    0.988       0.988           1.88          0/0
+  150       300.0     0.975    0.984       0.984           1.69          0/0
   200       400.0     0.974    0.994       0.994           1.60          0/0
 
 cold start: games per team until the leaderboard first reaches a rank correlation
 (mean of 10 ladders; a ladder that never gets there counts as 400)
 target   Elo    Weng-Lin
-  0.70    6.2       6.6
-  0.80   10.4       9.8
-  0.90   20.8      21.4
-  0.95   36.8      38.4
-  0.97   87.4      63.0
-  0.98  174.0     105.0
+  0.70    6.2       5.8
+  0.80   10.4       9.4
+  0.90   20.8      20.6
+  0.95   36.8      39.0
+  0.97   87.4      59.8
+  0.98  174.0     101.8
 
 newcomer (5th best of 60) joining a settled ladder, its first 90 games (mean of 10 ladders)
            mean |error|   games until first within 100   games until it stays within 100
 Elo               109.6                           33.2                              45.1
 Weng-Lin           64.2                            6.6                              43.0
 
+newcomer at true rank 5, 30 or 55 of 60 joins a settled ladder (Weng-Lin, 30 arrivals)
+                    |error| after   mean |error|        places off when shown by
+placement series    placement       next 10 batches     mu - 3 sigma   mu
+none                        240.4                98.1           27.4   16.6
+3 (9 games)                  99.8                69.3           13.1    6.0
+
 resubmission, true skill +300 (Weng-Lin, mean of 12 ladders, first 90 games after)
                  mean |error|   games until first within 100 (90 = never)
-sigma bump               64.8     15.2
+sigma bump               63.8      9.9
 no bump                 167.9     71.0
+
+resubmission: a mid-table team's skill jumps and it places again; mean |error| over 60 games (12 ladders)
+sigma after upload    -300   -150      0    150    300    500     mean
+0.85 sigma0           91.1   67.2   56.7   65.5   82.5  119.7     80.5
+0.5 sigma0           124.7   65.3   43.4   57.3  106.7  212.0    101.6
 ```
 
 What this shows, including what it does not:
@@ -218,13 +243,19 @@ What this shows, including what it does not:
 - Both systems order the ladder well; Weng-Lin ends tighter (0.99 against 0.975) because its steps shrink
   while Elo keeps moving 12 points a game.
 - **On a cold start the two are level up to rho = 0.95.** Elo's doubled provisional K does the job of a wide
-  prior while everyone is new. Weng-Lin is ahead only for tight orderings (0.97: 63 against 87 games per team;
-  0.98: 105 against 174).
+  prior while everyone is new. Weng-Lin is ahead only for tight orderings (0.97: 60 against 87 games per team;
+  0.98: 102 against 174). Showing `mu` rather than `mu - 3 sigma` orders the ladder as well or better at every
+  row (the old `rho(WL)` column was 0.446 at batch 1 and 0.820 at batch 8).
 - A strong newcomer in a settled ladder gets near its place in about 7 games with Weng-Lin and 33 with Elo.
   It is not steadier afterwards: the estimate still wanders across the 100-point line for about as long as
   Elo takes to arrive.
-- The resubmission bump works for realistic jumps. For a +500 jump (about 5 sigma after the bump) it still
-  helps but slowly: 49 games against never-within-90. If teams routinely make jumps that large, raise
-  `resubmission_sigma_fraction`.
+- **Placement** (3 series of 3 games before the next batch) cuts a newcomer's error before its first batch
+  from 240 to 100 points and its mean error over the next 10 batches from 98 to 69. Here the newcomer plays
+  in most batches anyway (20 series for 60 teams, and the matchmaker favours it); on a ladder where a batch
+  reaches a smaller share of the teams, waiting for batches costs more and placement saves more. Six series
+  brought the error after placement to 53 in a trial run, at twice the cost.
+- **Resubmission**: averaged over jumps from -300 to +500, widening sigma to 0.85 sigma0 instead of 0.5
+  lowers the error from 102 to 81. The price is a bot no better than the last one: 57 against 43. 0.7 and
+  1.0 gave 87 and 81 in a trial run, within the noise of 0.85.
 - Errors are measured after matching each system's mean and spread to the true scale, so neither is charged
   for its units.

@@ -63,9 +63,12 @@ struct Args {
     /// Maps per ranked series, each a full match
     #[arg(long, env = "IBC_RANKED_GAMES", default_value_t = 3)]
     ranked_games: i64,
-    /// Rated series before a team leaves provisional (shown with a rating and a tier)
-    #[arg(long, env = "IBC_PROVISIONAL_SERIES", default_value_t = 5)]
-    provisional_series: i64,
+    /// Placement series a new live submission plays back to back, before its tier is shown; 0 = off
+    #[arg(long, env = "IBC_PLACEMENT_SERIES", default_value_t = 3)]
+    placement_series: i64,
+    /// Most placement series started for one team per 24 hours
+    #[arg(long, env = "IBC_PLACEMENT_DAILY_SERIES", default_value_t = 9)]
+    placement_daily_series: i64,
     /// Displayed-rating floors of Bronze, Silver, Gold, Platinum, Diamond, Ascendant, Immortal and
     /// Radiant, comma-separated and ascending (Iron is below the first)
     #[arg(long, env = "IBC_TIER_FLOORS", value_parser = parse_tier_floors)]
@@ -203,7 +206,8 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         ranked_interval_ms: args.ranked_interval_secs * 1000,
         ranked_series_budget: args.ranked_series_budget,
         ranked_games: args.ranked_games,
-        provisional_series: args.provisional_series.max(0),
+        placement_series: args.placement_series.max(0),
+        placement_daily_series: args.placement_daily_series.max(0),
         tier_floors: args.tier_floors.unwrap_or(defaults.tier_floors),
         tournament_pause_ms: i64::try_from(args.tournament_pause_secs.saturating_mul(1000))
             .unwrap_or(i64::MAX),

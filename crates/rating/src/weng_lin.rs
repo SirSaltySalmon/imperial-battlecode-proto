@@ -30,7 +30,10 @@ pub struct WengLin {
     /// Display points per unit of mu. The default makes a display gap of 400 mean 10:1 odds between
     /// two settled teams, like Elo: `400 / (sqrt(2) * beta * ln 10)`, about 29.48.
     pub display_points_per_mu: f64,
-    /// Standard deviations subtracted for the conservative estimate. 3, as in TrueSkill.
+    /// Standard deviations subtracted before display. 0: the ladder shows the estimate itself, so a new
+    /// team starts at `display_center`. TrueSkill's conservative 3 would show a new team near 760 and
+    /// make every team climb for as long as its sigma shrinks, which a bot (fixed until its next upload)
+    /// has no reason to do.
     pub display_z: f64,
 }
 
@@ -44,12 +47,12 @@ impl Default for WengLin {
             kappa: 0.0001,
             tau: 25.0 / 300.0,
             inactivity_tau: 25.0 / 300.0,
-            resubmission_sigma_fraction: 0.5,
+            resubmission_sigma_fraction: 0.85,
             provisional_sigma_fraction: 0.6,
             display_center: 1500.0,
             display_points_per_mu: 400.0
                 / (std::f64::consts::SQRT_2 * beta * std::f64::consts::LN_10),
-            display_z: 3.0,
+            display_z: 0.0,
         }
     }
 }
@@ -88,8 +91,8 @@ impl WengLin {
         }
     }
 
-    /// The conservative estimate `mu - z * sigma`.
-    fn conservative(&self, r: &Rating) -> f64 {
+    /// The displayed estimate `mu - z * sigma` (`mu` itself by default).
+    fn shown(&self, r: &Rating) -> f64 {
         r.mu - self.display_z * r.sigma
     }
 }
@@ -126,7 +129,7 @@ impl RatingSystem for WengLin {
 
     /// `display = center + points_per_mu * ((mu - z * sigma) - mu0)`.
     fn display(&self, r: &Rating) -> f64 {
-        self.display_center + self.display_points_per_mu * (self.conservative(r) - self.mu0)
+        self.display_center + self.display_points_per_mu * (self.shown(r) - self.mu0)
     }
 
     fn is_provisional(&self, r: &Rating) -> bool {
@@ -233,7 +236,7 @@ mod tests {
         };
         let re = wl.on_new_submission(&settled);
         assert_eq!(re.mu, 31.0);
-        assert!(close(re.sigma, 0.5 * wl.sigma0));
+        assert!(close(re.sigma, 0.85 * wl.sigma0));
         assert_eq!(
             wl.on_new_submission(&wl.initial()),
             wl.initial(),
@@ -249,8 +252,8 @@ mod tests {
         assert!(close(idle.sigma * idle.sigma, 2.25 + 4.0 * wl.tau * wl.tau));
         assert!(wl.is_provisional(&wl.initial()) && !wl.is_provisional(&settled));
         assert!(
-            !wl.is_provisional(&re),
-            "a resubmission alone does not hide the team again"
+            wl.is_provisional(&re),
+            "a new bot is uncertain again until it has played"
         );
     }
 
@@ -273,6 +276,14 @@ mod tests {
             wl.expected_score(&better, &certain_mean),
             10.0 / 11.0
         ));
-        assert!(wl.display(&wl.initial()) < 800.0);
+        assert!(
+            close(wl.display(&wl.initial()), 1500.0),
+            "a new team starts at the centre"
+        );
+        let conservative = WengLin {
+            display_z: 3.0,
+            ..WengLin::default()
+        };
+        assert!(conservative.display(&wl.initial()) < 800.0);
     }
 }

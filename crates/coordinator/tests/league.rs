@@ -233,11 +233,15 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
         .iter()
         .all(|g| g["map"] == "arena" && g["state"] == "queued" && g["winner_team"].is_null()));
     assert_eq!(h.metric("ibc_queue_depth{class=\"ranked\"}").await, 4.0);
-    // Teams are on the ladder as soon as they have a live submission: unplayed and provisional.
+    // Teams are on the ladder as soon as they have a live submission: unplayed, placing, at 1500.
     let fresh = h.standing("alpha").await;
     assert_eq!(
-        (fresh["games"].as_i64(), fresh["provisional"].as_bool()),
-        (Some(0), Some(true))
+        (
+            fresh["games"].as_i64(),
+            fresh["provisional"].as_bool(),
+            fresh["rating"].as_i64()
+        ),
+        (Some(0), Some(true), Some(1500))
     );
 
     // Three of four games done: nothing is rated yet.
@@ -283,11 +287,11 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
         (teams[1]["losses"].as_i64(), teams[1]["wins"].as_i64()),
         (Some(4), Some(0))
     );
-    // One rated series: both teams are still provisional, so neither shows a rating or a tier yet, but the
-    // order already follows the stored estimate.
+    // One rated series of the three placement series: both teams show their rating but no tier yet.
     assert!(teams
         .iter()
-        .all(|t| t["provisional"] == true && t["rating"].is_null() && t["tier"].is_null()));
+        .all(|t| t["provisional"] == true && t["rating"].is_i64() && t["tier"].is_null()));
+    assert!(teams[0]["rating"].as_i64() > Some(1500) && teams[1]["rating"].as_i64() < Some(1500));
     assert_eq!(teams[0]["series"], 1);
     assert!(h.rating(winner).rating.mu > 25.0 && h.rating(loser).rating.mu < 25.0);
 

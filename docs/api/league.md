@@ -21,26 +21,28 @@ replay-view endpoint, not here.
 
 One row per team with a live submission, computed from the stored ratings on each request.
 
-- `rating` is the rating system's displayed number, rounded. Weng-Lin (default) shows the conservative
-  estimate `mu - 3 sigma` on a 1500-centred scale: a new team is about 760, a settled average team about
-  1360, and 100 points is about 64 % expected score between settled teams. Elo shows the rating (start 1500).
-- **Provisional**: a team with fewer than `IBC_PROVISIONAL_SERIES` (default 5) rated series shows
-  `rating: null, tier: null, provisional: true` and is ranked after every rated team (among themselves by
-  the hidden estimate).
+- `rating` is the rating system's displayed number, rounded, for every team. Weng-Lin (default) shows its
+  estimate `mu` on a 1500-centred scale: a new team starts at 1500, and 100 points is about 64 % expected
+  score between settled teams. Elo shows the rating (start 1500). Rows are in rating order.
+- **Provisional** means *placing*: the team's live submission has finished fewer than
+  `IBC_PLACEMENT_SERIES` (default 3) ranked series. It shows its rating but `tier: null`. A new live
+  submission plays these placement series back to back, each starting as soon as the last one ends, rather
+  than one per scheduler round, so a new bot is placed within minutes. At most `IBC_PLACEMENT_DAILY_SERIES`
+  (default 9) placement series start per team per 24 hours; past that, the team waits for the rounds.
 - **Tiers** are bands of the displayed rating. Defaults (`IBC_TIER_FLOORS`, the floors of Bronze through
-  Radiant, comma-separated, ascending):
+  Radiant, comma-separated, ascending) put the starting 1500 in the middle tier:
 
   | Tier | Displayed rating |
   |---|---|
-  | Iron | below 1100 |
-  | Bronze | 1100 |
-  | Silver | 1200 |
-  | Gold | 1300 |
-  | Platinum | 1400 |
-  | Diamond | 1500 |
-  | Ascendant | 1600 |
-  | Immortal | 1700 |
-  | Radiant | 1800 and up |
+  | Iron | below 1150 |
+  | Bronze | 1150 |
+  | Silver | 1250 |
+  | Gold | 1350 |
+  | Platinum | 1450 |
+  | Diamond | 1550 |
+  | Ascendant | 1650 |
+  | Immortal | 1750 |
+  | Radiant | 1850 and up |
 
   Tiers are display only. The matchmaker pairs by rating and never looks at tiers.
 - `games` counts rated maps, `series` rated series; `wins`/`losses`/`draws` are maps.

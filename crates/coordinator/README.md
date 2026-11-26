@@ -93,6 +93,13 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
   `--ranked-series-budget`. No live workers, no series; while nothing is measured, at least one series a
   round, so the ladder starts by itself. Each series is `--ranked-games` maps (default 3), each a full
   match, between the teams' live bots. Each round's seed is kept in `ranked_batches`.
+- **Placement.** A team whose live submission has finished fewer than `--placement-series` (3; 0 = off)
+  ranked series is placing. While the scheduler is on, a task on the sweeper's period gives each placing
+  team with no ranked series running one ranked series against the opponent `ibc_rating::plan_placement`
+  picks (one of the three settled teams nearest in rating; the opponent may be busy). The next one starts
+  as soon as it closes, so three series take minutes rather than three rounds. Placement series are marked
+  in `series.placement_for`; at most `--placement-daily-series` (9) start per team per 24 h, which bounds
+  what frequent uploads cost. A tournament lock pauses placement as it pauses the scheduler.
 - **Upload validation** is a light parser (`wasmparser`), not the runner: WebAssembly 2.0 only, size cap,
   initial-memory cap, imports only from `ibc` and the WASI functions the runner provides, exports `_start`
   and `memory`. The lists in `src/wasmcheck.rs` mirror `ibc_runner::{IBC_IMPORTS, WASI_IMPORTS}`; keep them
@@ -118,16 +125,15 @@ system is in use.
   the series is rated again from the re-runs, appended at the end), and `--rating-system` changed (at
   start; switching back gives the old numbers bit for bit).
 - **Resubmission.** When a team's live submission is replaced (upload or selection), `on_new_submission`
-  widens its uncertainty (Weng-Lin: `sigma = max(sigma, sigma0 / 2)`; Elo reopens half the provisional
-  window). The estimate is kept.
+  widens its uncertainty (Weng-Lin: `sigma = max(sigma, 0.85 sigma0)`; Elo reopens half the provisional
+  window), and the new submission places (above). The estimate is kept as the starting point.
 - **Ladder.** `GET /v1/ladder` is computed from the stored ratings on each request: an array of
   `{rank, team_id, team_name, rating, tier, provisional, games, series, wins, losses, draws}`, one per team
-  with a live submission. A team with fewer than `--provisional-series` (5) rated series is provisional:
-  `rating` and `tier` are null and it is listed after every rated team. Tiers (Iron .. Radiant) come from the
-  displayed rating and `--tier-floors`; they are display only, the matchmaker never looks at them. Weng-Lin's
-  displayed rating is the conservative estimate `mu - 3 sigma` on a 1500-centred scale (a new team about 763,
-  a settled average team about 1360). Snapshots of the full table (with `mu`, `sigma`) are still written to
-  `ladder_snapshots` for the organisers; they are not served.
+  with a live submission, in rating order. `provisional` means placing: the rating is shown, `tier` is null.
+  Tiers (Iron .. Radiant) come from the displayed rating and `--tier-floors`; they are display only, the
+  matchmaker never looks at them. Weng-Lin's displayed rating is `mu` on a 1500-centred scale, so a new
+  team starts at 1500. Snapshots of the full table (with `mu`, `sigma` and the rating system's own
+  `provisional` flag) are still written to `ladder_snapshots` for the organisers; they are not served.
 
 For another system, implement `RatingHook` and build the app with `App::new(cfg, db, blobs, hook)`; give it
 a new `name()`, since stored ratings are tagged with the system that produced them.

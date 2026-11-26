@@ -116,7 +116,9 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   upload, ladder, match list or embedded viewer. This is the largest missing piece for an event. The
   coordinator authenticates teams with a bearer token shown once at creation; real sign-in (Cambridge used
   Discord and email) has to be designed.
-- [x] **How the ladder shows a new team.** Done: "Provisional" until 5 rated series (unit 9). Was: The API exposes `rating` and `provisional`; the frontend must
+- [x] **How the ladder shows a new team.** Done: placement. A new live submission plays 3 ranked series back
+  to back; it shows its rating from 1500 (Weng-Lin now displays `mu`) and "Provisional" instead of a tier
+  until they finish. Before that: "Provisional" with no number until 5 rated series (unit 9). Was: The API exposes `rating` and `provisional`; the frontend must
   decide whether a provisional team shows a number or the word. With Weng-Lin a new team's number starts near
   763 and climbs.
 - [x] **No tournament runner.** Done: `docs/api/tournaments.md` (lock snapshot, seeded single/double

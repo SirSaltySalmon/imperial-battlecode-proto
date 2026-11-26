@@ -105,8 +105,11 @@ The team chooses it among its submissions; it cannot be unset once set.
 
 **Ladder.** The ranking of all teams by rating (`GET ladder`).
 
-**Rating.** A team's skill estimate, updated from ranked games. **Provisional** means the estimate is still too
-uncertain to mean much (a new team or a fresh submission); clients show "provisional" instead of the number.
+**Rating.** A team's skill estimate, updated from ranked games. A new team starts at 1500.
+
+**Placement.** The first few ranked series of a new live submission, played back to back as soon as it goes
+live, so its rating is near its place within minutes. While placing, a team is **provisional**: the ladder
+shows its rating but no tier.
 
 **Tier.** The label for a rating band: Iron, Bronze, Silver, Gold, Platinum, Diamond, Ascendant, Immortal,
 Radiant. Display only; matchmaking ignores it.

@@ -64,9 +64,13 @@ pub struct Config {
     pub ladder_snapshots_kept: i64,
     /// Accounts, sessions, teams of users (docs/api/auth.md).
     pub auth: crate::accounts::AuthConfig,
-    /// A team with fewer rated series than this is provisional: no rating or tier on the ladder, listed
-    /// after every rated team.
-    pub provisional_series: i64,
+    /// Placement: a team whose live submission has finished fewer ranked series than this is placing. The
+    /// placement task gives it one ranked series at a time, as soon as the last one ends, instead of
+    /// waiting for a scheduler round; the ladder shows its rating with no tier. 0 = no placement.
+    pub placement_series: i64,
+    /// Most placement series started for one team per rolling 24 h, whatever it uploads. Past it, a
+    /// placing team waits for the scheduler's rounds like everyone else.
+    pub placement_daily_series: i64,
     /// Lowest displayed rating of each tier above Iron, in `TIERS` order (Bronze .. Radiant), ascending.
     /// Display only: the matchmaker never looks at tiers.
     pub tier_floors: [f64; 8],
@@ -105,11 +109,11 @@ pub const TIERS: [&str; 9] = [
     "Radiant",
 ];
 
-/// Default tier floors on the 1500-centred display scale. Weng-Lin shows the conservative estimate
-/// `mu - 3 sigma`, so a settled average team sits around 1360 and a brand-new one at about 760; Elo shows
-/// the rating itself (1500 start). 100 points is about 64 % expected score between settled teams.
+/// Default tier floors on the 1500-centred display scale, where both systems put a new team and an
+/// average one: Platinum, the middle tier, spans 1450..1550. 100 points is about 64 % expected score
+/// between settled teams.
 pub const DEFAULT_TIER_FLOORS: [f64; 8] = [
-    1100.0, 1200.0, 1300.0, 1400.0, 1500.0, 1600.0, 1700.0, 1800.0,
+    1150.0, 1250.0, 1350.0, 1450.0, 1550.0, 1650.0, 1750.0, 1850.0,
 ];
 
 impl Default for Config {
@@ -141,7 +145,8 @@ impl Default for Config {
             worker_live_ms: 90_000,
             ladder_snapshots_kept: 200,
             auth: crate::accounts::AuthConfig::default(),
-            provisional_series: 5,
+            placement_series: 3,
+            placement_daily_series: 9,
             tier_floors: DEFAULT_TIER_FLOORS,
             tournament_pause_ms: 3_600_000,
             moderation: Default::default(),

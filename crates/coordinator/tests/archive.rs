@@ -55,8 +55,8 @@ async fn leased_bots(h: &Harness, w: &MockWorker) -> Vec<(String, String)> {
 }
 
 #[tokio::test]
-async fn a_series_moves_ratings_once_and_the_ladder_shows_tiers_after_the_provisional_series() {
-    let h = Harness::new(|c| c.provisional_series = 2);
+async fn a_series_moves_ratings_once_and_the_ladder_shows_tiers_after_placement() {
+    let h = Harness::new(|c| c.placement_series = 2);
     h.league(&["alpha", "beta", "gamma"]).await;
     let w = MockWorker::register(&h, "w", true).await;
     ranked(&h, "alpha", "beta", 3).await;
@@ -85,14 +85,15 @@ async fn a_series_moves_ratings_once_and_the_ladder_shows_tiers_after_the_provis
         .iter()
         .map(|r| r["team_name"].as_str().unwrap())
         .collect();
-    assert_eq!(names[2], "gamma", "provisional teams come after rated ones");
+    // One order for everyone: the winner, then gamma at the starting 1500 (still placing), then the loser.
+    assert_eq!(names[1], "gamma", "{ladder}");
     assert_eq!(
         rows.iter()
             .map(|r| r["rank"].as_i64().unwrap())
             .collect::<Vec<_>>(),
         [1, 2, 3]
     );
-    for row in &rows[..2] {
+    for row in [&rows[0], &rows[2]] {
         let name = row["team_name"].as_str().unwrap();
         let shown = h.app.rating.display(&h.rating(name).rating);
         assert_eq!(row["provisional"], false);
@@ -102,13 +103,13 @@ async fn a_series_moves_ratings_once_and_the_ladder_shows_tiers_after_the_provis
     }
     assert_eq!(
         (
-            &rows[2]["rating"],
-            &rows[2]["tier"],
-            &rows[2]["provisional"]
+            &rows[1]["rating"],
+            &rows[1]["tier"],
+            &rows[1]["provisional"]
         ),
-        (&Value::Null, &Value::Null, &json!(true))
+        (&json!(1500), &Value::Null, &json!(true))
     );
-    assert_eq!(rows[2]["games"], 0);
+    assert_eq!(rows[1]["games"], 0);
 
     // Tier bands: Iron below the first floor, Radiant from the last.
     let cfg = &h.app.cfg;

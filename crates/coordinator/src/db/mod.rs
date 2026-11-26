@@ -7,6 +7,7 @@ pub mod jobs;
 pub mod league;
 pub mod moderation;
 pub mod patches;
+pub mod placement;
 pub mod ratings;
 pub mod users;
 pub mod scrims;
@@ -57,7 +58,7 @@ CREATE TABLE IF NOT EXISTS series(
   sub_a TEXT NOT NULL, sub_b TEXT NOT NULL, games INTEGER NOT NULL, state TEXT NOT NULL,
   rated INTEGER NOT NULL DEFAULT 0, wins_a INTEGER NOT NULL DEFAULT 0, wins_b INTEGER NOT NULL DEFAULT 0,
   draws INTEGER NOT NULL DEFAULT 0, note TEXT, requested_by TEXT,
-  created_at INTEGER NOT NULL, finished_at INTEGER);
+  created_at INTEGER NOT NULL, finished_at INTEGER, placement_for TEXT);
 CREATE INDEX IF NOT EXISTS series_state ON series(state);
 CREATE INDEX IF NOT EXISTS series_requested ON series(requested_by, created_at);
 CREATE TABLE IF NOT EXISTS games(
@@ -131,6 +132,7 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("ratings", "last_played", "INTEGER"),
     ("teams", "join_code", "TEXT"),
     ("submissions", "note", "TEXT"),
+    ("series", "placement_for", "TEXT"),
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

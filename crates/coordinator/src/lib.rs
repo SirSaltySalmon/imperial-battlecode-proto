@@ -12,6 +12,7 @@ pub mod maintenance;
 pub mod model;
 pub mod ratelimit;
 pub mod patch;
+pub mod placement;
 pub mod rating;
 pub mod util;
 pub mod wasmcheck;
@@ -296,8 +297,28 @@ impl App {
     }
 }
 
-/// Start the sweeper and, if configured, the ranked scheduler. They run until the runtime shuts down.
+/// Start the sweeper and, if configured, the ranked scheduler and the placement task (which follows the
+/// sweeper's period, so a placement series starts within seconds of the last one closing). They run until
+/// the runtime shuts down.
 pub fn spawn_background(app: Arc<App>) {
+    if app.cfg.ranked_interval_ms > 0 && app.cfg.placement_series > 0 {
+        let placer = app.clone();
+        tokio::spawn(async move {
+            let mut tick =
+                tokio::time::interval(Duration::from_millis(placer.cfg.sweep_ms.max(10)));
+            loop {
+                tick.tick().await;
+                match placer.placement_round() {
+                    Ok(created) if !created.is_empty() => {
+                        eprintln!("placement: queued {} series", created.len())
+                    }
+                    Ok(_) => {}
+                    Err(e) if e.status == axum::http::StatusCode::CONFLICT => {}
+                    Err(e) => eprintln!("placement: {}", e.message),
+                }
+            }
+        });
+    }
     let sweeper = app.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_millis(sweeper.cfg.sweep_ms.max(10)));

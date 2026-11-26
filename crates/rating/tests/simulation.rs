@@ -6,8 +6,8 @@
 
 use ibc_rating::rng::{mix64, Rng};
 use ibc_rating::{
-    apply_game, plan_batch, plan_series, series_per_batch, BudgetConfig, Elo, MatchmakingConfig,
-    Pairing, Rating, RatingSystem, TeamState, WengLin, Winner,
+    apply_game, plan_batch, plan_placement, plan_series, series_per_batch, BudgetConfig, Elo,
+    MatchmakingConfig, Pairing, Rating, RatingSystem, TeamState, WengLin, Winner,
 };
 
 const TEAMS: usize = 60;
@@ -18,6 +18,8 @@ const MAPS: usize = 6;
 const DAY: u64 = 8;
 const SKILL_SD: f64 = 250.0;
 const DRAW_RATE: f64 = 0.02;
+/// The coordinator's default `placement_series`.
+const PLACEMENT_SERIES: u32 = 3;
 
 /// A 4-core box at 70 % utilisation, 6 batches an hour, 28 core-seconds per game: 20 series a batch,
 /// so 40 of the 60 teams play in each batch and the matchmaker has real choices to make.
@@ -120,45 +122,78 @@ impl<'a> Ladder<'a> {
         }
 
         for p in &pairings {
-            let plan = plan_series(self.next_series_id, *p, &self.map_usage, GAMES_PER_SERIES);
-            self.next_series_id += 1;
-            assert_eq!(plan.games.len(), GAMES_PER_SERIES as usize);
-            let (a, b) = (p.team_a as usize, p.team_b as usize);
-            for game in &plan.games {
-                self.map_usage[game.map as usize] += 1;
-                let (sa, sb) = (
-                    self.skill[game.slot_a as usize],
-                    self.skill[game.slot_b as usize],
-                );
-                let p_slot_a = 1.0 / (1.0 + 10f64.powf((sb - sa) / 400.0));
-                let winner = if self.outcomes.next_f64() < DRAW_RATE {
-                    Winner::Draw
-                } else if self.outcomes.next_f64() < p_slot_a {
-                    Winner::SlotA
-                } else {
-                    Winner::SlotB
-                };
-                let result = plan.result(game.index, winner).expect("planned game");
-                let (mut ra, mut rb) = (self.rating[a], self.rating[b]);
-                apply_game(self.system, &mut ra, &mut rb, result.outcome);
-                self.rating[a] = ra;
-                self.rating[b] = rb;
-                self.games += 1;
-                if let Some(w) = self.watched.filter(|&w| w == a || w == b) {
-                    self.trace.push(self.error_of(w));
-                }
-            }
-            self.series[a].push((self.batch, p.team_b));
-            self.series[b].push((self.batch, p.team_a));
+            self.play(p);
         }
         self.batch += 1;
         pairings
+    }
+
+    /// Play `series` placement series for `team` back to back before the next batch, each opponent
+    /// picked by `plan_placement` from the ratings as they stand after the previous one.
+    fn place(&mut self, team: usize, series: u32) {
+        let cfg = MatchmakingConfig::default();
+        for k in 0..series {
+            let states = self.states();
+            let seed = mix64(self.seed ^ 0x9_1ACE ^ (self.batch << 8) ^ u64::from(k));
+            let Some(opponent) = plan_placement(self.system, &states[team], &states, &cfg, seed)
+            else {
+                return;
+            };
+            self.play(&Pairing {
+                team_a: team as u64,
+                team_b: opponent,
+            });
+        }
+    }
+
+    fn play(&mut self, p: &Pairing) {
+        let plan = plan_series(self.next_series_id, *p, &self.map_usage, GAMES_PER_SERIES);
+        self.next_series_id += 1;
+        assert_eq!(plan.games.len(), GAMES_PER_SERIES as usize);
+        let (a, b) = (p.team_a as usize, p.team_b as usize);
+        for game in &plan.games {
+            self.map_usage[game.map as usize] += 1;
+            let (sa, sb) = (
+                self.skill[game.slot_a as usize],
+                self.skill[game.slot_b as usize],
+            );
+            let p_slot_a = 1.0 / (1.0 + 10f64.powf((sb - sa) / 400.0));
+            let winner = if self.outcomes.next_f64() < DRAW_RATE {
+                Winner::Draw
+            } else if self.outcomes.next_f64() < p_slot_a {
+                Winner::SlotA
+            } else {
+                Winner::SlotB
+            };
+            let result = plan.result(game.index, winner).expect("planned game");
+            let (mut ra, mut rb) = (self.rating[a], self.rating[b]);
+            apply_game(self.system, &mut ra, &mut rb, result.outcome);
+            self.rating[a] = ra;
+            self.rating[b] = rb;
+            self.games += 1;
+            if let Some(w) = self.watched.filter(|&w| w == a || w == b) {
+                self.trace.push(self.error_of(w));
+            }
+        }
+        self.series[a].push((self.batch, p.team_b));
+        self.series[b].push((self.batch, p.team_a));
     }
 
     fn run(&mut self, batches: u64) {
         for _ in 0..batches {
             self.step();
         }
+    }
+
+    /// 1-based position of `team` when the ladder is sorted by `mu - z * sigma`, best first.
+    fn shown_rank(&self, team: usize, z: f64) -> usize {
+        let key = |r: &Rating| r.mu - z * r.sigma;
+        let mine = key(&self.rating[team]);
+        1 + self.rating.iter().filter(|r| key(r) > mine).count()
+    }
+
+    fn true_rank(&self, team: usize) -> usize {
+        1 + self.skill.iter().filter(|&&s| s > self.skill[team]).count()
     }
 
     fn displays(&self) -> Vec<f64> {
@@ -428,6 +463,119 @@ fn sigma_bump_reconverges_faster_after_resubmission() {
         with.1,
         without.1
     );
+}
+
+/// A newcomer at true rank 5, 30 or 55 joins a settled ladder and plays `placement` series before the
+/// next batch. Returns, averaged over seeds and ranks: its |error| right after placement, its mean
+/// |error| over that moment and the next 10 batches, and how many places from its true rank it is shown
+/// right after placement when the ladder sorts by `mu - 3 sigma` and by `mu`.
+fn arrival(placement: u32) -> [f64; 4] {
+    let wl = WengLin::default();
+    let mut acc = [0.0; 4];
+    let mut n = 0.0;
+    for seed in 1..=10u64 {
+        for target in [5, 30, 55] {
+            let mut ladder = Ladder::new(&wl, seed);
+            ladder.run(100);
+            let team = (0..TEAMS).find(|&t| ladder.true_rank(t) == target).unwrap();
+            ladder.rating[team] = wl.initial();
+            ladder.series[team].clear();
+            ladder.place(team, placement);
+            let gap = |l: &Ladder, z| (l.shown_rank(team, z) as f64 - target as f64).abs();
+            let (shown_z3, shown_mu) = (gap(&ladder, 3.0), gap(&ladder, 0.0));
+            let mut errors = vec![ladder.error_of(team)];
+            for _ in 0..10 {
+                ladder.step();
+                errors.push(ladder.error_of(team));
+            }
+            let mean = errors.iter().sum::<f64>() / errors.len() as f64;
+            for (k, v) in [errors[0], mean, shown_z3, shown_mu]
+                .into_iter()
+                .enumerate()
+            {
+                acc[k] += v;
+            }
+            n += 1.0;
+        }
+    }
+    acc.map(|x| x / n)
+}
+
+#[test]
+fn placement_places_a_newcomer_before_its_first_batch() {
+    let (none, placed) = (arrival(0), arrival(PLACEMENT_SERIES));
+    println!("\nnewcomer at true rank 5, 30 or 55 of {TEAMS} joins a settled ladder (Weng-Lin, 30 arrivals)");
+    println!("                    |error| after   mean |error|        places off when shown by");
+    println!("placement series    placement       next 10 batches     mu - 3 sigma   mu");
+    for (label, r) in [("none", none), ("3 (9 games)", placed)] {
+        println!(
+            "{label:<18}  {:13.1}   {:17.1}   {:12.1}   {:4.1}",
+            r[0], r[1], r[2], r[3]
+        );
+    }
+    assert!(
+        placed[0] < 0.6 * none[0],
+        "after placement {placed:?} vs {none:?}"
+    );
+    assert!(
+        placed[1] < 0.85 * none[1],
+        "next batches {placed:?} vs {none:?}"
+    );
+    // Shown by mu, the newcomer is near its place; the conservative estimate keeps it far from it.
+    assert!(placed[3] < 0.7 * placed[2], "shown {placed:?}");
+}
+
+/// Mean |error| of a mid-table team over the 60 games after its skill jumps by `jump` and it places
+/// again, under `system`'s resubmission rule.
+fn rebuilt(system: &WengLin, jump: f64, seed: u64) -> f64 {
+    const GAMES: usize = 60;
+    let mut ladder = Ladder::new(system, seed);
+    ladder.run(100);
+    let team = (0..TEAMS)
+        .find(|&t| ladder.true_rank(t) == TEAMS / 2)
+        .unwrap();
+    ladder.skill[team] += jump;
+    ladder.rating[team] = system.on_new_submission(&ladder.rating[team]);
+    ladder.watched = Some(team);
+    ladder.place(team, PLACEMENT_SERIES);
+    while ladder.trace.len() < GAMES {
+        ladder.step();
+    }
+    ladder.trace[..GAMES].iter().sum::<f64>() / GAMES as f64
+}
+
+#[test]
+fn a_new_bot_is_treated_as_mostly_unknown() {
+    let jumps = [-300.0, -150.0, 0.0, 150.0, 300.0, 500.0];
+    let seeds = 12u64;
+    let row = |system: &WengLin| -> Vec<f64> {
+        jumps
+            .iter()
+            .map(|&j| (0..seeds).map(|s| rebuilt(system, j, 100 + s)).sum::<f64>() / seeds as f64)
+            .collect()
+    };
+    let old = WengLin {
+        resubmission_sigma_fraction: 0.5,
+        ..WengLin::default()
+    };
+    let (now, before) = (row(&WengLin::default()), row(&old));
+    println!("\nresubmission: a mid-table team's skill jumps and it places again; mean |error| over 60 games ({seeds} ladders)");
+    print!("sigma after upload ");
+    for j in jumps {
+        print!("{j:>7}");
+    }
+    println!("     mean");
+    let mean = |r: &[f64]| r.iter().sum::<f64>() / r.len() as f64;
+    for (label, r) in [("0.85 sigma0", &now), ("0.5 sigma0", &before)] {
+        print!("{label:<18} ");
+        for e in r.iter() {
+            print!("{e:7.1}");
+        }
+        println!("  {:7.1}", mean(r));
+    }
+    assert!(mean(&now) < 0.9 * mean(&before), "{now:?} vs {before:?}");
+    // The price: a bot no better than the last one wanders more before it settles again.
+    assert!(now[2] > before[2]);
 }
 
 #[test]

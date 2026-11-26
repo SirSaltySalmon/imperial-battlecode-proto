@@ -55,6 +55,8 @@ pub struct MatchmakingConfig {
     pub max_series_per_opponent_per_day: u32,
     /// Do not pair a team with its most recent opponent unless nobody else is available.
     pub avoid_immediate_rematch: bool,
+    /// [`plan_placement`] picks uniformly among this many nearest opponents by mu.
+    pub placement_window: u32,
 }
 
 impl Default for MatchmakingConfig {
@@ -67,6 +69,7 @@ impl Default for MatchmakingConfig {
             window_exponent: 0.65,
             max_series_per_opponent_per_day: 2,
             avoid_immediate_rematch: true,
+            placement_window: 3,
         }
     }
 }
@@ -118,26 +121,25 @@ fn pick_seed(
     }
 }
 
-fn pick_opponent(
-    seed: &TeamState,
-    pool: &[&TeamState],
-    cfg: &MatchmakingConfig,
-    rng: &mut Rng,
-) -> Option<usize> {
+/// Indices into `pool` of the teams `seed` may play: never itself, never past the daily cap, and not its
+/// most recent opponent unless nobody else is left.
+fn legal_opponents(seed: &TeamState, pool: &[&TeamState], cfg: &MatchmakingConfig) -> Vec<usize> {
     let under_cap =
         |t: &TeamState| t.id != seed.id && meetings(seed, t) < cfg.max_series_per_opponent_per_day;
-    let mut candidates: Vec<usize> = (0..pool.len())
+    let candidates: Vec<usize> = (0..pool.len())
         .filter(|&i| {
             under_cap(pool[i]) && !(cfg.avoid_immediate_rematch && just_met(seed, pool[i]))
         })
         .collect();
     if candidates.is_empty() {
         // Small ladders: a rematch beats no series, but the daily cap is never broken.
-        candidates = (0..pool.len()).filter(|&i| under_cap(pool[i])).collect();
+        return (0..pool.len()).filter(|&i| under_cap(pool[i])).collect();
     }
-    if candidates.is_empty() {
-        return None;
-    }
+    candidates
+}
+
+/// Sort `candidates` nearest to `seed` by mu first.
+fn sort_by_gap(seed: &TeamState, pool: &[&TeamState], candidates: &mut [usize], rng: &mut Rng) {
     let gap = |i: usize| (pool[i].rating.mu - seed.rating.mu).abs();
     // Equal gaps (a fresh ladder has everyone on the same mu) are ordered by a per-draw hash of the
     // id, not by the id itself, so low ids are not favoured.
@@ -149,6 +151,19 @@ fn pick_opponent(
             .then(tie(x).cmp(&tie(y)))
             .then(pool[x].id.cmp(&pool[y].id))
     });
+}
+
+fn pick_opponent(
+    seed: &TeamState,
+    pool: &[&TeamState],
+    cfg: &MatchmakingConfig,
+    rng: &mut Rng,
+) -> Option<usize> {
+    let mut candidates = legal_opponents(seed, pool, cfg);
+    if candidates.is_empty() {
+        return None;
+    }
+    sort_by_gap(seed, pool, &mut candidates, rng);
     let u = rng.next_f64();
     let k = (cfg.window_scale / (cfg.window_offset + u).powf(cfg.window_exponent)).ceil();
     // `as usize` saturates, so an infinite window means "anyone"; NaN and values below 1 mean the
@@ -196,6 +211,40 @@ pub fn plan_batch(
         pairings.push(Pairing { team_a, team_b });
     }
     pairings
+}
+
+/// The opponent of one placement series for `newcomer`, a team whose current submission the ladder knows
+/// little about. Placement is a sequence of such series played back to back, each pairing the newcomer
+/// with one of the `placement_window` live teams nearest its current mu (the closest games carry the most
+/// information), settled teams first: a game against a team whose rating is itself provisional places
+/// neither. The rematch rules of [`plan_batch`] apply. `None` if nobody is a legal opponent.
+pub fn plan_placement(
+    system: &dyn RatingSystem,
+    newcomer: &TeamState,
+    teams: &[TeamState],
+    cfg: &MatchmakingConfig,
+    seed: u64,
+) -> Option<TeamId> {
+    let mut seen = BTreeSet::new();
+    let mut pool: Vec<&TeamState> = teams
+        .iter()
+        .filter(|t| t.live && t.id != newcomer.id && seen.insert(t.id))
+        .collect();
+    pool.sort_by_key(|t| t.id);
+    let legal = legal_opponents(newcomer, &pool, cfg);
+    let settled: Vec<usize> = legal
+        .iter()
+        .copied()
+        .filter(|&i| !system.is_provisional(&pool[i].rating))
+        .collect();
+    let mut candidates = if settled.is_empty() { legal } else { settled };
+    if candidates.is_empty() {
+        return None;
+    }
+    let mut rng = Rng::new(seed);
+    sort_by_gap(newcomer, &pool, &mut candidates, &mut rng);
+    let k = (cfg.placement_window.max(1) as usize).min(candidates.len());
+    Some(pool[candidates[rng.below(k)]].id)
 }
 
 #[cfg(test)]
@@ -305,5 +354,59 @@ mod tests {
         // A uniform pick would include a given team in 2/40 = 5 % of single-series batches (100).
         assert!(newcomer > 500, "newcomer in {newcomer}/2000");
         assert!(idle > 150, "idle team in {idle}/2000");
+    }
+
+    #[test]
+    fn placement_picks_a_near_settled_live_opponent() {
+        let wl = WengLin::default();
+        let cfg = MatchmakingConfig::default();
+        let mut teams: Vec<TeamState> = (0..30).map(|i| team(i, i as f64)).collect();
+        teams[16].live = false;
+        teams[14].rating.sigma = wl.sigma0; // provisional: skipped while settled teams remain
+        let mut newcomer = team(99, 15.0);
+        newcomer.rating.sigma = wl.sigma0;
+        let mut picked = BTreeSet::new();
+        for seed in 0..200 {
+            let o = plan_placement(&wl, &newcomer, &teams, &cfg, seed).unwrap();
+            picked.insert(o);
+        }
+        // The three nearest legal, settled teams to mu 15: 15 itself, then 13 and 17 (14 provisional, 16 not live).
+        assert_eq!(picked, BTreeSet::from([13, 15, 17]));
+        let mut shuffled = teams.clone();
+        shuffled.reverse();
+        assert_eq!(
+            plan_placement(&wl, &newcomer, &teams, &cfg, 5),
+            plan_placement(&wl, &newcomer, &shuffled, &cfg, 5)
+        );
+    }
+
+    #[test]
+    fn placement_respects_rematch_rules_and_falls_back_to_provisional_teams() {
+        let wl = WengLin::default();
+        let cfg = MatchmakingConfig::default();
+        let mut newcomer = team(9, 25.0);
+        newcomer.recent_opponents = vec![0, 0, 1];
+        let mut teams = vec![team(0, 25.0), team(1, 25.0), team(2, 40.0)];
+        // 0 is at the daily cap, 1 was the last opponent: 2 is the only choice, however far.
+        assert_eq!(plan_placement(&wl, &newcomer, &teams, &cfg, 1), Some(2));
+        teams.truncate(2);
+        // Only the last opponent is left: a rematch beats no placement.
+        assert_eq!(plan_placement(&wl, &newcomer, &teams, &cfg, 1), Some(1));
+        teams.truncate(1);
+        assert_eq!(plan_placement(&wl, &newcomer, &teams, &cfg, 1), None);
+        // A fresh ladder: everyone is provisional, so anyone near will do.
+        let fresh: Vec<TeamState> = (0..4)
+            .map(|i| TeamState {
+                rating: wl.initial(),
+                ..team(i, 0.0)
+            })
+            .collect();
+        let alone = TeamState {
+            rating: wl.initial(),
+            ..team(9, 0.0)
+        };
+        assert!(plan_placement(&wl, &alone, &fresh, &cfg, 3).is_some());
+        // The newcomer itself in the list is never its own opponent.
+        assert_eq!(plan_placement(&wl, &fresh[0], &fresh[..1], &cfg, 3), None);
     }
 }
