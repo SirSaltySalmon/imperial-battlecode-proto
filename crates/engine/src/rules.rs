@@ -18,6 +18,31 @@ pub struct EconRules {
     pub armor_absorb_pct: i32,
 }
 
+/// The TOML texts a ruleset is parsed from. A replay carries them in its header so it can be re-simulated and
+/// drawn with the rules it was played under, not the ones compiled into the reader.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RulesSource {
+    pub core: String,
+    pub weapons: String,
+    pub abilities: String,
+    pub economy: String,
+}
+
+impl RulesSource {
+    pub fn builtin() -> RulesSource {
+        RulesSource {
+            core: include_str!("../../../rules/core.toml").into(),
+            weapons: include_str!("../../../rules/weapons.toml").into(),
+            abilities: include_str!("../../../rules/abilities.toml").into(),
+            economy: include_str!("../../../rules/economy.toml").into(),
+        }
+    }
+
+    pub fn parse(&self) -> Result<Ruleset, String> {
+        Ruleset::from_toml(&self.core, &self.weapons, &self.abilities, &self.economy)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Ruleset {
     pub core: CoreRules,
@@ -33,6 +58,9 @@ pub struct Ruleset {
     pub econ: EconRules,
     /// CORE CHANGE (unit/economy): income and overtime numbers owned and parsed by the economy module.
     pub flow: crate::economy::FlowRules,
+    /// What this ruleset was parsed from. Stale if a field above was changed after parsing (tests do that);
+    /// `hash()` is the identity, so compare `source.parse()?.hash()` before trusting it.
+    pub source: RulesSource,
 }
 
 fn gi(t: &Table, k: &str, d: i32) -> i32 {
@@ -50,16 +78,16 @@ fn list<'a>(t: &'a Table, k: &str) -> Vec<&'a Table> {
 impl Ruleset {
     /// The ruleset compiled into this engine build.
     pub fn builtin() -> Ruleset {
-        Ruleset::from_toml(
-            include_str!("../../../rules/core.toml"),
-            include_str!("../../../rules/weapons.toml"),
-            include_str!("../../../rules/abilities.toml"),
-            include_str!("../../../rules/economy.toml"),
-        )
-        .expect("built-in ruleset must parse")
+        RulesSource::builtin().parse().expect("built-in ruleset must parse")
     }
 
     pub fn from_toml(core: &str, weapons: &str, abilities: &str, economy: &str) -> Result<Ruleset, String> {
+        let source = RulesSource {
+            core: core.into(),
+            weapons: weapons.into(),
+            abilities: abilities.into(),
+            economy: economy.into(),
+        };
         let p = |s: &str, what: &str| s.parse::<Table>().map_err(|e| format!("{what}: {e}"));
         let (c, w, a, e) = (p(core, "core")?, p(weapons, "weapons")?, p(abilities, "abilities")?, p(economy, "economy")?);
 
@@ -209,6 +237,7 @@ impl Ruleset {
             item_names,
             econ,
             flow: crate::economy::FlowRules::from_table(&e),
+            source,
         })
     }
 

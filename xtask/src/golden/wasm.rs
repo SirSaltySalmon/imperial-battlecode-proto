@@ -122,7 +122,7 @@ fn play(ibc: &Path, case: &Case, bot_a: &Path, bot_b: &Path, out_dir: &Path) -> 
         .ticks
         .iter()
         .enumerate()
-        .map(|(i, t)| (i as u32 + 1, t.hash))
+        .map(|(i, t)| (i as u32 + 1, t.state_hash()))
         .collect();
     let result = &replay.header.result;
     let outcome = Outcome {

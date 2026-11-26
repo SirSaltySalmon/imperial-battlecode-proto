@@ -7,7 +7,9 @@
 import type { Header } from "./types";
 
 export const MAGIC = "IBCR";
-export const FORMAT_VERSION = 1;
+export const FORMAT_VERSION = 2;
+/** Oldest format whose header line this reader understands; the engine build for the replay decides the rest. */
+export const OLDEST_FORMAT_VERSION = 1;
 
 export interface Container {
   formatVersion: number;
@@ -20,8 +22,10 @@ export function parseContainer(bytes: Uint8Array): Container {
     throw new Error("not an .ibcr replay (bad magic)");
   }
   const formatVersion = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true);
-  if (formatVersion !== FORMAT_VERSION) {
-    throw new Error(`unsupported replay format version ${formatVersion} (this viewer reads ${FORMAT_VERSION})`);
+  if (formatVersion < OLDEST_FORMAT_VERSION || formatVersion > FORMAT_VERSION) {
+    throw new Error(
+      `unsupported replay format version ${formatVersion} (this viewer reads ${OLDEST_FORMAT_VERSION} to ${FORMAT_VERSION})`,
+    );
   }
   return { formatVersion, deflated: bytes.subarray(8) };
 }

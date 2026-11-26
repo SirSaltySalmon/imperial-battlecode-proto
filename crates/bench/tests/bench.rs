@@ -514,7 +514,7 @@ fn recorded_native_replay_verifies_and_explains_itself() {
         (sim.score, sim.ticks)
     );
     assert_eq!(
-        replay.ticks.last().unwrap().hash,
+        replay.ticks.last().unwrap().state_hash(),
         sim.final_hash,
         "recording loop drifted from ibc_sim::run_custom"
     );

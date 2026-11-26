@@ -358,7 +358,7 @@ pub fn why(replay: &Replay, round: i32, unit: u32, all_ticks: bool) -> Result<St
             }
         }
         m.step();
-        if m.state_hash() != tick.hash {
+        if replay.check_tick(i, tick, &m.state_hashes()).is_err() {
             return Err(format!(
                 "state hash mismatch after tick {i}: this build does not reproduce the replay"
             ));

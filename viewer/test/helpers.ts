@@ -28,12 +28,14 @@ export function headerJson(overrides: Record<string, unknown> = {}): string {
       { name: "beta", sha256: "bb", fuel_multiplier: 1 },
     ],
     result: { winner: 0, score: [1, 0], ticks: 3, finished: true },
+    team_size: 1,
+    redacted: [false, false],
     ...overrides,
   });
 }
 
 /** A `.ibcr` container around `header` and an arbitrary body. */
-export function container(header: string, body: Uint8Array = new Uint8Array([0]), version = 1): Uint8Array {
+export function container(header: string, body: Uint8Array = new Uint8Array([0]), version = 2): Uint8Array {
   const payload = Buffer.concat([Buffer.from(header + "\n", "utf8"), body]);
   const out = new Uint8Array(8 + deflateRawSync(payload).length);
   out.set([0x49, 0x42, 0x43, 0x52]);

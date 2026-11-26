@@ -309,8 +309,9 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
     let (status, replay) = h
         .raw(
             "GET",
-            &format!("/v1/matches/{match_id}/replay"),
-            None,
+            // The stored record (the mock worker's fake replay cannot be redacted; see replay_views.rs).
+            &format!("/v1/matches/{match_id}/replay?view=full"),
+            Some(ADMIN),
             vec![],
         )
         .await;
@@ -318,6 +319,18 @@ async fn a_finished_ranked_series_updates_ratings_and_the_ladder_snapshot() {
     assert_eq!(
         sha256_hex(&replay),
         detail["replay_sha256"].as_str().unwrap()
+    );
+    // A stored file that is not a format-2 replay cannot be redacted, so the public view refuses it.
+    assert_eq!(
+        h.call(
+            "GET",
+            &format!("/v1/matches/{match_id}/replay"),
+            None,
+            Value::Null
+        )
+        .await
+        .0,
+        StatusCode::GONE
     );
     assert_eq!(
         h.call("GET", "/v1/matches/nope", None, Value::Null).await.0,

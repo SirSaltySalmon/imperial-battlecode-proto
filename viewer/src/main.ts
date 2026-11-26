@@ -1,5 +1,6 @@
 // Page wiring: loading a replay, the playback clock, input, and keeping canvas and page in step.
 
+import { BotRecordsPanel, parseRecords } from "./bot-records";
 import { fitCamera, pan, toTiles, zoomAt, type Camera } from "./camera";
 import { fetchEngine, FrameStore } from "./engine";
 import { interpUnits } from "./interp";
@@ -26,6 +27,7 @@ interface Loaded {
   map: GameMap;
   rules: ViewRules;
   panel: Panel;
+  bot: BotRecordsPanel;
   teamSize: number;
 }
 
@@ -107,6 +109,7 @@ function draw(): void {
     pageFrame = i;
     loaded.panel.update(frame, perspective, show);
     panels.update(i, frame);
+    loaded.bot.update(frame.tick, perspective);
     updateBanner($("banner"), loaded.timeline, i, frame, loaded.header, map);
     scrub.value = String(i);
     roundSelect.value = String(roundIndexAt(loaded.timeline, i));
@@ -242,12 +245,16 @@ async function openBytes(bytes: Uint8Array, name: string): Promise<void> {
     loaded = null;
     $("empty").hidden = false;
     const { header, frames } = engine.load(bytes);
-    const store = new FrameStore(frames);
+    const records = parseRecords(engine.records());
+    const store = new FrameStore(frames, undefined, records.draws);
     const map = parseMap(header.map_text);
     const rules = rulesFor(engine.rules());
     const first = store.get(0);
+    const teamSize = first.units.length / 2;
     const panel = new Panel($("panel"), header, map, first, rules, { setPerspective, toggle: toggleLayer });
-    loaded = { header, store, timeline: buildTimeline(store), map, rules, panel, teamSize: first.units.length / 2 };
+    const bot = new BotRecordsPanel(records, teamSize);
+    $("panel").append(bot.root);
+    loaded = { header, store, timeline: buildTimeline(store), map, rules, panel, bot, teamSize };
     const strip = document.createElement("div");
     $("panel").querySelector(".phase")?.after(strip);
     panels.load({ ...loaded, view: rules, rawRules: engine.rawRules() }, strip);

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { parseRecords, upTo } from "../src/bot-records";
 import { Engine, engineFile, FrameStore, type FrameSource } from "../src/engine";
 import { parseContainer, parseHeaderJson, readHeader } from "../src/ibcr";
 import { parseMap, segmentWall, tileAt } from "../src/map";
@@ -15,7 +16,10 @@ describe(".ibcr container", () => {
   it("rejects a bad magic and an unknown format version", () => {
     expect(() => parseContainer(new Uint8Array([1, 2, 3]))).toThrow(/bad magic/);
     expect(() => parseContainer(new TextEncoder().encode("NOPE0000rest"))).toThrow(/bad magic/);
-    expect(() => parseContainer(container(headerJson(), undefined, 2))).toThrow(/format version 2/);
+    expect(() => parseContainer(container(headerJson(), undefined, 3))).toThrow(/format version 3/);
+    expect(() => parseContainer(container(headerJson(), undefined, 0))).toThrow(/format version 0/);
+    // Format 1 headers still parse, so the page can pick the engine build named in them.
+    expect(parseContainer(container(headerJson(), undefined, 1)).formatVersion).toBe(1);
   });
 
   it("reads the header without needing the body", async () => {
@@ -187,6 +191,12 @@ describe.skipIf(!existsSync(wasm) || !existsSync(sample))("engine module with fi
     const tl = buildTimeline(store);
     expect(tl.rounds.filter((r) => r.winner !== null)).toHaveLength(header.result.score[0] + header.result.score[1]);
     expect(parseMap(header.map_text).width).toBeGreaterThan(0);
+    // Format 2: rules in the header, both teams' records in the full fixture.
+    expect(header.rules?.core).toContain("team_size");
+    expect(header.redacted).toEqual([false, false]);
+    const records = parseRecords(engine.records());
+    expect(records.redacted).toEqual([false, false]);
+    expect(records.fuel.get(0)?.length).toBeGreaterThan(0);
   });
 
   it("reports its rules, with a name for every weapon", async () => {
@@ -218,5 +228,38 @@ describe.skipIf(!existsSync(wasm) || !existsSync(sample))("engine module with fi
     const engine = await Engine.instantiate(readFileSync(wasm));
     expect(() => engine.load(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]))).toThrow(/bad magic/);
     expect(() => engine.load(container(headerJson({ engine_version: "9.9.9" })))).toThrow(/engine 9\.9\.9/);
+  });
+});
+
+describe("bot records", () => {
+  const json = JSON.stringify({
+    redacted: [false, true],
+    logs: [[0, 1, "hello\n"], [2, 1, "again"], [1, 0, "other unit"], ["bad"]],
+    fuel: [[0, 1, 900, false], [1, 1, 100000, true], [5, 1, 1, false]],
+    draws: [[3, 1, 1, 0, 0, 1024, 1024, 0xff0000], [3, 1, 2, 5, 5, 0, 0, 255], [4, 1, 2]],
+  });
+
+  it("parses records by unit and tick and skips malformed rows", () => {
+    const r = parseRecords(json);
+    expect(r.redacted).toEqual([false, true]);
+    expect(r.logs.get(1)).toEqual([
+      [0, "hello\n"],
+      [2, "again"],
+    ]);
+    expect(r.fuel.get(1)?.[1]).toEqual([1, 100000, true]);
+    expect(r.draws.get(3)).toHaveLength(2);
+    expect(r.draws.get(4)).toBeUndefined();
+    expect(upTo(r.fuel.get(1), 1, 10)).toHaveLength(2);
+    expect(upTo(r.fuel.get(1), 9, 1)).toEqual([[5, 1, false]]);
+    expect(parseRecords(null).redacted).toEqual([true, true]);
+    expect(parseRecords("{").draws.size).toBe(0);
+  });
+
+  it("puts recorded debug drawings into the frame of their tick", () => {
+    const frames = [0, 1, 2, 3, 4].map((tick) => JSON.stringify(frame({ tick, debug: [] })));
+    const source: FrameSource = { count: frames.length, text: (i) => frames[i] };
+    const store = new FrameStore(source, 8, parseRecords(json).draws);
+    expect(store.get(3).debug).toHaveLength(2);
+    expect(store.get(2).debug).toEqual([]);
   });
 });

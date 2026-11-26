@@ -632,13 +632,22 @@ pub fn get_match(tx: &Transaction, id: &str, viewer: &Viewer) -> ApiResult<Optio
         .optional()?)
 }
 
-/// The replay hash of a finished match.
-pub fn match_replay(tx: &Transaction, id: &str) -> ApiResult<Option<String>> {
+/// The replay hash of a finished match and the team ids that played its sides A and B.
+pub fn match_replay(tx: &Transaction, id: &str) -> ApiResult<Option<(String, [String; 2])>> {
     Ok(tx
         .query_row(
-            &format!("SELECT j.replay_sha256 FROM games g JOIN jobs j ON j.id = g.job_id WHERE g.id = ?1 AND j.state = 'done' AND {}", super::tournaments::VISIBLE_GAME),
+            &format!(
+                "SELECT j.replay_sha256, g.swapped, s.team_a, s.team_b
+                 FROM games g JOIN jobs j ON j.id = g.job_id JOIN series s ON s.id = g.series_id
+                 WHERE g.id = ?1 AND j.state = 'done' AND {}",
+                super::tournaments::VISIBLE_GAME
+            ),
             [id],
-            |r| r.get::<_, Option<String>>(0),
+            |r| {
+                let (a, b): (String, String) = (r.get(2)?, r.get(3)?);
+                let sides = if r.get::<_, bool>(1)? { [b, a] } else { [a, b] };
+                Ok(r.get::<_, Option<String>>(0)?.map(|sha| (sha, sides)))
+            },
         )
         .optional()?
         .flatten())

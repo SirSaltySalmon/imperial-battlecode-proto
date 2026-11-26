@@ -4,9 +4,14 @@
 #[test]
 fn fixture_replay_loads_and_verifies() {
     let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sample.ibcr")).unwrap();
-    let (frames, header) = ibc_engine_wasm::load(&bytes).expect("fixture replay must verify");
-    assert!(frames.len() > 100);
-    assert!(header.contains("engine_version"));
+    let r = ibc_engine_wasm::load(&bytes).expect("fixture replay must verify");
+    assert!(r.frames.len() > 100);
+    assert!(r.header.contains("engine_version"));
+    // The fixture carries its rules and both teams' records.
+    assert!(r.header.contains("\"rules\""));
+    let records: serde_json::Value = serde_json::from_str(&r.records).unwrap();
+    assert!(!records["fuel"].as_array().unwrap().is_empty());
+    assert_eq!(r.rules, ibc_engine_wasm::rules());
 }
 
 /// The viewer names weapons from this export, so every weapon in `rules/weapons.toml` must be in it, in id

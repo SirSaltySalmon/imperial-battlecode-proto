@@ -71,10 +71,10 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [ ] **The `unsafe` in the fuel logic.** `crates/runner/src/vm.rs` reaches the store through a raw pointer to
   re-arm a suspended bot's fuel each turn. It is tested, but it relies on Wasmtime 51 internals. Re-check on
   every Wasmtime bump, and ask upstream whether a safe API exists.
-- [ ] **Bot debug drawings never reach the viewer.** `frame.debug` is empty on re-simulation: `debug_draw`
+- [x] **Bot debug drawings never reach the viewer.** Done in replay format 2 (docs/REPLAY.md). `frame.debug` is empty on re-simulation: `debug_draw`
   calls are not recorded as replay inputs and `World::step` clears them. Record them in the replay as
   non-simulation events (they must not affect the state hash).
-- [ ] **Core rules are not in the replay header.** The viewer hardcodes vision range, cone angle, unit radius
+- [x] **Core rules are not in the replay header.** Done in replay format 2 (docs/REPLAY.md). The viewer hardcodes vision range, cone angle, unit radius
   and more in `viewer/src/vision.ts`; a balance patch will make drawn cones disagree with what units saw. Put
   the ruleset tables (or the whole TOML) in the header and have the viewer read them.
 - [ ] **Per-round and per-kill statistics in `summary_json`**, a per-turn fuel distribution in the runner

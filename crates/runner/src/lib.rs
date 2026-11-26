@@ -10,7 +10,8 @@ mod wasi;
 use anyhow::{anyhow, bail, Context as _, Result};
 use ibc_engine::{Map, Match, Ruleset};
 use ibc_replay::{
-    hash_hex, sha256_hex, BotInfo, Fault, Header, MatchResult, Replay, ReplayWriter, Summary, TeamFuel, TeamSummary,
+    hash_hex, sha256_hex, BotInfo, Fault, Header, HeaderRules, MatchResult, Record, Replay, ReplayWriter, Summary,
+    TeamFuel, TeamSummary,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -65,7 +66,8 @@ pub struct UnitStats {
 pub struct MatchOutput {
     pub replay: Replay,
     pub summary: Summary,
-    /// Captured stdout/stderr/`ibc.log` output, indexed by unit id.
+    /// Captured stdout/stderr/`ibc.log` output, indexed by unit id. The replay has the same bytes per turn, but
+    /// not the `[ibc] log truncated` notice.
     pub logs: Vec<Vec<u8>>,
     pub frames: Option<Vec<String>>,
     /// Indexed by unit id.
@@ -229,6 +231,7 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
     let map = Map::parse(&cfg.map_text).map_err(|e| anyhow!("map: {e}"))?;
     let mults = [milli(cfg.bots[0].fuel_multiplier)?, milli(cfg.bots[1].fuel_multiplier)?];
     let ruleset_hash = hash_hex(cfg.rules.hash());
+    let header_rules = HeaderRules::of(&cfg.rules);
     let map_hash = hash_hex(map.hash());
     let game = Arc::new(Mutex::new(Match::new(cfg.rules, map, cfg.seed)));
     let n = lock(&game).unit_count();
@@ -252,6 +255,9 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
         abi_version: ibc_abi::ABI_VERSION,
         bots: [bot_info(0), bot_info(1)],
         result: MatchResult { winner: None, score: [0, 0], ticks: 0, finished: false },
+        team_size: n / 2,
+        redacted: [false, false],
+        rules: header_rules,
     };
     let mut writer = ReplayWriter::new(header);
 
@@ -276,6 +282,8 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
         let tick = g.tick();
         drop(g);
         let note = format!("[ibc] unit {unit} faulted at tick {tick}: {reason}");
+        let team = units[unit as usize].team as usize;
+        writer.record(team, Record::Log { unit, text: format!("{note}\n").into_bytes() });
         logs[unit as usize] = match vm {
             Some(vm) => vm.finish(Some(&note)),
             None => format!("{note}\n").into_bytes(),
@@ -319,6 +327,8 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
     let mut team_fuel = [TeamFuel::default(), TeamFuel::default()];
     let mut final_hash = lock(&game).state_hash();
     let mut go_on = driver.observe(&lock(&game));
+    // Bytes of each unit's log already recorded in the replay.
+    let mut log_seen: Vec<usize> = vec![0; n as usize];
 
     loop {
         let order = {
@@ -338,6 +348,13 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
             let team = units[unit as usize].team as usize;
             let budget = scale(lock(&game).fuel_budget(unit), mults[team]);
             let turn = vm.run_turn(budget);
+            let text = vm.log_since(log_seen[unit as usize]);
+            log_seen[unit as usize] += text.len();
+            if !text.is_empty() {
+                writer.record(team, Record::Log { unit, text });
+            }
+            let out_of_fuel = matches!(turn.end, TurnEnd::OutOfFuel);
+            writer.record(team, Record::Fuel { unit, used: turn.used, out_of_fuel });
 
             let s = &mut units[unit as usize];
             s.fuel_used += turn.used;
@@ -359,9 +376,11 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
         }
         let mut g = lock(&game);
         writer.inputs(g.take_inputs());
+        writer.draws(g.take_debug());
         g.step();
-        final_hash = g.state_hash();
-        writer.end_tick(final_hash);
+        let hashes = g.state_hashes();
+        final_hash = hashes.combined();
+        writer.end_tick(hashes);
         if let Some(f) = frames.as_mut() {
             f.push(g.frame_json());
         }
