@@ -119,8 +119,12 @@ pub async fn get_series(
         .ok_or_else(|| ApiError::not_found(format!("no series {series_id:?}")))
 }
 
+/// Maps of a tournament whose maps are still hidden are left out.
 pub async fn maps(State(app): AppState) -> ApiResult<Json<Value>> {
-    Ok(Json(json!({"maps": app.db.tx(db::list_maps)?})))
+    let mut maps = app.db.tx(db::list_maps)?;
+    let hidden = app.db.tx(db::tournaments::hidden_maps)?;
+    maps.retain(|m| m["name"].as_str().is_none_or(|n| !hidden.contains(n)));
+    Ok(Json(json!({"maps": maps})))
 }
 
 /// The `.ibcmap` text of a pool map (`ibc maps pull`).

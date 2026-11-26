@@ -8,6 +8,7 @@ pub mod league;
 pub mod ratings;
 pub mod users;
 pub mod scrims;
+pub mod tournaments;
 
 use crate::error::{ApiError, ApiResult};
 use crate::model::Patch;
@@ -80,6 +81,20 @@ CREATE TABLE IF NOT EXISTS ranked_batches(
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ladder_snapshots(
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS tournaments(
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, format TEXT NOT NULL, field TEXT NOT NULL, maps TEXT NOT NULL,
+  map_shas TEXT, status TEXT NOT NULL, excluded TEXT, winner TEXT, created_at INTEGER NOT NULL,
+  locked_at INTEGER, started_at INTEGER, finished_at INTEGER, revealed_at INTEGER);
+CREATE TABLE IF NOT EXISTS tournament_entrants(
+  tournament_id TEXT NOT NULL REFERENCES tournaments(id), seed INTEGER NOT NULL, team_id TEXT NOT NULL,
+  submission_id TEXT NOT NULL, rating INTEGER, provisional INTEGER NOT NULL, PRIMARY KEY(tournament_id, seed));
+CREATE TABLE IF NOT EXISTS tournament_matches(
+  tournament_id TEXT NOT NULL REFERENCES tournaments(id), idx INTEGER NOT NULL, series_id TEXT,
+  map_halves_a INTEGER, map_halves_b INTEGER, rounds_a INTEGER, rounds_b INTEGER, winner_side INTEGER,
+  decided_by TEXT, PRIMARY KEY(tournament_id, idx));
+CREATE INDEX IF NOT EXISTS tournament_matches_series ON tournament_matches(series_id);
+CREATE TABLE IF NOT EXISTS tournament_series(
+  series_id TEXT PRIMARY KEY, tournament_id TEXT NOT NULL REFERENCES tournaments(id), idx INTEGER NOT NULL);
 ";
 
 /// Columns added after the first release: `CREATE TABLE IF NOT EXISTS` does not add them to an existing data

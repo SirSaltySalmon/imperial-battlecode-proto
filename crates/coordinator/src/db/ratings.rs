@@ -292,6 +292,8 @@ pub fn adopt_system(
 pub struct LadderRow {
     pub team_id: String,
     pub name: String,
+    /// The live submission (internal: seeding snapshots it; never served).
+    pub submission: String,
     pub standing: Standing,
     /// Rated series played.
     pub series: i64,
@@ -310,19 +312,20 @@ fn rated_series(tx: &Transaction) -> ApiResult<BTreeMap<String, i64>> {
 /// Teams with a live submission and their ratings, best displayed rating first.
 pub fn ladder_rows(tx: &Transaction, hook: &dyn RatingHook) -> ApiResult<Vec<LadderRow>> {
     let mut st = tx.prepare(
-        "SELECT t.id, t.name FROM teams t JOIN submissions s ON s.team_id = t.id AND s.live = 1",
+        "SELECT t.id, t.name, s.id FROM teams t JOIN submissions s ON s.team_id = t.id AND s.live = 1",
     )?;
-    let teams: Vec<(String, String)> = st
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+    let teams: Vec<(String, String, String)> = st
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<Result<_, _>>()?;
     let series = rated_series(tx)?;
     let mut rows = Vec::with_capacity(teams.len());
-    for (team_id, name) in teams {
+    for (team_id, name, submission) in teams {
         let standing = load(tx, hook, &team_id)?;
         rows.push(LadderRow {
             series: series.get(&team_id).copied().unwrap_or(0),
             team_id,
             name,
+            submission,
             standing,
         });
     }

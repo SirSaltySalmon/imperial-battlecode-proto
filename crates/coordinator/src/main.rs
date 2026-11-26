@@ -74,6 +74,9 @@ struct Args {
     /// Largest accepted blob (replay), in bytes
     #[arg(long, env = "IBC_MAX_BLOB_BYTES", default_value_t = 64 << 20)]
     max_blob_bytes: usize,
+    /// Seconds a tournament lock pauses ranked matchmaking (resume sooner with .../resume-ranked)
+    #[arg(long, env = "IBC_TOURNAMENT_PAUSE_SECS", default_value_t = 3600)]
+    tournament_pause_secs: u64,
     /// Language fuel multipliers, e.g. `--language rust=1.0 --language python=3.0`
     #[arg(long = "language", value_parser = parse_language)]
     languages: Vec<(String, f64)>,
@@ -147,6 +150,8 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         ranked_games: args.ranked_games,
         provisional_series: args.provisional_series.max(0),
         tier_floors: args.tier_floors.unwrap_or(defaults.tier_floors),
+        tournament_pause_ms: i64::try_from(args.tournament_pause_secs.saturating_mul(1000))
+            .unwrap_or(i64::MAX),
         languages: if args.languages.is_empty() {
             defaults.languages.clone()
         } else {

@@ -8,6 +8,7 @@ mod manage;
 mod public;
 mod teams;
 mod scrims;
+mod tournaments;
 mod worker;
 
 use crate::db::{self, TeamRow, WorkerRow};
@@ -74,6 +75,11 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/admin/maps/{name}", put(manage::upload_map))
         .route("/v1/admin/patch", post(manage::set_patch))
         .route("/v1/admin/ranked-batch", post(manage::ranked_batch))
+        .route("/v1/admin/tournaments", post(tournaments::create))
+        .route(
+            "/v1/admin/tournaments/{id}/{action}",
+            post(tournaments::action),
+        )
         .route("/v1/admin/jobs", post(manage::enqueue_job))
         .route("/v1/admin/jobs/{job_id}", get(manage::get_job))
         .route("/v1/admin/jobs/{job_id}/requeue", post(manage::requeue_job))
@@ -95,6 +101,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/series/{series_id}", get(public::get_series))
         .route("/v1/maps", get(public::maps))
         .route("/v1/maps/{name}", get(public::map_text))
+        .route("/v1/tournaments", get(tournaments::list))
+        .route("/v1/tournaments/{id}", get(tournaments::get))
         .route("/v1/patch", get(public::patch))
         .route("/metrics", get(public::metrics))
         .route("/healthz", get(public::healthz))

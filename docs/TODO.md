@@ -107,8 +107,8 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [ ] **How the ladder shows a new team.** The API exposes `rating` and `provisional`; the frontend must
   decide whether a provisional team shows a number or the word. With Weng-Lin a new team's number starts near
   763 and climbs.
-- [ ] **No tournament runner.** Single and double elimination seeded from a ladder snapshot, a submission lock
-  window, many games per match. Tournament jobs already have their own priority class.
+- [x] **No tournament runner.** Done: `docs/api/tournaments.md` (lock snapshot, seeded single/double
+  elimination, every pairing plays every map, maps hidden until revealed, ranked paused at lock).
 - [ ] **A patch change voids running series.** Setting a new patch dead-letters queued and leased jobs of the
   old one at once. Decide the behaviour at a patch boundary (finish in-flight series on the old patch, or void
   them) and whether ratings widen (`on_balance_patch` exists in `ibc-rating` and is not called).

@@ -46,6 +46,7 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
 | `POST /v1/series` | admin | `{team_a, team_b, games, kind: unranked\|tournament}`, no quota |
 | `POST /v1/admin/teams`, `GET /v1/admin/teams`, `PUT /v1/admin/maps/{name}`, `POST /v1/admin/patch` | admin | |
 | `POST /v1/admin/ranked-batch` | admin | explicit `pairings` or the matchmaker (`budget`, default `--ranked-series-budget`) |
+| `POST /v1/admin/tournaments`, `POST /v1/admin/tournaments/{id}/lock\|start\|reveal\|resume-ranked`, `GET /v1/tournaments[/{id}]` | admin / none | tournaments, see `docs/api/tournaments.md`; a lock pauses ranked matchmaking for `--tournament-pause-secs` |
 | `POST /v1/admin/jobs` | admin | one stand-alone match (`class`, `bot_a`, `bot_b`, `map`, `seed`, `max_ticks`); answers `"cached": true` with the result if it already ran |
 | `GET /v1/admin/jobs/{id}`, `GET /v1/admin/dead`, `POST /v1/admin/jobs/{id}/requeue` | admin | the dead-letter list |
 | `GET /v1/admin/workers`, `POST /v1/admin/workers/{id}/trust`, `.../quarantine` | admin | |

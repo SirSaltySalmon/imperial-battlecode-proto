@@ -12,6 +12,7 @@
 //!
 //! See the crate README for the maths and the reasons behind the defaults.
 
+pub mod bracket;
 mod budget;
 mod elo;
 mod matchmaking;

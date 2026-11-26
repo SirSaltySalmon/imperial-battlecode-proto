@@ -69,6 +69,8 @@ pub struct Config {
     /// Lowest displayed rating of each tier above Iron, in `TIERS` order (Bronze .. Radiant), ascending.
     /// Display only: the matchmaker never looks at tiers.
     pub tier_floors: [f64; 8],
+    /// How long a tournament lock pauses ranked matchmaking (unless the organisers resume it sooner).
+    pub tournament_pause_ms: i64,
 }
 
 /// Ladder tiers, lowest first. Iron is everything below `tier_floors[0]`.
@@ -122,6 +124,7 @@ impl Default for Config {
             auth: crate::accounts::AuthConfig::default(),
             provisional_series: 5,
             tier_floors: DEFAULT_TIER_FLOORS,
+            tournament_pause_ms: 3_600_000,
         }
     }
 }
