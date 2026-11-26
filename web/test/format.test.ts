@@ -16,6 +16,7 @@ import {
   splitList,
   tierLabel,
   viewerHref,
+  replayPath,
 } from "../src/format";
 
 const match = (over: Partial<Match> = {}): Match => ({
@@ -87,6 +88,11 @@ describe("labels", () => {
 describe("matches", () => {
   it("links the embedded viewer to the same-origin replay", () => {
     expect(viewerHref("m 1")).toBe("/viewer/?replay=/v1/matches/m%201/replay");
+  });
+  it("asks for the team view of a match the signed-in team played", () => {
+    expect(replayPath("m1", "team")).toBe("/v1/matches/m1/replay?view=team");
+    const href = viewerHref("m1", "team");
+    expect(new URL(href, "http://x").searchParams.get("replay")).toBe("/v1/matches/m1/replay?view=team");
   });
   it("scores and results", () => {
     expect(scoreText(match())).toBe("7–4");

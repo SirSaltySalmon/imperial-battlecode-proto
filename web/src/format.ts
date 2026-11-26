@@ -58,14 +58,19 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MiB`;
 }
 
-/** The replay of a match as the API serves it (same origin, so the viewer can fetch it). */
-export function replayPath(matchId: string): string {
-  return `/v1/matches/${encodeURIComponent(matchId)}/replay`;
+/**
+ * The replay of a match as the API serves it (same origin, so the viewer can fetch it). `view: "team"` keeps
+ * the signed-in team's own memory and logs; leave it out for the public view.
+ */
+export function replayPath(matchId: string, view?: "team"): string {
+  const base = `/v1/matches/${encodeURIComponent(matchId)}/replay`;
+  return view ? `${base}?view=${view}` : base;
 }
 
 /** The embedded viewer opened on a match. */
-export function viewerHref(matchId: string): string {
-  return `/viewer/?replay=${replayPath(matchId)}`;
+export function viewerHref(matchId: string, view?: "team"): string {
+  const path = replayPath(matchId, view);
+  return `/viewer/?replay=${view ? encodeURIComponent(path) : path}`;
 }
 
 /** "7–4", or the state while the match is not done. */

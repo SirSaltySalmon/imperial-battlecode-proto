@@ -12,19 +12,25 @@ function teamLink(t: { team_id: string; name: string }): HTMLElement {
   return link(href(`/teams/${t.team_id}`), t.name);
 }
 
-function matchLinks(m: Match): HTMLElement {
+/** Watch and download links; a match the signed-in team played opens in that team's view. */
+function matchLinks(m: Match, ownTeam?: string): HTMLElement {
   if (m.state !== "done") return h("span", { class: "muted" }, "—");
+  const played = ownTeam !== undefined && [m.bot_a.team_id, m.bot_b.team_id].includes(ownTeam);
+  const view = played ? "team" : undefined;
   return h(
     "span",
     { class: "links" },
-    link(viewerHref(m.match_id), "Watch"),
+    link(viewerHref(m.match_id, view), "Watch"),
     " · ",
-    link(replayPath(m.match_id), "Download", { download: `${m.match_id}.ibcr` }),
+    link(replayPath(m.match_id, view), "Download", { download: `${m.match_id}.ibcr` }),
   );
 }
 
-/** One row per match. With `perspective` (a team id) a result column says won / lost / draw. */
-export function matchTable(matches: Match[], perspective?: string): HTMLElement {
+/**
+ * One row per match. With `perspective` (a team id) a result column says won / lost / draw. `ownTeam` is the
+ * signed-in team: its matches link to the team view of the replay.
+ */
+export function matchTable(matches: Match[], perspective?: string, ownTeam?: string): HTMLElement {
   const headers = ["When", "Kind", "Map", "Side A", "Score", "Side B"];
   if (perspective) headers.push("Result");
   headers.push("Series", "Replay");
@@ -38,7 +44,7 @@ export function matchTable(matches: Match[], perspective?: string): HTMLElement 
       teamLink(m.bot_b),
     ];
     if (perspective) row.push(resultFor(m, perspective));
-    row.push(link(href(`/series/${m.series_id}`), `#${m.index + 1}`), matchLinks(m));
+    row.push(link(href(`/series/${m.series_id}`), `#${m.index + 1}`), matchLinks(m, ownTeam));
     return row;
   });
   return table(headers, rows, "No matches yet.");
@@ -77,7 +83,7 @@ export const matches: Page = (ctx) => {
       const page = await ctx.api.matches(query);
       // A server that ignores `kind` still gets the filter.
       shown.push(...page.matches.filter((m) => !kind || m.kind === kind));
-      list.replaceChildren(matchTable(shown, scope === "mine" ? myTeam?.id : undefined));
+      list.replaceChildren(matchTable(shown, scope === "mine" ? myTeam?.id : undefined, myTeam?.id));
       query.before = page.next ?? undefined;
       more.hidden = page.next === null;
     } catch (e) {
@@ -130,7 +136,7 @@ export const series: Page = (ctx) => {
               ),
             )
           : null,
-        matchTable(s.matches, me),
+        matchTable(s.matches, me, me),
       ];
     }),
   );

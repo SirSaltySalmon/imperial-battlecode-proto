@@ -63,7 +63,7 @@ export const teamPage: Page = (ctx) => {
       const first = page.matches[0];
       if (first) title.textContent = first.bot_a.team_id === id ? first.bot_a.name : first.bot_b.name;
       return [
-        matchTable(page.matches, id),
+        matchTable(page.matches, id, ctx.session.team?.id),
         ctx.session.team && ctx.session.team.id !== id
           ? h("p", {}, link(href("/scrims", { opponent: id }), "Request a scrim against this team"))
           : null,
