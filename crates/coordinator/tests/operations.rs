@@ -61,9 +61,9 @@ async fn played_league(h: &Harness) -> (Value, Value) {
     let unranked = h
         .ok(
             "POST",
-            "/v1/series",
+            "/v1/scrims",
             Some(&teams[0].1),
-            json!({"opponent": "beta", "games": 2}),
+            json!({"opponent_team_id": "beta", "games": 2}),
         )
         .await;
     let batch = h
