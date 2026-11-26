@@ -40,6 +40,7 @@ clock and random source, empty args and environment. There is no filesystem, net
   units), so every teammate reads the same rows. An enemy in `T_ENEMIES` may be behind a wall from where you
   stand; use `los` before shooting. Enemy rows hide `hp`, `armor`, credits, ammo, charges, cooldowns, blindness
   and the defuse kit; the weapon in hand is shown. Fog applies to what bots read, not to what replays record.
+  An enemy trap (`EFFECT_TRAP`) is listed only to a unit of the team within `sense_radius` of it (`docs/rules/abilities.md`).
 - **Events follow the fog.** `T_EVENTS` is filtered per team. A position is *known* to a team when one of its
   living units sees it, when the event happened to one of its own units, or when it is the charge's position and
   the team knows where the charge lies (both teams once it is planted, attackers when it is dropped). An event delivered

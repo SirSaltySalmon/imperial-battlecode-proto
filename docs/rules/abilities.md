@@ -18,6 +18,9 @@ bots read the live values from `T_KIT` and `T_ABILITY` and should not hard-code 
 | 4 | bulwark | recon | barrier | 115 | 88% |
 | 5 | mender | heal | smoke | 100 | 95% |
 | 6 | kindler | dash | incendiary | 85 | 105% |
+| 7 | trapper | trap | concussion | 100 | 95% |
+| 8 | echo | sonar | incendiary | 95 | 100% |
+| 9 | breaker | decoy | concussion | 95 | 105% |
 
 `hp` is what the unit starts every round with (and the ceiling for healing). `speed` scales the run speed, on top
 of the weapon's `move_pct`.
@@ -33,9 +36,12 @@ Distances are in tiles (1024 units), times in ticks.
 | 2 | incendiary | `EFFECT_FIRE` (2) | 350 | 1 | 6 | 8 | 1.5 | 8 | 12 | 1 | 2.5 |
 | 3 | recon | `EFFECT_RECON` (5) | 0 | 1 | 0 | 12 | 6 | 5 | 3 | 1 | 0 |
 | 4 | barrier | `EFFECT_BARRIER` (3) | 300 | 1 | 8 | 2.5 | 1.5 | 20 | 120 | 1 | 0 |
-| 5 | dash | 8 (no constant yet) | 0 | 1 | 5 | 3 | 0 | 0 | 0 | 0 | 0 |
+| 5 | dash | `EFFECT_DASH` (8) | 0 | 1 | 5 | 3 | 0 | 0 | 0 | 0 | 0 |
 | 6 | decoy | `EFFECT_DECOY` (7) | 0 | 1 | 0 | 10 | 2 | 12 | 3 | 1 | 0 |
 | 7 | heal | `EFFECT_HEAL` (6) | 0 | 1 | 6 | 4 | 1 | 6 | 7 | 1 | 0 |
+| 8 | trap | `EFFECT_TRAP` (9) | 0 | 1 | 0 | 3 | 0.75 | 300 | 4 | 3 | 0 |
+| 9 | sonar | `EFFECT_SONAR` (10) | 0 | 1 | 0 | 8 | 5 | 0 | 3 | 2 | 0 |
+| 10 | concussion | `EFFECT_CONCUSSION` (11) | 250 | 1 | 4 | 8 | 2 | 0 | 4 | 1 | 0 |
 
 `speed` is in tiles per tick; 0 means the device is not thrown but appears where it lands at once. The slowest
 bullet flies 8 tiles per tick.
@@ -85,23 +91,24 @@ touching anyone, a heal target still hurt and in reach); if it fails nothing hap
 happens the charge is spent, the cooldown starts and enemies within `step_sound_radius` of the user hear
 `SOUND_ABILITY`.
 
-**Throwing.** Smoke, flash, incendiary, recon and decoy are devices aimed at the target point: at the target,
+**Throwing.** Smoke, flash, incendiary, recon, decoy, trap, sonar and concussion are devices aimed at the target point: at the target,
 or `range` away if the target is further. A device whose ability has `speed` > 0 (smoke, flash, incendiary) is
 thrown: it leaves the thrower's centre as a projectile and flies `speed` units per tick in a straight line on
 the same sub-stepped step as bullets. It flies over units, friend or foe, and through smoke; low cover does not
 stop it. It lands where its flight ends, or 64 units short of the first wall or barrier it meets, and its effect
 appears there in that sub-step and acts from that tick. In flight it is a row of `T_PROJECTILES` with
 `kind` = ability id + 1 and `weapon` = -1, visible to the thrower's team and to enemies who can see it. A
-device with `speed` 0 (recon, decoy) appears at its landing point at once, which follows the same rule
+device with `speed` 0 (recon, decoy, trap, sonar, concussion) appears at its landing point at once, which follows the same rule
 measured along the whole line. A barrier's centre is placed by that rule too.
 
 **Effects.** A device or barrier lies in the world as an effect (`T_EFFECTS`) from the moment it lands and is
-active at once for `duration` ticks (a flash: for the one tick it pops, so a thrown flash pops in the tick it
+active at once for `duration` ticks (a flash, a sonar pulse and a concussion: for the one tick they pop, so a thrown flash pops in the tick it
 lands and never shows in `T_EFFECTS`; watch `T_PROJECTILES`). `EffectInfo.ticks_left` counts down the ticks
 it has left. All effects and devices in flight are removed when a round starts.
 
 `T_EFFECTS` lists your team's effects always, and an enemy effect when you can see its position (the cloud's
-centre, a barrier's first end, the unit being healed).
+centre, a barrier's first end, the unit being healed). An enemy **trap** is listed only when you can see it and
+it is within `sense_radius` of you: further away it is hidden even in plain view.
 
 ## The abilities
 
@@ -174,6 +181,33 @@ The target then regains `power` hit points per tick for `duration` ticks, starti
 up to its kit's `hp`. The effect follows the target and ends if it dies. Heals stack. Armour is not restored.
 *Counters:* burst damage outpaces it; the heal is audible and is a tick the healer does not shoot.
 
+### Trap
+A hidden trigger placed like a device that is not thrown, at most `range` away, when its startup (`delay`) ends.
+It then lies armed for `duration` ticks. On every tick it is armed, it springs on **every living unit, friend or foe, the user
+included**, whose centre came within `radius` of it during that tick: the test is swept along the straight line
+from where the unit stood when effects last ticked to where it stands now, so running or dashing across it
+counts. A unit standing on it when it appears is caught too. Each caught unit is slowed (`S_SLOWED`, half speed) and
+revealed (`S_REVEALED`) for `power` turns, and the trap is spent. Enemies get it in `T_EFFECTS` only within
+`sense_radius` (see above); the owner's team always sees it.
+*Counters:* walk, and look: at walking speed a unit gets about two turns between seeing a trap and reaching it.
+Bullets do not touch it; it is cleared when the round ends.
+
+### Sonar
+A device that pulses once, where it lands when its startup (`delay`) ends. Every living unit within `radius` of it, **friend
+or foe, through walls, smoke and barriers**, is marked `S_REVEALED` for `power` turns, so the user's teammates
+standing in the pulse are shown to the enemy just as the enemies are shown to them.
+*Counters:* the user is `S_CASTING` for the startup; leave where it could land, or use the turns it shows you to
+reposition.
+
+### Concussion
+A device that pops once, where it lands when its startup (`delay`) ends. Every living unit within `radius` that no wall or
+barrier shelters from the centre (smoke does not), **both teams and the user included**, is slowed for `power`
+turns and loses what it was doing: a plant or defuse channel (all progress), a weapon startup and its brace (no
+shot, no ammunition used), a reload (the magazine keeps what it had) and an ability use in its startup (nothing
+spent).
+*Counters:* stand behind cover from where it lands; a defuser who sees the user casting can step off and
+restart after the pop.
+
 ## Timing, exactly
 
 Effects tick once per action tick, after movement and bullets and before the objective is checked. For a use
@@ -183,7 +217,9 @@ movement, and then:
 - smoke and barrier block from the vision computed at the end of tick `T + d` (so: from tick `T + d + 1` as bots
   see it) for `n` ticks; a barrier already stops the bullets and movement of tick `T + d`;
 - fire burns, recon scans, the decoy plays and the heal mends on ticks `T + d` to `T + d + n - 1`;
-- the flash pops on tick `T + d`, after that tick's turning, and units are blind for their next turns.
+- a trap lies armed on ticks `T + d` to `T + d + n - 1` and tests the movement of each of those ticks;
+- the flash, the sonar pulse and the concussion pop on tick `T + d`, after that tick's turning and movement, and
+  the statuses they give last for the unit's next turns.
 
 A thrown device leaves the thrower on tick `T + d` before movement and lands in tick `T + d + k - 1`, where `k`
 is `ceil(distance / speed)` (fewer if a wall or barrier is in the way); read `T + d + k - 1` for `T + d` above.

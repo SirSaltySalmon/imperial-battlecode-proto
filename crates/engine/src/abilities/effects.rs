@@ -1,12 +1,13 @@
 //! What active effects do each tick. Runs once per action tick, after movement and before the core counts the
 //! unit statuses (`blind`, `revealed`) down, so a status meant to last n bot turns is set to n + 1.
 
-use super::{aux_of, clear_line, is_active, max_hp, open_between, rules_of};
+use super::{aux_of, clear_line, control, is_active, max_hp, open_between, rules_of};
 use crate::fixed::{self, V2};
 use crate::world::{Effect, World};
 use ibc_abi::*;
 
-/// SEAM: once per action tick after movement: cooldowns, active effects, expiry.
+/// SEAM: once per action tick after movement: cooldowns, active effects, expiry. Ends by noting where every
+/// unit stands, where its path for the next tick's traps starts.
 pub fn step(w: &mut World) {
     for u in w.units.iter_mut() {
         for c in u.abil.cooldown.iter_mut() {
@@ -25,6 +26,9 @@ pub fn step(w: &mut World) {
             EFFECT_RECON => ping(w, &e, &r),
             EFFECT_DECOY => fake_sounds(w, &e, &r),
             EFFECT_HEAL => mend(w, i, &r),
+            EFFECT_TRAP => control::spring(w, i, &r),
+            EFFECT_SONAR => control::sonar(w, &e, &r),
+            EFFECT_CONCUSSION => control::concuss(w, &e, &r),
             _ => {}
         }
     }
@@ -32,6 +36,9 @@ pub fn step(w: &mut World) {
         e.info.ticks_left -= 1;
     }
     w.effects.retain(|e| e.info.ticks_left > 0);
+    for u in w.units.iter_mut() {
+        u.abil.last_pos = u.pos;
+    }
 }
 
 fn centre(e: &Effect) -> V2 {

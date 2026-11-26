@@ -61,10 +61,7 @@ impl World {
                 let p = &self.projectiles[j];
                 p.team == team || self.team_sees_point(team, p.pos)
             }),
-            T_EFFECTS => pick(self.effects.len(), &|j| {
-                let e = &self.effects[j].info;
-                e.team == team || self.team_sees_point(team, (e.x, e.y))
-            }),
+            T_EFFECTS => pick(self.effects.len(), &|j| crate::abilities::effect_visible(self, team, j)),
             T_DROPS => pick(self.drops.len(), &|j| {
                 let d = &self.drops[j];
                 (d.kind == DROP_CHARGE && attacking) || self.team_sees_point(team, (d.x, d.y))

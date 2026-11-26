@@ -9,9 +9,10 @@
 //!
 //! A use waits out its startup (`AbilityRules.delay`, see `cast`), then happens: a thrown device takes off
 //! (`thrown`) or the effect appears. An effect is active from the tick it appears for `linger` ticks, which is
-//! `duration` (one tick for a flash, which only pops).
+//! `duration` (one tick for a flash, a sonar pulse and a concussion, which only pop).
 
 mod cast;
+mod control;
 mod effects;
 mod geom;
 mod thrown;
@@ -45,6 +46,8 @@ pub struct UnitAbilities {
     /// Slot and target point of the pending use.
     pub cast_slot: i32,
     pub cast_target: V2,
+    /// Where the unit was when effects last ticked: the start of the path a trap sweeps.
+    pub last_pos: V2,
 }
 
 impl UnitAbilities {
@@ -58,6 +61,8 @@ impl UnitAbilities {
             self.cast_slot,
             self.cast_target.0,
             self.cast_target.1,
+            self.last_pos.0,
+            self.last_pos.1,
         ] {
             h.i32(v);
         }
@@ -79,10 +84,9 @@ fn rules_of(w: &World, e: &Effect) -> AbilityRules {
 
 /// Ticks an effect of this ability stays active once armed.
 fn linger(r: &AbilityRules) -> i32 {
-    if r.effect == EFFECT_FLASH {
-        1
-    } else {
-        r.duration.max(0)
+    match r.effect {
+        EFFECT_FLASH | EFFECT_SONAR | EFFECT_CONCUSSION => 1,
+        _ => r.duration.max(0),
     }
 }
 
@@ -122,7 +126,8 @@ fn slot_ability(w: &World, u: usize, slot: i32) -> Result<AbilityRules, i32> {
 
 /// What a use would do, decided from the current state.
 enum Plan {
-    /// A device that appears at once where it lands (`speed` 0).
+    /// A device that appears at once where it lands (`speed` 0): smoke, flash, incendiary, recon, decoy,
+    /// trap, sonar, concussion.
     Device(V2),
     /// A device that flies towards this point (`speed` > 0): at most `range` from the thrower.
     Throw(V2),
@@ -226,10 +231,14 @@ fn plan(w: &World, u: usize, slot: i32, target: V2) -> Result<(AbilityRules, Pla
         return Err(ERR_BAD_ARG);
     }
     let plan = match rules.effect {
-        EFFECT_SMOKE | EFFECT_FLASH | EFFECT_FIRE | EFFECT_RECON | EFFECT_DECOY if rules.speed > 0 => {
+        EFFECT_SMOKE | EFFECT_FLASH | EFFECT_FIRE | EFFECT_RECON | EFFECT_DECOY | EFFECT_TRAP | EFFECT_SONAR
+        | EFFECT_CONCUSSION
+            if rules.speed > 0 =>
+        {
             Plan::Throw(reach(unit.pos, target, rules.range))
         }
-        EFFECT_SMOKE | EFFECT_FLASH | EFFECT_FIRE | EFFECT_RECON | EFFECT_DECOY => {
+        EFFECT_SMOKE | EFFECT_FLASH | EFFECT_FIRE | EFFECT_RECON | EFFECT_DECOY | EFFECT_TRAP | EFFECT_SONAR
+        | EFFECT_CONCUSSION => {
             Plan::Device(throw_point(w, unit.pos, target, rules.range))
         }
         EFFECT_BARRIER => {
@@ -384,6 +393,25 @@ fn sight_blocked(w: &World, a: V2, b: V2, effects_show: bool) -> bool {
     })
 }
 
+/// SEAM: does `team` get effect `i` in `T_EFFECTS` (vision is shared by the team, `vision.rs`)? Its own
+/// effects always; an enemy effect when a living unit of the team sees its reference point. An enemy trap
+/// only to a unit that sees it from within `sense_radius`, even in plain view.
+pub fn effect_visible(w: &World, team: i32, i: usize) -> bool {
+    let e = &w.effects[i].info;
+    if e.team == team {
+        return true;
+    }
+    let at = (e.x, e.y);
+    if e.kind != EFFECT_TRAP {
+        return w.team_sees_point(team, at);
+    }
+    let sense = w.rules.core.sense_radius as i64;
+    (0..w.units.len()).any(|j| {
+        let u = &w.units[j];
+        u.team == team && fixed::dist2(u.pos, at) <= sense * sense && w.can_see_point(j, at)
+    })
+}
+
 /// SEAM: does a dynamic effect block a circle at `p`?
 pub fn blocks_move(w: &World, p: V2, r: i32) -> bool {
     let r2 = r as i64 * r as i64;
@@ -435,6 +463,7 @@ pub fn on_round_start(w: &mut World) {
     for u in 0..w.units.len() {
         w.units[u].abil.cooldown = [0, 0];
         w.units[u].abil.cast_left = 0;
+        w.units[u].abil.last_pos = w.units[u].pos;
         for slot in 0..2 {
             match slot_ability(w, u, slot) {
                 Ok(r) if r.price <= 0 => w.units[u].abil.charges[slot as usize] = r.max_charges.max(0),
