@@ -230,10 +230,12 @@ fn tampering_with_a_kept_memory_write_fails() {
         .ticks
         .iter_mut()
         .flat_map(|t| &mut t.events)
-        .find_map(|e| match e {
+        .filter_map(|e| match e {
             Event::Input(Input::MemWrite { data, .. }) => Some(data),
             _ => None,
         })
+        // The last one: team memory is zeroed at round start, so a write before it may leave no trace.
+        .last()
         .expect("team B memory write");
     write[0] ^= 0x55;
     assert!(verify(&r).unwrap_err().contains("team B memory hash"));
