@@ -29,6 +29,8 @@ fn ibc(cfg: &Path, args: &[&str]) -> Output {
         .env("IBC_CONFIG_DIR", cfg)
         .env_remove("IBC_SERVER")
         .env_remove("IBC_TOKEN")
+        // The daily version check would ask the stored (mock) server first, and write the user's cache.
+        .env("IBC_NO_UPDATE_CHECK", "1")
         .current_dir(cfg)
         .output()
         .unwrap()
@@ -313,9 +315,9 @@ fn json_shapes_of_the_read_commands() {
 }
 
 #[test]
-fn scrim_falls_back_to_series_on_an_older_server() {
+fn scrim_requests_an_unranked_series_from_the_quota() {
     let mock = Mock::start(|r| match r.path() {
-        "/v1/series" => Response::json(
+        "/v1/scrims" => Response::json(
             201,
             json!({"series_id": "sr1", "games": 3, "state": "running",
             "team_a": {"name": "alpha"}, "team_b": {"name": "beta"}}),
@@ -324,23 +326,18 @@ fn scrim_falls_back_to_series_on_an_older_server() {
     });
     let cfg = scratch("scrim");
     save_creds(&cfg, &mock.url, "ibt_t1");
-    let out = ibc(&cfg, &["scrim", "beta", "--games", "3", "--json"]);
+    let out = ibc(
+        &cfg,
+        &["scrim", "beta", "--games", "3", "--maps", "a,b", "--json"],
+    );
     assert_eq!(code(&out), 0, "{}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(stdout_json(&out)["series_id"], "sr1");
     let reqs = mock.requests();
+    assert_eq!(reqs.len(), 1);
     assert_eq!(
         serde_json::from_slice::<Value>(&reqs[0].body).unwrap(),
-        json!({"opponent_team_id": "beta", "games": 3})
+        json!({"opponent_team_id": "beta", "games": 3, "maps": ["a", "b"]})
     );
-    assert_eq!(
-        serde_json::from_slice::<Value>(&reqs[1].body).unwrap(),
-        json!({"opponent": "beta", "games": 3})
-    );
-
-    // Options only /v1/scrims understands are not silently dropped.
-    let out = ibc(&cfg, &["scrim", "beta", "--maps", "a,b,c", "--json"]);
-    assert_eq!(code(&out), 1);
-    assert_eq!(stdout_json(&out)["error"], "endpoint_missing");
 }
 
 #[test]
