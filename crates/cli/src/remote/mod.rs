@@ -178,6 +178,12 @@ pub struct ReplayDownload {
 }
 
 /// Run a remote command. Failures are printed here and end the process with their exit code.
+/// The server `ibc login` stored, if any (`ibc update` and the daily version check fall back to it).
+pub fn stored_server() -> Option<String> {
+    let path = config::credentials_path().ok()?;
+    config::load(&path).ok().flatten().map(|c| c.server)
+}
+
 pub fn run(command: RemoteCommand) -> anyhow::Result<()> {
     let opts = match &command {
         RemoteCommand::Login { opts, .. }

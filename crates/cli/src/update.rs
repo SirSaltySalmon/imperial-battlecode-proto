@@ -6,8 +6,8 @@
 //!   itself: installing a binary stays a decision of the person at the keyboard.
 //! - Before other commands, `check_before` does the same check at most once a day (the answer is cached
 //!   in the per-user cache directory) and prints a one-line warning on stderr when this `ibc` is behind.
-//!   It is silent and costs nothing without a server (`--server`, `IBC_SERVER`), offline, or with
-//!   `IBC_NO_UPDATE_CHECK=1`; it never runs for `run-batch`, the workers' hot path.
+//!   It is silent and costs nothing without a server (`--server`, `IBC_SERVER`, the one `ibc login`
+//!   stored), offline, or with `IBC_NO_UPDATE_CHECK=1`; it never runs for `run-batch`, the workers' hot path.
 //! - A workspace may pin its engine in `ibc.toml` (`[engine] version = "x.y.z"`, found in the current
 //!   directory or above). A binary that differs is warned about loudly on every command, because local
 //!   results then differ from the ladder's.
@@ -215,11 +215,15 @@ fn installed_by_pip(exe: &Path) -> bool {
 
 // ---- the server ----
 
-/// `--server`, else `IBC_SERVER`. `ibc login` will add its stored server here.
+/// `--server`, else `IBC_SERVER`, else the server `ibc login` stored.
 fn server(flag: Option<String>) -> Option<String> {
-    flag.or_else(|| std::env::var(SERVER_ENV).ok())
+    let given = flag
+        .or_else(|| std::env::var(SERVER_ENV).ok())
         .map(|s| s.trim().trim_end_matches('/').to_string())
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.is_empty());
+    given.or_else(|| {
+        crate::remote::stored_server().map(|s| s.trim_end_matches('/').to_string())
+    })
 }
 
 fn fetch(server: &str) -> Result<Distribution> {
@@ -354,7 +358,7 @@ pub fn check_before(command: Option<&str>) {
 pub fn run(server_flag: Option<String>) -> Result<()> {
     warn_about_pin();
     let Some(server) = server(server_flag) else {
-        bail!("no server to ask: pass --server URL or set {SERVER_ENV}");
+        bail!("no server to ask: pass --server URL, set {SERVER_ENV} or run `ibc login`");
     };
     let dist = fetch(&server)?;
     if let Some(path) = cache_path() {
