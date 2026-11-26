@@ -7,8 +7,8 @@
 //! 2. [`plan_batch`] picks who plays whom ([`Pairing`]).
 //! 3. [`plan_series`] expands a pairing into games: maps, engine seeds and A/B slots ([`SeriesPlan`]).
 //! 4. As each game result arrives, [`SeriesPlan::result`] turns the engine's [`Winner`] slot into a
-//!    [`GameResult`], and [`apply_game`] updates the two ratings with the chosen [`RatingSystem`]
-//!    ([`Elo`] or [`WengLin`]).
+//!    [`GameResult`]. When the series is over, [`rate_series`] updates the two ratings once, from every
+//!    map's result, with the chosen [`RatingSystem`] ([`Elo`] or [`WengLin`]).
 //!
 //! See the crate README for the maths and the reasons behind the defaults.
 
@@ -17,12 +17,14 @@ mod elo;
 mod matchmaking;
 pub mod rng;
 mod series;
+mod series_rating;
 mod weng_lin;
 
 pub use budget::{series_per_batch, BudgetConfig};
 pub use elo::Elo;
 pub use matchmaking::{plan_batch, MatchmakingConfig, Pairing, TeamState};
 pub use series::{game_seed, plan_series, PlannedGame, SeriesPlan, Winner};
+pub use series_rating::rate_series;
 pub use weng_lin::WengLin;
 
 /// Stable identifier of a team, chosen by the coordinator.
@@ -82,7 +84,7 @@ pub trait RatingSystem {
     /// Rating of a team that has never played.
     fn initial(&self) -> Rating;
 
-    /// New ratings of (A, B) after one game. Called once per game, not once per series.
+    /// New ratings of (A, B) after one game. The ladder combines these per series with [`rate_series`].
     fn update(&self, a: &Rating, b: &Rating, outcome: Outcome) -> (Rating, Rating);
 
     /// Expected score of A against B (win probability plus half the draw probability).
@@ -108,7 +110,7 @@ pub trait RatingSystem {
     fn on_inactive(&self, r: &Rating, periods: u32) -> Rating;
 }
 
-/// Rate one game in place.
+/// Rate one game in place (simulations; the ladder rates whole series with [`rate_series`]).
 pub fn apply_game(system: &dyn RatingSystem, a: &mut Rating, b: &mut Rating, outcome: Outcome) {
     let (na, nb) = system.update(a, b, outcome);
     *a = na;

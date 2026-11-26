@@ -7,6 +7,7 @@ mod auth;
 mod manage;
 mod public;
 mod teams;
+mod scrims;
 mod worker;
 
 use crate::db::{self, TeamRow, WorkerRow};
@@ -64,6 +65,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/teams/leave", post(teams::leave))
         .route("/v1/teams/join-code/rotate", post(teams::rotate_join_code))
         .route("/v1/team/token", post(teams::regenerate_token))
+        .route("/v1/scrims", post(scrims::create))
         // organisers
         .route(
             "/v1/admin/teams",
@@ -92,6 +94,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/matches/{match_id}/replay", get(public::replay))
         .route("/v1/series/{series_id}", get(public::get_series))
         .route("/v1/maps", get(public::maps))
+        .route("/v1/maps/{name}", get(public::map_text))
         .route("/v1/patch", get(public::patch))
         .route("/metrics", get(public::metrics))
         .route("/healthz", get(public::healthz))

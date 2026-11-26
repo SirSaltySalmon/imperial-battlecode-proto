@@ -1,13 +1,17 @@
 //! Series, games ("matches" in the API) and the inputs of the ranked matchmaker.
 //!
-//! A series is N games between the submissions that were live for the two teams when it was created; those
-//! submissions are pinned on the series and in its jobs, so a later upload or a change of live submission
-//! does not affect it, and a ranked series is always rated. Each game is a row pointing at a job; the job
-//! holds the result (several games may share one job through the idempotency key). A series is closed once
-//! none of its jobs, nor a spot verification of one of them, is outstanding.
+//! A series is N games between two submissions: for ranked and organiser series the ones live for the two
+//! teams when it was created, for a scrim whatever the request resolved to. They are pinned on the series
+//! and in its jobs, so a later upload or a change of live submission does not affect it, and a ranked
+//! series is always rated. Each game is a row pointing at a job; the job holds the result (several games
+//! may share one job through the idempotency key). A series is closed once none of its jobs, nor a spot
+//! verification of one of them, is outstanding.
+//!
+//! The archive is private: the public views name teams, never submissions. A caller sees the submission
+//! its own team played (`Viewer`); only the organisers see both.
 
 use super::jobs::{self, Enqueued};
-use super::{current_patch, live_submission, pool_maps, ratings, TeamRow};
+use super::{current_patch, live_submission, pool_maps, ratings, SubmissionRow, TeamRow};
 use crate::error::{ApiError, ApiResult};
 use crate::model::{BotRef, Class, JobSpec, MapRef};
 use crate::rating::{Outcome, RatingHook};
@@ -27,15 +31,6 @@ pub fn class_of_kind(kind: &str) -> Option<Class> {
     }
 }
 
-/// Games of unranked series `team_id` has requested since `since`.
-pub fn games_requested_since(tx: &Transaction, team_id: &str, since: i64) -> ApiResult<i64> {
-    Ok(tx.query_row(
-        "SELECT COALESCE(SUM(games), 0) FROM series WHERE requested_by = ?1 AND created_at > ?2",
-        params![team_id, since],
-        |r| r.get(0),
-    )?)
-}
-
 /// Games hosted so far by each map of `pool`, in pool order.
 fn map_usage(tx: &Transaction, pool: &[(String, String)]) -> ApiResult<Vec<u64>> {
     let mut st = tx.prepare_cached("SELECT games FROM map_usage WHERE name = ?1")?;
@@ -52,10 +47,50 @@ fn series_number(id: &str) -> u64 {
     u64::from_str_radix(&id[1..], 16).expect("series ids are s + 16 hex digits")
 }
 
-/// Create a series between the live submissions of two teams and queue its games, planned by
-/// `ibc_rating::plan_series`: least-used maps of the pool first, engine slots alternating from a coin flip,
-/// seeds from the series id and game index. Returns the series id and how many of its games were already
-/// in the result cache.
+/// Which engine slot the series' team A plays in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sides {
+    /// From a coin flip on the series id, then alternating game by game (every ranked series).
+    Alternate,
+    /// Team A in engine slot A in every game.
+    A,
+    /// Team A in engine slot B in every game.
+    B,
+}
+
+/// Everything a series is created from. The submissions are pinned on the series and its jobs.
+pub struct SeriesSpec<'a> {
+    pub kind: &'a str,
+    pub team_a: &'a TeamRow,
+    pub team_b: &'a TeamRow,
+    pub sub_a: SubmissionRow,
+    pub sub_b: SubmissionRow,
+    pub games: i64,
+    /// `(name, sha256)` played in turn, cycling; `None`: the pool, least-used maps first.
+    pub maps: Option<Vec<(String, String)>>,
+    pub sides: Sides,
+    /// The team whose unranked quota the games count against.
+    pub requested_by: Option<&'a str>,
+}
+
+/// Whether a pool map may be played in ranked series and scrims and served by `GET /v1/maps/{name}`.
+/// Every pool map is, for now. Tournament hook: a map held back until a tournament reveals it is not
+/// public; connect the tournaments' hidden-map list here.
+pub fn map_is_public(_tx: &Transaction, _name: &str) -> ApiResult<bool> {
+    Ok(true)
+}
+
+/// The team's live submission, or 409 `no_live_submission`.
+pub fn require_live(tx: &Transaction, team: &TeamRow) -> ApiResult<SubmissionRow> {
+    live_submission(tx, &team.id)?.ok_or_else(|| {
+        ApiError::conflict(
+            "no_live_submission",
+            format!("team {:?} has no live submission", team.name),
+        )
+    })
+}
+
+/// Create a series between the live submissions of two teams (see `create_series_with`).
 pub fn create_series(
     tx: &Transaction,
     kind: &str,
@@ -65,26 +100,61 @@ pub fn create_series(
     requested_by: Option<&str>,
     now: i64,
 ) -> ApiResult<(String, usize)> {
+    let spec = SeriesSpec {
+        kind,
+        team_a,
+        team_b,
+        sub_a: require_live(tx, team_a)?,
+        sub_b: require_live(tx, team_b)?,
+        games,
+        maps: None,
+        sides: Sides::Alternate,
+        requested_by,
+    };
+    create_series_with(tx, &spec, now)
+}
+
+/// Create a series and queue its games, planned by `ibc_rating::plan_series`: least-used maps of the pool
+/// first (unless the spec names maps), engine slots alternating from a coin flip (unless the spec fixes
+/// them), seeds from the series id and game index. Returns the series id and how many of its games were
+/// already in the result cache.
+pub fn create_series_with(
+    tx: &Transaction,
+    spec: &SeriesSpec,
+    now: i64,
+) -> ApiResult<(String, usize)> {
+    let SeriesSpec {
+        kind,
+        team_a,
+        team_b,
+        sub_a,
+        sub_b,
+        ..
+    } = spec;
     let class = class_of_kind(kind)
         .ok_or_else(|| ApiError::bad_request(format!("unknown series kind {kind:?}")))?;
     if team_a.id == team_b.id {
         return Err(ApiError::bad_request("a team cannot play itself"));
     }
-    let games = u32::try_from(games)
+    let games = u32::try_from(spec.games)
         .ok()
         .filter(|g| *g > 0)
         .ok_or_else(|| ApiError::bad_request("a series has at least one game"))?;
-    let no_live = |t: &TeamRow| {
-        ApiError::conflict(
-            "no_live_submission",
-            format!("team {:?} has no live submission", t.name),
-        )
-    };
-    let sub_a = live_submission(tx, &team_a.id)?.ok_or_else(|| no_live(team_a))?;
-    let sub_b = live_submission(tx, &team_b.id)?.ok_or_else(|| no_live(team_b))?;
     let patch = current_patch(tx)?
         .ok_or_else(|| ApiError::conflict("no_patch", "no current patch is set"))?;
-    let pool = pool_maps(tx)?;
+    let (pool, usage) = match &spec.maps {
+        Some(maps) => (maps.clone(), vec![0; maps.len()]),
+        None => {
+            let mut pool = Vec::new();
+            for map in pool_maps(tx)? {
+                if map_is_public(tx, &map.0)? {
+                    pool.push(map);
+                }
+            }
+            let usage = map_usage(tx, &pool)?;
+            (pool, usage)
+        }
+    };
     if pool.is_empty() {
         return Err(ApiError::conflict("no_maps", "the map pool is empty"));
     }
@@ -93,7 +163,7 @@ pub fn create_series(
     tx.execute(
         "INSERT INTO series(id, kind, team_a, team_b, sub_a, sub_b, games, state, requested_by, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'running', ?8, ?9)",
-        params![id, kind, team_a.id, team_b.id, sub_a.id, sub_b.id, games, requested_by, now],
+        params![id, kind, team_a.id, team_b.id, sub_a.id, sub_b.id, games, spec.requested_by, now],
     )?;
     // Team A is slot 0 of the pairing, team B slot 1.
     let plan = ibc_rating::plan_series(
@@ -102,17 +172,26 @@ pub fn create_series(
             team_a: 0,
             team_b: 1,
         },
-        &map_usage(tx, &pool)?,
+        &usage,
         games,
     );
-    let bot = |s: &super::SubmissionRow| BotRef {
+    let bot = |s: &SubmissionRow| BotRef {
         sha256: s.sha256.clone(),
         fuel_mult: s.fuel_mult,
     };
+    let from_rotation = spec.maps.is_none();
     let mut cache_hits = 0;
     for g in &plan.games {
-        let swapped = g.slot_a != 0;
-        let (map_name, map_sha) = &pool[g.map as usize];
+        let swapped = match spec.sides {
+            Sides::Alternate => g.slot_a != 0,
+            Sides::A => false,
+            Sides::B => true,
+        };
+        let map = match spec.maps {
+            Some(_) => g.index as usize % pool.len(),
+            None => g.map as usize,
+        };
+        let (map_name, map_sha) = &pool[map];
         let (bot_a, bot_b) = if swapped {
             (bot(&sub_b), bot(&sub_a))
         } else {
@@ -136,10 +215,14 @@ pub fn create_series(
             "INSERT INTO games(id, series_id, idx, job_id, map_name, seed, swapped, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![format!("{id}-{}", g.index), id, g.index, job_id, map_name, g.seed.to_string(), swapped, now],
         )?;
-        tx.execute(
-            "INSERT INTO map_usage(name, games) VALUES (?1, 1) ON CONFLICT(name) DO UPDATE SET games = games + 1",
-            [map_name],
-        )?;
+        // Only the rotation's own picks count: maps a team chose for a scrim must not steer which maps
+        // later ranked series play.
+        if from_rotation {
+            tx.execute(
+                "INSERT INTO map_usage(name, games) VALUES (?1, 1) ON CONFLICT(name) DO UPDATE SET games = games + 1",
+                [map_name],
+            )?;
+        }
     }
     Ok((id, cache_hits))
 }
@@ -202,7 +285,8 @@ pub fn finalize_ready(
 
 /// Close one series. Every game that finished counts; a game that could not be run (dead-lettered) or
 /// ended unfinished is left out, and a series where no game finished is void. A ranked series is rated
-/// game by game, in game order, with the submissions it was created with, whatever is live now.
+/// once, from its maps won, lost and drawn (`ibc_rating::rate_series`: each map's update from the
+/// pre-series ratings, summed), whatever is live now.
 /// Returns true if ratings changed.
 fn finalize_one(tx: &Transaction, hook: &dyn RatingHook, id: &str, now: i64) -> ApiResult<bool> {
     let (kind, team_a, team_b, prev_note): (String, String, String, Option<String>) = tx
@@ -267,20 +351,16 @@ fn finalize_one(tx: &Transaction, hook: &dyn RatingHook, id: &str, now: i64) -> 
         notes.push(format!("{unfinished} game(s) ended unfinished"));
     }
     let note = (!notes.is_empty()).then(|| notes.join("; "));
-    let rated = kind == "ranked" && finished.iter().any(|(_, o)| o.is_some());
+    let outcomes: Vec<Outcome> = finished.iter().filter_map(|(_, o)| *o).collect();
+    let rated = kind == "ranked" && !outcomes.is_empty();
     if rated {
-        for (idx, outcome) in &finished {
-            if let Some(outcome) = outcome {
-                let game = ratings::RatedGame {
-                    series_id: id,
-                    game_idx: *idx,
-                    team_a: &team_a,
-                    team_b: &team_b,
-                    outcome: *outcome,
-                };
-                ratings::rate_game(tx, hook, &game, now)?;
-            }
-        }
+        let series = ratings::RatedSeries {
+            series_id: id,
+            team_a: &team_a,
+            team_b: &team_b,
+            outcomes: &outcomes,
+        };
+        ratings::rate_series(tx, hook, &series, now)?;
     }
     close("done", rated, wld, note.as_deref())?;
     Ok(rated)
@@ -329,12 +409,21 @@ pub fn matchmaking_pool(
     .flat_map(|(a, b)| [a, b])
     .collect();
     let mut recent_games: BTreeMap<String, u32> = BTreeMap::new();
-    for (a, b) in pairs(
-        "SELECT team_a, team_b FROM rating_events WHERE kind = 'game' AND created_at > ?1",
-        day,
-    )? {
-        *recent_games.entry(a).or_default() += 1;
-        *recent_games.entry(b).or_default() += 1;
+    {
+        let mut st = tx.prepare_cached(
+            "SELECT kind, team_a, team_b, outcome FROM rating_events
+             WHERE kind IN ('game', 'series') AND created_at > ?1",
+        )?;
+        let rows = st.query_map([day], |r| {
+            let (kind, outcome): (String, Option<String>) = (r.get(0)?, r.get(3)?);
+            let games = ratings::event_games(&kind, outcome.as_deref());
+            Ok((r.get::<_, String>(1)?, r.get::<_, String>(2)?, games))
+        })?;
+        for row in rows {
+            let (a, b, games) = row?;
+            *recent_games.entry(a).or_default() += games;
+            *recent_games.entry(b).or_default() += games;
+        }
     }
     let mut opponents: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
     for (a, b) in pairs(
@@ -397,9 +486,49 @@ SELECT g.id, g.series_id, g.idx, g.map_name, g.seed, g.swapped, s.kind, s.team_a
 FROM games g JOIN series s ON s.id = g.series_id JOIN teams ta ON ta.id = s.team_a JOIN teams tb ON tb.id = s.team_b
 JOIN jobs j ON j.id = g.job_id";
 
-/// One game as the public API shows it. `bot_a` / `bot_b` are the sides of the match (`score` is in that
-/// order); `summary` (the runner's `summary.json`) is only included in the detail view.
-fn match_view(r: &rusqlite::Row, detail: bool) -> rusqlite::Result<Value> {
+/// Who is looking at the archive. Submission ids and module hashes are shown only for the viewer's own team
+/// (the organisers see every team): another team's versions, and how many it has fielded, stay private.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Viewer {
+    Public,
+    Team(String),
+    Admin,
+}
+
+impl Viewer {
+    /// May see what `team_id` submitted.
+    pub fn sees(&self, team_id: &str) -> bool {
+        match self {
+            Viewer::Public => false,
+            Viewer::Team(own) => own == team_id,
+            Viewer::Admin => true,
+        }
+    }
+}
+
+/// `summary.json` names each side's module (`teams[i].wasm_sha256`, and `name`, a hash prefix unless the
+/// job named it): drop both for every side the viewer may not see. `slot_teams` is the team in each slot.
+fn redact_summary(mut summary: Value, slot_teams: [&Value; 2], viewer: &Viewer) -> Value {
+    for (i, team) in slot_teams.iter().enumerate() {
+        if viewer.sees(team.as_str().unwrap_or_default()) {
+            continue;
+        }
+        if let Some(side) = summary
+            .get_mut("teams")
+            .and_then(|t| t.get_mut(i))
+            .and_then(Value::as_object_mut)
+        {
+            side.remove("wasm_sha256");
+            side.remove("name");
+        }
+    }
+    summary
+}
+
+/// One game as the API shows it. `bot_a` / `bot_b` are the sides of the match (`score` is in that order);
+/// `summary` (the runner's `summary.json`, redacted for `viewer`) is only included in the detail view, and
+/// the job behind the game only for the organisers.
+fn match_view(r: &rusqlite::Row, detail: Option<&Viewer>) -> rusqlite::Result<Value> {
     let swapped: bool = r.get(5)?;
     let team = |id: usize, name: usize| -> rusqlite::Result<Value> {
         Ok(json!({"team_id": r.get::<_, String>(id)?, "name": r.get::<_, String>(name)?}))
@@ -438,13 +567,17 @@ fn match_view(r: &rusqlite::Row, detail: bool) -> rusqlite::Result<Value> {
         "verified": r.get::<_, bool>(14)?,
         "created_at": rfc3339(r.get(15)?), "finished_at": opt_rfc3339(r.get(16)?),
     });
-    if detail {
-        v["job_id"] = json!(r.get::<_, String>(17)?);
-        v["error"] = json!(r.get::<_, Option<String>>(18)?);
-        v["summary"] = if done {
-            result.get("summary").cloned().unwrap_or(Value::Null)
-        } else {
-            Value::Null
+    if let Some(viewer) = detail {
+        if *viewer == Viewer::Admin {
+            v["job_id"] = json!(r.get::<_, String>(17)?);
+            v["error"] = json!(r.get::<_, Option<String>>(18)?);
+        }
+        v["summary"] = match result.get("summary") {
+            Some(summary) if done => {
+                let slots = [&v["bot_a"]["team_id"], &v["bot_b"]["team_id"]];
+                redact_summary(summary.clone(), slots, viewer)
+            }
+            _ => Value::Null,
         };
     }
     Ok(v)
@@ -454,6 +587,8 @@ fn match_view(r: &rusqlite::Row, detail: bool) -> rusqlite::Result<Value> {
 pub struct MatchFilter {
     pub team: Option<String>,
     pub series: Option<String>,
+    /// `ranked`, `unranked` or `tournament`.
+    pub kind: Option<String>,
     /// Only matches listed after this match id: the cursor for paging backwards in time.
     pub before: Option<String>,
     pub limit: i64,
@@ -465,19 +600,20 @@ pub fn list_matches(tx: &Transaction, f: &MatchFilter) -> ApiResult<Vec<Value>> 
         "{MATCH_SQL} WHERE (?1 IS NULL OR s.team_a = ?1 OR s.team_b = ?1) AND (?2 IS NULL OR g.series_id = ?2)
            AND (?3 IS NULL OR (g.created_at, g.series_id, g.idx) <
                                (SELECT c.created_at, c.series_id, c.idx FROM games c WHERE c.id = ?3))
+           AND (?5 IS NULL OR s.kind = ?5)
          ORDER BY g.created_at DESC, g.series_id DESC, g.idx DESC LIMIT ?4"
     );
     let mut st = tx.prepare_cached(&sql)?;
-    let rows = st.query_map(params![f.team, f.series, f.before, f.limit], |r| {
-        match_view(r, false)
+    let rows = st.query_map(params![f.team, f.series, f.before, f.limit, f.kind], |r| {
+        match_view(r, None)
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-pub fn get_match(tx: &Transaction, id: &str) -> ApiResult<Option<Value>> {
+pub fn get_match(tx: &Transaction, id: &str, viewer: &Viewer) -> ApiResult<Option<Value>> {
     Ok(tx
         .query_row(&format!("{MATCH_SQL} WHERE g.id = ?1"), [id], |r| {
-            match_view(r, true)
+            match_view(r, Some(viewer))
         })
         .optional()?)
 }
@@ -494,7 +630,9 @@ pub fn match_replay(tx: &Transaction, id: &str) -> ApiResult<Option<String>> {
         .flatten())
 }
 
-pub fn series_view(tx: &Transaction, id: &str) -> ApiResult<Option<Value>> {
+/// A series and its games. Each side shows the submission it played (pinned at creation) only to a viewer
+/// who may see that team.
+pub fn series_view(tx: &Transaction, id: &str, viewer: &Viewer) -> ApiResult<Option<Value>> {
     let head = tx
         .query_row(
             "SELECT s.id, s.kind, s.team_a, ta.name, s.team_b, tb.name, s.sub_a, s.sub_b, s.games, s.state, s.rated,
@@ -503,13 +641,18 @@ pub fn series_view(tx: &Transaction, id: &str) -> ApiResult<Option<Value>> {
              JOIN submissions sa ON sa.id = s.sub_a JOIN submissions sb ON sb.id = s.sub_b WHERE s.id = ?1",
             [id],
             |r| {
-                // The submissions are the ones that were live when the series was created (pinned).
+                let side = |team: usize, name: usize, sub: usize, sha: usize| -> rusqlite::Result<Value> {
+                    let team_id: String = r.get(team)?;
+                    let mut v = json!({"team_id": team_id, "name": r.get::<_, String>(name)?});
+                    if viewer.sees(&team_id) {
+                        v["submission_id"] = json!(r.get::<_, String>(sub)?);
+                        v["sha256"] = json!(r.get::<_, String>(sha)?);
+                    }
+                    Ok(v)
+                };
                 Ok(json!({
                     "series_id": r.get::<_, String>(0)?, "kind": r.get::<_, String>(1)?,
-                    "team_a": {"team_id": r.get::<_, String>(2)?, "name": r.get::<_, String>(3)?,
-                               "submission_id": r.get::<_, String>(6)?, "sha256": r.get::<_, String>(17)?},
-                    "team_b": {"team_id": r.get::<_, String>(4)?, "name": r.get::<_, String>(5)?,
-                               "submission_id": r.get::<_, String>(7)?, "sha256": r.get::<_, String>(18)?},
+                    "team_a": side(2, 3, 6, 17)?, "team_b": side(4, 5, 7, 18)?,
                     "games": r.get::<_, i64>(8)?, "state": r.get::<_, String>(9)?, "rated": r.get::<_, bool>(10)?,
                     "wins_a": r.get::<_, i64>(11)?, "wins_b": r.get::<_, i64>(12)?, "draws": r.get::<_, i64>(13)?,
                     "note": r.get::<_, Option<String>>(14)?,

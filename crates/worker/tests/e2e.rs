@@ -34,6 +34,8 @@ impl Coordinator {
             sweep_ms: 200,
             retry_grace_ms: 1_000,
             verify_fraction: 0.25,
+            // The test queues its own ranked series.
+            ranked_interval_ms: 0,
             ..Config::default()
         };
         let app = App::open(cfg, &dir.join("data")).expect("coordinator data dir");
@@ -321,11 +323,11 @@ fn real_coordinator_and_workers_play_a_ranked_league_and_survive_a_killed_worker
     // The ladder moved: everyone played, and the rusher beat the idle bot.
     let ladder = c.json("GET", "/v1/ladder", None, Value::Null);
     let row = |name: &str| {
-        ladder["teams"]
+        ladder
             .as_array()
             .unwrap()
             .iter()
-            .find(|t| t["name"] == name)
+            .find(|t| t["team_name"] == name)
             .unwrap()
             .clone()
     };
@@ -333,8 +335,9 @@ fn real_coordinator_and_workers_play_a_ranked_league_and_survive_a_killed_worker
         names.iter().all(|n| row(n)["games"].as_i64() >= Some(6)),
         "{ladder}"
     );
+    // Few series each: still provisional, so compare places, not (hidden) ratings.
     assert!(
-        row("alpha")["rating"].as_i64() > row("gamma")["rating"].as_i64(),
+        row("alpha")["rank"].as_i64() < row("gamma")["rank"].as_i64(),
         "{ladder}"
     );
 

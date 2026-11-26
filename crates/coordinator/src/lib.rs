@@ -175,6 +175,28 @@ impl App {
         now: i64,
     ) -> ApiResult<String> {
         let (id, cache_hits) = db::league::create_series(tx, kind, a, b, games, requested_by, now)?;
+        self.after_series_created(tx, cache_hits, now)?;
+        Ok(id)
+    }
+
+    /// Create a series from an explicit spec (a scrim), as `new_series` does.
+    pub fn new_series_with(
+        &self,
+        tx: &rusqlite::Transaction,
+        spec: &db::league::SeriesSpec,
+        now: i64,
+    ) -> ApiResult<String> {
+        let (id, cache_hits) = db::league::create_series_with(tx, spec, now)?;
+        self.after_series_created(tx, cache_hits, now)?;
+        Ok(id)
+    }
+
+    fn after_series_created(
+        &self,
+        tx: &rusqlite::Transaction,
+        cache_hits: usize,
+        now: i64,
+    ) -> ApiResult<()> {
         bump(&self.counters.cache_hits, cache_hits);
         if cache_hits > 0 {
             db::league::finalize_ready(
@@ -184,7 +206,7 @@ impl App {
                 self.cfg.ladder_snapshots_kept,
             )?;
         }
-        Ok(id)
+        Ok(())
     }
 
     /// How many ranked series the live workers can play in one scheduler round
@@ -208,11 +230,15 @@ impl App {
             max_series_per_batch: u32::try_from(self.cfg.ranked_series_budget).unwrap_or(u32::MAX),
             ..ibc_rating::BudgetConfig::default()
         };
-        Ok(ibc_rating::series_per_batch(
-            cores as f64 * 3600.0,
-            mean,
-            &budget,
-        ))
+        let series = ibc_rating::series_per_batch(cores as f64 * 3600.0, mean, &budget);
+        // Nothing measured yet and the prior does not fit one series in a round (a short interval, a
+        // small fleet): play one anyway, so the governor gets a measurement. Otherwise the scheduler would
+        // wait for an organiser to start the ladder by hand.
+        Ok(if series == 0 && cores > 0 && mean.is_none() {
+            1
+        } else {
+            series
+        })
     }
 
     /// One round of the ranked scheduler: `ibc_rating::plan_batch` pairs live teams that have no ranked

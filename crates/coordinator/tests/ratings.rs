@@ -17,14 +17,20 @@ fn stronger<'a>(a: &'a str, b: &'a str) -> (&'a str, &'a str) {
     }
 }
 
+/// The organisers' view of a series (with both pinned submissions).
 async fn series(h: &Harness, id: &Value) -> Value {
     h.ok(
         "GET",
         &format!("/v1/series/{}", id.as_str().unwrap()),
-        None,
+        Some(ADMIN),
         Value::Null,
     )
     .await
+}
+
+/// The team's live submission id.
+async fn live(h: &Harness, token: &str) -> Value {
+    h.ok("GET", "/v1/team", Some(token), Value::Null).await["live_submission"].clone()
 }
 
 async fn upload(h: &Harness, token: &str, tag: &str, query: &str) -> Value {
@@ -118,11 +124,9 @@ async fn a_team_chooses_its_live_submission_and_a_change_widens_its_uncertainty(
     .await;
     let w = MockWorker::register(&h, "w", true).await;
     assert_eq!(w.drain(&h).await, 12);
-    let settled = h.standing("alpha").await;
-    assert_eq!(
-        (settled["sigma"].as_f64(), settled["provisional"].as_bool()),
-        (Some(0.0), Some(false))
-    );
+    let settled = h.rating("alpha").rating;
+    assert_eq!(settled.sigma, 0.0);
+    assert!(!h.app.rating.is_provisional(&settled));
 
     // Uploaded but not live: nothing changes.
     let v2 = upload(&h, alpha, "alpha v2", "?live=false").await;
@@ -131,7 +135,7 @@ async fn a_team_chooses_its_live_submission_and_a_change_widens_its_uncertainty(
         h.ok("GET", "/v1/team", Some(alpha), Value::Null).await["live_submission"],
         v1
     );
-    assert_eq!(h.standing("alpha").await["sigma"], 0.0);
+    assert_eq!(h.rating("alpha").rating.sigma, 0.0);
 
     // Selected: live, and the rating is provisional again (Elo reopens half its window).
     let path = format!(
@@ -140,16 +144,11 @@ async fn a_team_chooses_its_live_submission_and_a_change_widens_its_uncertainty(
     );
     let out = h.ok("POST", &path, Some(alpha), Value::Null).await;
     assert_eq!(out["changed"], true);
-    let switched = h.standing("alpha").await;
-    assert_eq!(switched["submission_id"], v2["submission_id"]);
-    assert_eq!(
-        (
-            switched["sigma"].as_f64(),
-            switched["provisional"].as_bool()
-        ),
-        (Some(0.5), Some(true))
-    );
-    assert_eq!(switched["mu"], settled["mu"], "the estimate is kept");
+    assert_eq!(live(&h, alpha).await, v2["submission_id"]);
+    let switched = h.rating("alpha").rating;
+    assert_eq!(switched.sigma, 0.5);
+    assert!(h.app.rating.is_provisional(&switched));
+    assert_eq!(switched.mu, settled.mu, "the estimate is kept");
     // Selecting it again changes nothing; the organisers can switch a team back.
     assert_eq!(
         h.ok("POST", &path, Some(alpha), Value::Null).await["changed"],
@@ -160,7 +159,7 @@ async fn a_team_chooses_its_live_submission_and_a_change_widens_its_uncertainty(
         h.ok("POST", &back, Some(ADMIN), Value::Null).await["changed"],
         true
     );
-    assert_eq!(h.standing("alpha").await["submission_id"], v1);
+    assert_eq!(live(&h, alpha).await, v1);
 
     // Someone else's submission, an unknown one, a rejected one.
     assert_eq!(
@@ -237,7 +236,7 @@ async fn the_matchmaker_pairs_free_teams_within_the_budget() {
         w.drain(&h).await;
     }
     let ladder = h.ok("GET", "/v1/ladder", None, Value::Null).await;
-    assert!(ladder["teams"]
+    assert!(ladder
         .as_array()
         .unwrap()
         .iter()
@@ -387,22 +386,19 @@ async fn switching_the_rating_system_recomputes_every_rating_from_the_ledger() {
     .await;
     let w = MockWorker::register(&h, "w", true).await;
     assert_eq!(w.drain(&h).await, 4);
-    let wl = h.standing(winner).await;
-    assert_eq!(
-        h.ok("GET", "/v1/ladder", None, Value::Null).await["system"],
-        "weng-lin-bt"
-    );
+    let wl = h.rating(winner);
+    assert_eq!(h.app.rating.name(), "weng-lin-bt");
 
     h.reopen(|c| c.rating_system = "elo".into());
+    assert_eq!(h.app.rating.name(), "elo");
     let ladder = h.ok("GET", "/v1/ladder", None, Value::Null).await;
-    assert_eq!(ladder["system"], "elo");
-    let teams = ladder["teams"].as_array().unwrap();
-    assert_eq!(teams[0]["name"], winner);
+    let teams = ladder.as_array().unwrap();
+    assert_eq!(teams[0]["team_name"], winner);
     assert_eq!(
         (teams[0]["games"].as_i64(), teams[0]["wins"].as_i64()),
         (Some(4), Some(4))
     );
-    let sum: f64 = teams.iter().map(|t| t["mu"].as_f64().unwrap()).sum();
+    let sum = h.rating("alpha").rating.mu + h.rating("beta").rating.mu;
     assert!(
         (sum - 3000.0).abs() < 1e-9,
         "Elo conserves the rating sum: {sum}"
@@ -410,11 +406,7 @@ async fn switching_the_rating_system_recomputes_every_rating_from_the_ledger() {
 
     // And back: the same Weng-Lin numbers as before, bit for bit.
     h.reopen(|c| c.rating_system = "weng-lin".into());
-    let again = h.standing(winner).await;
-    assert_eq!(
-        (&again["mu"], &again["sigma"], &again["rating"]),
-        (&wl["mu"], &wl["sigma"], &wl["rating"])
-    );
+    assert_eq!(h.rating(winner).rating, wl.rating);
     let mut cfg = h.app.cfg.clone();
     cfg.rating_system = "glicko".into();
     let nowhere = std::env::temp_dir().join("ibc-coordinator-test-never-created");
