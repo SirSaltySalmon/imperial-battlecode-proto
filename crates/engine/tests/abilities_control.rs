@@ -1,5 +1,6 @@
 //! Trap, sonar and concussion: one scenario per rule (trigger, fog, friendly fire, expiry), and a match with
-//! the three kits that carry them, played twice and replayed from its inputs.
+//! the three kits that carry them, played twice and replayed from its inputs. A use waits out its startup
+//! (`delay`, unit 5) and then appears where it lands, active at once.
 
 use ibc_engine::abi::*;
 use ibc_engine::{fixed, Input, Map, Match, Ruleset};
@@ -97,12 +98,11 @@ fn trap_is_hidden_from_enemies_until_close_then_springs_on_them() {
     place(&mut m, 0, c(2, 3), EAST);
     place(&mut m, 2, c(12, 3), WEST);
     assert_eq!(use_at(&mut m, 0, 0, c(4, 3)), OK);
-    m.step();
+    steps(&mut m, trap.delay + 1);
     assert_eq!(kinds(&m), [EFFECT_TRAP]);
     assert_eq!(row::<EffectInfo>(&m, 1, T_EFFECTS, 0).kind, EFFECT_TRAP, "the owner's team always sees it");
     assert!(sees(&m, 2, 0), "the enemy looks straight at the trap and the thrower");
     assert_eq!(m.count(2, T_EFFECTS), 0, "but not at the trap from 8 tiles away");
-    steps(&mut m, trap.delay);
 
     // Run at it. Within sense_radius it shows; inside its radius it springs.
     let sense = m.world.rules.core.sense_radius as i64;
@@ -158,7 +158,7 @@ fn trap_catches_teammates_and_a_dash_cannot_jump_it() {
 }
 
 #[test]
-fn trap_does_nothing_while_arming_and_expires_unsprung() {
+fn trap_does_nothing_during_its_startup_and_expires_unsprung() {
     let mut m = setup(&[(0, "trapper")]);
     let id = ability_id("trap");
     m.world.rules.abilities[id].duration = 5;
@@ -166,13 +166,12 @@ fn trap_does_nothing_while_arming_and_expires_unsprung() {
     place(&mut m, 0, c(2, 3), EAST);
     place(&mut m, 2, c(4, 3), WEST);
     assert_eq!(use_at(&mut m, 0, 0, c(4, 3)), OK);
-    m.step();
-    assert_eq!(m.count(2, T_EFFECTS), 1, "an enemy standing on it sees it");
-    steps(&mut m, trap.delay - 1);
-    assert_eq!(kinds(&m), [EFFECT_TRAP], "still arming");
+    steps(&mut m, trap.delay);
+    assert!(kinds(&m).is_empty(), "nothing in the world during the startup");
+    assert!(me(&m, 0).state & S_CASTING != 0);
     assert_eq!(m.world.units[2].slowed, 0);
     m.step();
-    assert!(m.world.effects.is_empty(), "armed under a unit: springs at once");
+    assert!(m.world.effects.is_empty(), "placed under a unit: springs at once");
     assert_eq!(m.world.units[2].slowed, trap.power);
 
     // A second round with nobody near: it lies for `duration` ticks and goes.
@@ -205,7 +204,7 @@ fn sonar_reveals_everyone_in_range_through_walls_teammates_included() {
     assert_eq!(use_at(&mut m, 0, 0, c(8, 5)), OK);
     for _ in 0..sonar.delay {
         m.step();
-        assert_eq!(kinds(&m), [EFFECT_SONAR], "arming");
+        assert!(kinds(&m).is_empty() && me(&m, 0).state & S_CASTING != 0, "in its startup");
         assert_eq!(m.world.units[2].revealed, 0);
     }
     m.step();
@@ -241,8 +240,8 @@ fn concussion_breaks_a_plant_and_a_reload_and_slows_both_teams() {
     assert_eq!(use_at(&mut m, 2, 1, c(17, 7)), OK);
     assert_eq!(m.act(3, A_RELOAD, 0, 0, 0), OK);
     m.step();
-    assert_eq!(kinds(&m), [EFFECT_CONCUSSION]);
-    assert!(me(&m, carrier as u32).state & S_PLANTING != 0, "still planting while it arms");
+    assert!(kinds(&m).is_empty() && me(&m, 2).state & S_CASTING != 0, "in its startup");
+    assert!(me(&m, carrier as u32).state & S_PLANTING != 0, "still planting during the startup");
     assert!(me(&m, 3).state & S_RELOADING != 0);
     steps(&mut m, conc.delay);
     assert!(m.world.effects.is_empty(), "a pop lasts one tick");
@@ -347,9 +346,19 @@ fn play(seed: u64) -> Run {
             controller(&mut m, unit);
         }
         let inputs = m.take_inputs();
+        let before: Vec<[i32; 2]> = m.world.units.iter().map(|u| u.abil.charges).collect();
         m.step();
         for e in &m.world.effects {
             run.kinds |= 1 << e.info.kind;
+        }
+        // A sonar pulse or a concussion appears and is gone within one step: count the use itself.
+        for (u, had) in m.world.units.iter().zip(before) {
+            for slot in 0..2 {
+                let id = m.world.rules.kits[u.kit as usize].abilities[slot];
+                if id >= 0 && u.abil.charges[slot] < had[slot] {
+                    run.kinds |= 1 << m.world.rules.abilities[id as usize].effect;
+                }
+            }
         }
         run.slowed += m.world.units.iter().filter(|u| u.slowed > 0).count() as u32;
         run.revealed += m.world.units.iter().filter(|u| u.revealed > 0).count() as u32;
