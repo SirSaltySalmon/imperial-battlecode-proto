@@ -1,0 +1,63 @@
+name: Docs
+
+# The generated handbook (docs/generated/) must match its sources. Runs only when something it is generated
+# from changed: the ruleset, the ABI, the engine code that loads and hashes the ruleset, the SDK, the docs
+# bundled into llm.md, the generator, or the toolchain and lockfile it is built with.
+on:
+  pull_request:
+    paths:
+      - "rules/**"
+      - "crates/abi/**"
+      - "crates/engine/src/lib.rs"
+      - "crates/engine/src/rules.rs"
+      - "crates/engine/src/economy/**"
+      - "crates/replay/**"
+      - "sdk/rust/src/**"
+      - "docs/**"
+      - "xtask/**"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/docs.yml"
+  push:
+    branches: [main]
+    paths:
+      - "rules/**"
+      - "crates/abi/**"
+      - "crates/engine/src/lib.rs"
+      - "crates/engine/src/rules.rs"
+      - "crates/engine/src/economy/**"
+      - "crates/replay/**"
+      - "sdk/rust/src/**"
+      - "docs/**"
+      - "xtask/**"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/docs.yml"
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  fresh:
+    name: generated docs are up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      # Reads the cache the CI check job writes on main (xtask and its dependencies are built there too).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check
+          save-if: false
+      - name: cargo xtask docs --check
+        run: cargo xtask docs --check

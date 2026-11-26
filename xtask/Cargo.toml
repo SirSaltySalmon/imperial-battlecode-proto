@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Repository tasks: `cargo xtask check | golden | engine-wasm | dist | patch-id`."
+description = "Repository tasks: `cargo xtask check | golden | engine-wasm | dist | patch-id | docs`."
 
 # No wasmtime here on purpose: the native goldens and the patch identity must build in seconds.
 [dependencies]
@@ -15,6 +15,9 @@ ibc-sim = { path = "../crates/sim" }
 ibc-engine-wasm = { path = "../crates/engine-wasm" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# `docs` reads the ABI and SDK sources as Rust syntax, so the reference cannot drift from them.
+syn = { version = "3", features = ["full"] }
+toml = { workspace = true }
 
 # This crate is held to `clippy -D warnings` from day one (see src/check.rs); the toolchain is pinned, so
 # a new compiler cannot introduce warnings behind our back.

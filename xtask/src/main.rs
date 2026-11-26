@@ -4,6 +4,7 @@ mod check;
 mod dist;
 mod dist_contents;
 mod distribution;
+mod docs;
 mod engine_wasm;
 mod golden;
 mod patch_id;
@@ -20,7 +21,8 @@ const USAGE: &str = "usage: cargo xtask <task>
   dist sums [dir]                                                 write SHA256SUMS
   dist distribution [dir] [--base-url URL]                        rewrite distribution.json from the archives
   dist pip-data [--viewer DIR | --no-viewer]                      stage viewer, maps, docs for the pip wheel
-  patch-id [--json | --markdown] [--bin <ibc>]                    engine, ruleset hash, wasmtime and ABI versions";
+  patch-id [--json | --markdown] [--bin <ibc>]                    engine, ruleset hash, wasmtime and ABI versions
+  docs [--check]                                                  generated handbook in docs/generated";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,6 +33,7 @@ fn main() -> ExitCode {
         Some("engine-wasm") => engine_wasm::main(rest),
         Some("dist") => dist::main(rest),
         Some("patch-id") => patch_id::main(rest),
+        Some("docs") => docs::main(rest),
         _ => Err(USAGE.to_string()),
     };
     match result {
