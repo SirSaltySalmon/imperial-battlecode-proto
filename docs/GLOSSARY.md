@@ -43,9 +43,8 @@ credits reset to `start_credits`.
 `overtime_credits`. A team that takes both rounds of a pair wins the game. At most `overtime_max_pairs` (3)
 pairs are played. Never call a single overtime round a "game".
 
-**Tie-break.** What decides a game still level after the last overtime pair, or one cut off by `max_ticks`:
-rounds, then kills, then damage. Today a seed coin flip decides if all three are level; the decided rule is a
-**drawn game** instead **(landing)**.
+**Tie-break.** What decides a game still level after the last overtime pair: rounds, then kills, then damage.
+If all three are level the game is **drawn**. A game cut off by `max_ticks` is drawn whatever the score.
 
 ## Games and the platform
 
@@ -55,8 +54,8 @@ tie-break as above. A game is a pure function of (patch, map, bot A, bot B, seed
 game never means several maps.
 
 **Series.** Several games between the same two submissions, one map each, distinct maps. The platform rates,
-lists and requests series (`GET series/{id}`). Today a ranked series has `IBC_RANKED_GAMES` games (default 2);
-the decided size is 3 to 5 **(landing)**.
+lists and requests series (`GET series/{id}`). A ranked series has `IBC_RANKED_GAMES` games (default 3; the
+decided size is 3 to 5).
 
 **Slot** (team slot). Which of the two seats a team takes in a game: **A** or **B** (`TEAM_A = 0`, `TEAM_B = 1`).
 Team A attacks first. Unit ids `0..n-1` are team A and `n..2n-1` team B. The word "slot" also appears, always
@@ -71,8 +70,7 @@ within a game.
 low 32 bits as `MatchInfo.seed_lo`.
 
 **Team.** In a game, the 3 to 5 units on one slot (the map sets the size). On the platform, a group of 1 to 4
-people who share submissions and a rating, joined by a join code **(landing: today a team is one bearer
-token)**.
+people who share submissions and a rating, joined by a join code.
 
 **Unit.** One body on the map, run by its own bot instance for the whole game.
 
@@ -90,21 +88,21 @@ The team chooses it among its submissions; it cannot be unset once set.
 uncertain to mean much (a new team or a fresh submission); clients show "provisional" instead of the number.
 
 **Tier.** The label for a rating band: Iron, Bronze, Silver, Gold, Platinum, Diamond, Ascendant, Immortal,
-Radiant. Display only; matchmaking ignores it **(landing)**.
+Radiant. Display only; matchmaking ignores it.
 
 **Ranked.** A series the platform schedules itself between live submissions, which changes ratings.
 
 **Scrim** (unranked series). A series a team requests against another team, from a daily quota. It does not
 change ratings. It uses the opponent's live submission, or exactly the submission they fielded in an earlier
-series against you **(landing: today only the live submission)**.
+series against you.
 
 **Tournament.** A bracket (single or double elimination) run by the organisers on submissions locked at a
-set time, seeded from the ladder, on maps hidden until it starts **(landing)**.
+set time, seeded from the ladder, on maps hidden until it starts.
 
 **Pairing.** One bracket match-up in a tournament round: two teams play every tournament map, one game each.
 **decided_by** records how the pairing was won: `maps` (more maps won), `rounds` (maps level, more rounds won
 across all its maps, overtime included), or `seed` (both level, the higher seed advanced; flagged for the
-organisers). `null` while unfinished **(landing)**.
+organisers). `null` while unfinished.
 
 ## Versions
 
@@ -123,17 +121,15 @@ use "patch" for a code change in general.
 
 **Kit.** What a unit drafts: base health, speed and exactly two ability slots (`T_KIT`, `KitRules`). Kit 0 is
 played by a unit that never drafts. Kits are unique within a team, not across teams, and one unit drafts for the
-whole team **(landing: today each unit drafts its own kit and duplicates are allowed)**.
+whole team (`A_DRAFT_FOR`).
 
-**Signature ability.** Ability slot 0 of a kit. Free: it is refilled to one charge at the start of every round
-**(landing: today an ability with `price = 0` is refilled to its `max_charges`, up to 2; every kit's slot 0
-holds such an ability)**.
+**Signature ability.** Ability slot 0 of a kit. Free: it is refilled to one charge at the start of every round.
 
 **Bought ability.** Ability slot 1 of a kit. Its charges are bought in the buy phase (`ITEM_KIND_ABILITY_CHARGE`;
 the charge costs the item's price plus the ability's).
 
-**Ability charge.** One use of an ability. A unit holds at most one charge per ability **(landing: today the cap
-is the ability's `max_charges`, up to 2)**; unused charges carry over to the next round.
+**Ability charge.** One use of an ability. A unit holds at most one charge per ability (`max_charges` is 1 for
+every ability); unused charges carry over to the next round.
 
 **The charge** (objective). The bomb the attackers carry, plant on a site and the defenders defuse
 (`DROP_CHARGE`, `S_HAS_CHARGE`). Not to be confused with an ability charge: say "the charge" for the bomb and
@@ -154,9 +150,9 @@ call (`FUEL_*`). Each unit gets `fuel_per_tick` per tick, times `fuel_first_tick
 `fuel_buy_mult` in the buy phase. Unused fuel is lost; a bot that runs out is paused and resumes next tick.
 
 **Fog.** The host lists only what the caller may perceive: `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS`, `T_DROPS`.
-Teammates are always known. Vision and heard sounds are shared by the whole team **(landing: today each unit sees
-only its own vision)**. Events follow fog too: a team sees an event only where it can see, except kills, which
-both teams always get without the position **(landing: today every event reaches everyone)**.
+Teammates are always known. Vision and heard sounds are shared by the whole team. Events follow fog too: a team sees
+an event only where it can see, except kills, plant, defuse, detonation and round end, which both teams always
+get, without the position when it is not known (`POS_HIDDEN`).
 
 **Vision.** A unit sees an enemy within `vision_range`, inside its cone (`facing ± fov_half`), with a clear
 line; within `sense_radius` the cone does not matter.
@@ -166,20 +162,20 @@ abilities and decoys, within their radius and through walls, at a position snapp
 (speed at most `walk_speed`) is silent.
 
 **Team memory.** `MEM_TEAM`, `team_mem_bytes` (64) shared by a team, readable and writable by every teammate. A
-teammate running later in the same tick sees a write. It is wiped at the end of every round and writable only in
-action phases **(landing: today it lasts the whole game and is writable in every phase)**.
+teammate running later in the same tick sees a write. It is wiped at the start of every round and writable only in
+action phases.
 
 **Draft memory.** `MEM_DRAFT`, `draft_mem_bytes` (1024), written during the draft, read-only afterwards.
 
-**Buy memory.** A memory scope like draft memory for the buy phase, smaller, wiped every round **(landing: not
-in the ABI yet)**.
+**Buy memory.** `MEM_BUY`, `buy_mem_bytes`, a memory scope like draft memory for the buy phase, smaller,
+wiped every round and writable only in the buy phase.
 
 **Unsteadiness.** A per-unit value that builds up with movement speed each tick and decays while the unit stands
 still, like recoil. A weapon's startup (wind-up) grows with it, so moving costs time before a shot, never
-accuracy **(landing: today the wind-up is fixed and movement widens the spread)**.
+accuracy.
 
 **Brace.** The state after a completed startup in which a unit keeps firing at the weapon's normal rate. Moving,
-a tick without firing, reloading or swapping weapon breaks it; turning does not **(landing)**.
+a tick without firing, reloading, swapping weapon or starting an ability breaks it; turning does not.
 
 **Recoil.** Heat added by each shot (`recoil_per_shot`), recovering on ticks without a shot. It widens the
 pellet fan.
