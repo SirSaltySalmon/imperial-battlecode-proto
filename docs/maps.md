@@ -76,6 +76,7 @@ Structural checks; exits non-zero on any error (`--strict`: on warnings too).
 | `site-unreachable`, `site-small` | error | A site is cut off, or has fewer than 4 tiles |
 | `site-centre` | error | The bounding-box centre is blocked or not on the site, so bots cannot plant |
 | `spawn-sightline` | error | An attacker and a defender spawn tile see each other at round start |
+| `blast-escape` | error | From some plant tile no reachable tile lies outside `blast_radius` (12 tiles) of a charge anywhere on that tile: a lost retake would cost everyone near the site their gun |
 | `diagonal-pinch` | warning | Two floor tiles touch only at a corner between blocked tiles |
 | `site-split`, `spawn-on-site`, `no-name`, `name-mismatch`, `no-team-size`, `team-size` | warning | Probably not what you meant |
 
@@ -118,7 +119,8 @@ SVG (for docs and review) or text. Overlays: `routes` (fastest attacker and defe
 `transform --op` takes `flip-h`, `flip-v`, `transpose`, `rot90`, `rot180`, `rot270` (clockwise) and
 `swap-sides`. `mirror --axis h|v|point` copies one half onto the other (site digits in the copy are shifted
 so a mirrored site 1 becomes a new site; `--swap-sides` trades `a` and `d` in the copy). `new` writes a
-bordered, lint-clean scaffold to start from. Several pool maps were drawn as a top half and mirrored.
+bordered scaffold to start from; it is lint-clean from about 24 tiles wide (smaller ones fail
+`blast-escape`). Several pool maps were drawn as a top half and mirrored.
 
 ## Design guidelines and target bands
 
@@ -159,6 +161,10 @@ Guidelines that the numbers come from:
 - **Watch both axes.** On maps taller than about 24 tiles, gaps that line up vertically make 25-tile
   sightlines as easily as lanes do.
 - **No spawn-to-spawn sightline**, ever (lint error).
+- **Room to run from the blast.** A detonation kills every unit within 12 tiles of the charge, through walls.
+  From every plant tile some reachable tile must lie outside that circle (lint error `blast-escape`). Every
+  map in the pool passes; at run speed clearing the radius from the charge takes about 18 ticks. The lint
+  checks that a way out exists, not that it is short enough to take within the fuse.
 
 Bands are configurable: copy the output of `ibc-maptool bands`, edit, pass `--bands`. A map may sit
 outside a band on purpose; say so in its row of the gallery.

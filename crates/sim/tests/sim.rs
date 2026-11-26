@@ -89,7 +89,9 @@ fn unknown_bot_and_bad_map_are_errors() {
 fn idle_mirror_finishes() {
     let (_, map) = maps().remove(0);
     let r = play(&map, 1, "idle", "idle");
-    assert!(r.winner.is_some());
+    // Every round goes to the defenders on the clock: 6-6, split overtime pairs, a level tie-break, a draw.
+    assert!(r.finished);
+    assert_eq!((r.winner, r.score[0]), (None, r.score[1]));
 }
 
 /// Test-only bot: never shoots. Attacking, the carrier runs to the nearest site and plants;

@@ -325,6 +325,7 @@ fn dash_moves_instantly_and_stops_at_walls() {
     assert_eq!(m.world.units[0].pos, (c(2, 3).0 + dash.range, c(2, 3).1), "the full range along the line");
     let me: UnitInfo = row(&m, 0, T_SELF, 0);
     assert_eq!((me.charges[0], me.cooldown[0]), (dash.max_charges - 1, dash.cooldown));
+    m.world.units[0].abil.charges[0] = 1; // so the refusals below are the cooldown, not an empty slot
     assert_eq!(use_at(&mut m, 0, 0, c(12, 3)), ERR_NOT_READY, "cooling down");
     steps(&mut m, dash.cooldown as usize - 1);
     assert_eq!(use_at(&mut m, 0, 0, c(12, 3)), ERR_NOT_READY, "the last tick of the cooldown");
@@ -392,6 +393,7 @@ fn heal_restores_an_ally_over_time_up_to_its_maximum() {
     // Self-heal, capped at the kit's hit points.
     let cap = m.world.rules.kits[kit("mender") as usize].hp;
     m.world.units[0].hp = cap - 3;
+    m.world.units[0].abil.charges[0] = 1; // so the refusal below is the cooldown, not an empty slot
     assert_eq!(use_at(&mut m, 0, 0, c(2, 3)), ERR_NOT_READY, "the last tick of the cooldown");
     m.step();
     assert_eq!(use_at(&mut m, 0, 0, c(2, 3)), OK);

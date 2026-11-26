@@ -57,7 +57,7 @@ mod imp {
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use crate::native::{with_current, STATS};
-    use ibc_abi::{ERR_BUFFER_TOO_SMALL, ERR_NOT_ALLOWED};
+    use ibc_abi::ERR_NOT_ALLOWED;
 
     pub fn sys_end_turn() {}
     pub fn sys_fuel_remaining() -> i64 {
@@ -73,9 +73,8 @@ mod imp {
             if n < 0 {
                 return n;
             }
-            if buf.len() > out.len() {
-                return -ERR_BUFFER_TOO_SMALL;
-            }
+            // Records only grow at the end: the caller gets the prefix that fits, as from the wasm host.
+            buf.truncate(out.len());
             out[..buf.len()].copy_from_slice(&buf);
             buf.len() as i32
         })

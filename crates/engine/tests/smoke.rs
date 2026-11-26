@@ -102,7 +102,9 @@ fn fights_happen_and_matches_are_deterministic() {
     let s: serde_json::Value = serde_json::from_str(&a.summary_json()).unwrap();
     let kills: i64 = s["units"].as_array().unwrap().iter().map(|u| u["kills"].as_i64().unwrap()).sum();
     assert!(kills > 0, "nobody was ever hit: {s}");
-    assert!(a.winner().is_some());
+    // Both teams run the same script from mirrored spawns: level on rounds, kills and damage, so a draw.
+    assert!(a.finished());
+    assert_eq!((a.winner(), a.score()[0]), (None, a.score()[1]), "{s}");
 
     // Replay: the recorded inputs alone reproduce every state hash.
     let mut r = Match::new(Ruleset::builtin(), Map::parse(OPEN).unwrap(), 7);

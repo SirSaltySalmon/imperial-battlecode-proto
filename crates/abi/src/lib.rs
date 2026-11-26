@@ -157,6 +157,8 @@ pub const EFFECT_DASH: i32 = 8;
 pub const DROP_CHARGE: i32 = 1;
 pub const DROP_WEAPON: i32 = 2;
 
+/// actor = killer, or -1 for a death nobody caused (the detonation blast); target = victim; value = weapon id,
+/// or -1 when no weapon did it.
 pub const EVENT_KILL: i32 = 1;
 pub const EVENT_PLANT: i32 = 2;
 pub const EVENT_DEFUSE: i32 = 3;
@@ -380,6 +382,8 @@ pub struct CoreRules {
     pub items: i32,
     pub kits: i32,
     pub max_ticks: i32,
+    /// On detonation every living unit within this distance of the charge dies, through walls.
+    pub blast_radius: i32,
 }
 
 #[repr(C)]

@@ -25,7 +25,8 @@ so never hard-code them. This file describes the mechanics; the TOML files are t
   `rounds_to_win` wins. If regulation ends level, overtime is played in pairs of rounds, one per side; see
   [rules/economy.md](rules/economy.md). Details of weapons and abilities are in [rules/combat.md](rules/combat.md)
   and [rules/abilities.md](rules/abilities.md).
-- The match always ends by `max_ticks`.
+- If overtime does not separate the teams, the tie-break does (rounds, then kills, then damage); if that is
+  level too the match is a **draw**. A match that reaches `max_ticks` is a draw whatever the score.
 
 ## A tick
 
@@ -76,6 +77,11 @@ the earlier one.
 - `A_PLANT` works for the carrier standing on a site and takes `plant_ticks`. `A_DEFUSE` works for a defender
   within `interact_reach` of the planted charge and takes `defuse_ticks` (`defuse_kit_ticks` with a kit).
   Moving, firing or `A_CANCEL` interrupts either channel.
+- **Detonation blast.** When the fuse runs out, every living unit within `blast_radius` (12 tiles) of the charge
+  dies, attackers and defenders alike. It is a plain distance: walls do not shield anyone. The attackers win
+  the round even if the blast kills them. Blast deaths are ordinary deaths (weapons drop, the loadout is lost)
+  with no killer: `EVENT_KILL` has actor -1 and weapon -1, nobody is paid for them and they do not count as
+  kills in the tie-break. At run speed clearing the radius from the charge takes about 18 ticks.
 
 ## Economy
 
@@ -95,7 +101,8 @@ barrier, dash, decoy, heal) are defined in `rules/abilities.toml`. The foundatio
   the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
   `memory.copy` and `memory.fill` cost fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
-- Team memory: `team_mem_bytes` shared by the team, readable and writable all match. Units run in an order that
-  alternates teams and rotates each tick; a teammate that runs later in the same tick sees your write.
+- Team memory: `team_mem_bytes` shared by the team, readable and writable, **zeroed at the start of every
+  round**: nothing carries from one round to the next through it. Units run in an order that alternates teams
+  and rotates each tick; a teammate that runs later in the same tick sees your write.
   Draft memory: `draft_mem_bytes`, written during the draft, read-only afterwards.
 - Units of a dead bot (crash or exit) idle for the rest of the match.

@@ -135,36 +135,80 @@ fn every_overtime_round_starts_fresh_with_fixed_credits() {
     assert!(!m.finished());
 }
 
+/// Play every overtime pair as a split (whoever attacks wins), up to the cap.
+fn split_every_pair(m: &mut Match) {
+    for pair in 0..m.world.rules.flow.overtime_max_pairs {
+        assert!(!m.finished(), "pair {pair} is played");
+        let attackers = m.world.team_with_side(SIDE_ATTACK);
+        play_round(m, attackers);
+        assert!(!m.finished());
+        let attackers = m.world.team_with_side(SIDE_ATTACK);
+        play_round(m, attackers);
+    }
+}
+
 #[test]
 fn split_pairs_fall_back_to_the_tiebreak_after_the_cap() {
     let r = Ruleset::builtin();
     let regulation = 2 * r.core.rounds_per_half;
+    // With the score level, the tie-break goes to the team with more kills, whatever the seed.
     for seed in [4u64, 5] {
         let mut m = new_match(r.clone(), seed);
         level_regulation(&mut m);
-        for pair in 0..r.flow.overtime_max_pairs {
-            assert!(!m.finished(), "pair {pair} is played");
-            let attackers = m.world.team_with_side(SIDE_ATTACK);
-            play_round(&mut m, attackers);
-            assert!(!m.finished());
-            let attackers = m.world.team_with_side(SIDE_ATTACK);
-            play_round(&mut m, attackers);
-        }
+        m.world.units[2].stats.kills += 1;
+        split_every_pair(&mut m);
         assert!(m.finished());
         assert_eq!(m.world.round, regulation + 2 * r.flow.overtime_max_pairs);
-        // No kills and no damage were scored, so the seed coin flip decides.
-        assert_eq!(m.winner(), Some((seed & 1) as i32));
+        assert_eq!(m.winner(), Some(TEAM_B));
     }
 
-    // With the score level, the tie-break goes to the team with more kills.
+    // Kills level: damage decides.
     let mut m = new_match(r.clone(), 4);
     level_regulation(&mut m);
-    m.world.units[2].stats.kills += 1;
-    for _ in 0..2 * r.flow.overtime_max_pairs {
-        let attackers = m.world.team_with_side(SIDE_ATTACK);
-        play_round(&mut m, attackers);
+    m.world.units[0].stats.damage += 1;
+    split_every_pair(&mut m);
+    assert_eq!(m.winner(), Some(TEAM_A));
+}
+
+#[test]
+fn a_fully_level_tiebreak_is_a_draw() {
+    let r = Ruleset::builtin();
+    for seed in [4u64, 5] {
+        let mut m = new_match(r.clone(), seed);
+        level_regulation(&mut m);
+        // Equal kills and damage on both sides: nothing separates the teams, and the seed does not either.
+        for u in [0, 2] {
+            m.world.units[u].stats.kills += 2;
+            m.world.units[u].stats.damage += 150;
+        }
+        split_every_pair(&mut m);
+        assert!(m.finished());
+        assert_eq!((m.winner(), m.score()), (None, [9, 9]), "seed {seed}");
+        assert_eq!(m.world.phase, PHASE_MATCH_END);
+        let s: serde_json::Value = serde_json::from_str(&m.summary_json()).unwrap();
+        assert!(s["winner"].is_null());
     }
-    assert_eq!(m.winner(), Some(TEAM_B));
+}
+
+#[test]
+fn running_out_of_ticks_is_a_draw_whatever_the_score() {
+    let mut r = Ruleset::builtin();
+    r.core.rounds_to_win = 99;
+    let mut m = new_match(r, 1);
+    play_round(&mut m, TEAM_A);
+    play_round(&mut m, TEAM_A);
+    m.world.units[0].stats.kills += 5;
+    assert_eq!(m.score(), [2, 0]);
+    m.world.rules.core.max_ticks = m.tick() as i32 + 3;
+    for _ in 0..3 {
+        assert!(!m.finished());
+        m.step();
+    }
+    assert!(m.finished());
+    assert_eq!(
+        (m.winner(), m.tick() as i32),
+        (None, m.world.rules.core.max_ticks)
+    );
 }
 
 #[test]
@@ -177,8 +221,9 @@ fn overtime_can_be_switched_off() {
         let attackers = m.world.team_with_side(SIDE_ATTACK);
         play_round(&mut m, attackers);
     }
+    // 6-6 with nothing else scored goes straight to the tie-break, which is level: a draw.
     assert!(m.finished());
-    assert_eq!((m.world.round, m.winner()), (regulation, Some(TEAM_B)));
+    assert_eq!((m.world.round, m.winner()), (regulation, None));
 }
 
 /// `max_ticks` must cover the draft tick, regulation and every overtime round at its longest: buy phase, a

@@ -352,6 +352,10 @@ impl World {
         }
         self.charge_state = CHARGE_CARRIED;
         self.charge_pos = (0, 0);
+        // Team memory does not carry across rounds; draft memory does (read-only).
+        for m in self.team_mem.iter_mut() {
+            m.fill(0);
+        }
         combat::on_round_start(self);
         abilities::on_round_start(self);
         economy::on_round_start(self, &survived);
@@ -385,18 +389,19 @@ impl World {
         // economy seam decides, so that both rounds of an overtime pair are played.
         let regulation = self.round <= 2 * c.rounds_per_half.max(1);
         if regulation && self.score[lead] >= c.rounds_to_win && self.score[0] != self.score[1] {
-            return self.finish(lead as i32);
+            return self.finish(Some(lead as i32));
         }
         if self.round >= 2 * c.rounds_per_half {
-            if let Some(w) = economy::after_regulation(self) {
-                return self.finish(w);
+            if let Some(outcome) = economy::after_regulation(self) {
+                return self.finish(outcome);
             }
         }
         self.start_round();
     }
 
-    pub fn finish(&mut self, winner: i32) {
-        self.winner = Some(winner);
+    /// End the match. `None` is a draw.
+    pub fn finish(&mut self, winner: Option<i32>) {
+        self.winner = winner;
         self.phase = PHASE_MATCH_END;
         self.phase_left = 0;
     }
@@ -438,9 +443,9 @@ impl World {
         }
         self.debug.clear();
         self.tick += 1;
+        // Running out of ticks is a draw, whatever the score.
         if self.phase != PHASE_MATCH_END && self.tick as i32 >= self.rules.core.max_ticks {
-            let w = economy::tiebreak(self);
-            self.finish(w);
+            self.finish(None);
         }
         self.compute_vision();
     }
@@ -812,6 +817,7 @@ impl World {
         if self.phase == PHASE_PLANTED {
             if self.phase_left <= 0 {
                 self.emit_event(EVENT_DETONATE, -1, -1, self.charge_pos, 0);
+                self.blast();
                 return self.end_round(attackers, ROUND_WIN_DETONATION);
             }
             if def_alive == 0 {
@@ -826,6 +832,17 @@ impl World {
             }
             if self.phase_left <= 0 {
                 return self.end_round(defenders, ROUND_WIN_TIMEOUT);
+            }
+        }
+    }
+
+    /// Detonation: every living unit within `blast_radius` of the charge dies, both teams, through walls. The
+    /// kill has no attacker (`EVENT_KILL` with actor -1, weapon -1): no reward and no kill for the tie-break.
+    fn blast(&mut self) {
+        let r = self.rules.core.blast_radius.max(0) as i64;
+        for i in 0..self.units.len() {
+            if self.units[i].alive && fixed::dist2(self.units[i].pos, self.charge_pos) <= r * r {
+                self.kill(i, None, -1);
             }
         }
     }

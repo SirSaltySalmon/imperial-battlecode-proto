@@ -32,8 +32,9 @@ clock and random source, empty args and environment. There is no filesystem, net
 ## Conventions
 
 - **Tables, not functions.** Everything readable is a row in a table (`T_*`). Rows are `#[repr(C)]` records made
-  only of `i32`, little-endian, no padding. A buffer that is too small gets `ERR_BUFFER_TOO_SMALL`. Records only
-  ever grow at the end, so a bot built against an older ABI keeps working: it reads the prefix it knows.
+  only of `i32`, little-endian, no padding. `get` copies at most `cap` bytes and returns how many it
+  wrote. Records only ever grow at the end, so a bot built against an older ABI keeps working: it reads the
+  prefix it knows. (`ERR_BUFFER_TOO_SMALL` is kept in the ABI but `get` no longer returns it.)
 - **Fog is applied by the host.** `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS` and `T_DROPS` list only what the calling
   unit can perceive. Enemy rows hide credits, ammo, charges and cooldowns.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
