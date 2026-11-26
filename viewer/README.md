@@ -32,6 +32,10 @@ or any static server over `dist/` (`npx vite preview`, `python -m http.server`),
 `cargo run -p ibc-combatviz -- --out viewer/public/lab.json`. Drop a `lab.json` on the page if it is not
 served from `public/`.
 
+`/play.html` is the page of `ibc play` (play one unit against a bot; see `docs/PLAY.md`). It only works
+served by `ibc play`, which provides its `/setup`, `/state` and input endpoints. Its code is in `src/play/`
+and reuses the renderer, map parser and perspective of the replay viewer; it needs no engine module.
+
 `ibc view` finds the built viewer through `--viewer-dir`, then `IBC_VIEWER_DIR`, then a `viewer/dist` beside
 the working directory or the binary. The viewer is not embedded in the `ibc` binary on purpose: that would
 make building `ibc` depend on Node.
@@ -138,6 +142,7 @@ weapon slots, ammo per slot, the slot in hand, ability charges and cooldowns, de
 unit), and the rules export carries `core`, `economy`, `weapon_rules`, `ability_rules`, `kit_rules` and
 `item_rules`; both are added in `crates/engine-wasm/src/view.rs`. An older engine build without them still
 plays: the buy menu says it has no tables and the team tab shows only the weapon in hand.
+| `src/play/` | the `ibc play` page: controls (key and mouse to input messages), HUD, server API |
 
 Frames stay inside the engine's memory as JSON strings; the viewer decodes a frame when it is shown and
 keeps at most 48 parsed, so a long match costs little beyond the engine's own copy.

@@ -8,6 +8,7 @@ mod init;
 mod job;
 mod remote;
 mod new;
+mod play;
 mod toolchain;
 mod update;
 mod view;
@@ -110,6 +111,11 @@ enum Command {
         /// Server base URL (default: IBC_SERVER)
         #[arg(long)]
         server: Option<String>,
+    },
+    /// Play one unit against a bot in the browser: ibc play OPPONENT [--map M] [--mode realtime|turn] ...
+    Play {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 }
 
@@ -248,6 +254,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Init(args) => init::run(args)?,
         Command::New(args) => new::run(args)?,
         Command::Update { server } => update::run(server)?,
+        Command::Play { args } => play::run(args)?,
     }
     Ok(())
 }

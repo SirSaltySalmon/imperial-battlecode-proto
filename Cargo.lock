@@ -892,6 +892,7 @@ dependencies = [
  "sha2",
  "toml",
  "ureq",
+ "wat",
 ]
 
 [[package]]
