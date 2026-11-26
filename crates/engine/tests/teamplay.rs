@@ -144,12 +144,13 @@ fn memory_scopes_are_written_in_their_own_phase() {
     assert_eq!(read(&m, 1, MEM_BUY), [9, 8, 7, 6]);
     assert_eq!(read(&m, 1, MEM_DRAFT), [1, 2, 3, 4]);
     assert_eq!(write(&mut m, 0, 3, &[1]), ERR_BAD_ARG, "no such scope");
-    // The next round clears buy memory and keeps the rest.
+    // The next round clears buy and team memory (team memory is round-scoped) and keeps draft memory.
     m.world.end_round(TEAM_A, ROUND_WIN_TIMEOUT);
     to_phase(&mut m, PHASE_BUY);
     assert_eq!(m.world.round, 2);
     assert_eq!(read(&m, 1, MEM_BUY), [0; 4]);
-    assert_eq!(read(&m, 1, MEM_TEAM), [5; 4]);
+    assert_eq!(read(&m, 1, MEM_TEAM), [0; 4]);
+    assert_eq!(read(&m, 1, MEM_DRAFT), [1, 2, 3, 4]);
 }
 
 #[test]
