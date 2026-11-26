@@ -5,7 +5,7 @@
 import { unitLabel } from "../draw-units";
 import type { FrameStore } from "../engine";
 import { recentEvents, roundIndexAt, type TimedEvent, type Timeline } from "../timeline";
-import { EFFECT_FIRE, EVENT_KILL, type Frame } from "../types";
+import { EFFECT_FIRE, EVENT_DETONATE, EVENT_KILL, type Frame } from "../types";
 import { el } from "../ui";
 import { weaponName, type ViewRules } from "../vision";
 import { teamClass } from "./history";
@@ -68,10 +68,13 @@ const DAMAGING_EFFECTS = [EFFECT_FIRE];
  * effect: the effect covering the victim (of the killer's team, when there is a killer; a damaging kind
  * first) names the abilities that make it. `frames` are searched in order: the frame before the kill, where
  * an effect that burns out on the killing tick is still listed, then the kill's own frame. Fire hurts its
- * own side too; such a kill has no killer.
+ * own side too; such a kill has no killer. A kill with neither killer nor weapon on the tick the charge
+ * detonates is the blast.
  */
 export function killCause(e: TimedEvent, frames: Frame[], view: ViewRules, shop: ShopRules | null): string {
   if (e.value >= 0) return weaponName(view, e.value);
+  const last = frames[frames.length - 1];
+  if (e.actor < 0 && last?.events.some((x) => x.kind === EVENT_DETONATE)) return "blast";
   const team = e.actor >= 0 ? frames.flatMap((f) => f.units).find((u) => u.id === e.actor)?.team : undefined;
   const covering = frames
     .flatMap((f) => f.effects)

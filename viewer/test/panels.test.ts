@@ -8,6 +8,7 @@ import type { RoundSpan, TimedEvent, Timeline } from "../src/timeline";
 import {
   EFFECT_FIRE,
   EFFECT_SMOKE,
+  EVENT_DETONATE,
   EVENT_KILL,
   EVENT_ROUND_END,
   S_ALIVE,
@@ -143,6 +144,9 @@ describe("kill feed", () => {
     expect(killCause({ ...fireKill, x: 20000 }, [burning], view, shop)).toBe("ability");
     expect(killCause({ ...fireKill, actor: -1 }, [burning], view, shop)).toBe("incendiary");
     expect(killCause({ ...fireKill, actor: -1, x: 20000 }, [burning], view, shop)).toBe("the world");
+    // Detonation kills everyone in the blast radius: no killer, no weapon, on the detonation tick.
+    const boom = { ...burntOut, events: [{ kind: EVENT_DETONATE, actor: -1, target: -1, x: 0, y: 0, value: 0 }] };
+    expect(killCause({ ...fireKill, actor: -1, x: 20000 }, [burning, boom], view, shop)).toBe("blast");
     const causes = killCauses(
       { frames: 2, rounds: [span(1, 0, 1)], events: [fireKill] },
       { parse: (i) => (i === 0 ? burning : burntOut) },
