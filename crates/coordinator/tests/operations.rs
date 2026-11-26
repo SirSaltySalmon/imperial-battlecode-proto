@@ -3,7 +3,7 @@
 mod common;
 
 use axum::http::StatusCode;
-use common::{Harness, MockWorker};
+use common::{Harness, MockWorker, ADMIN};
 use ibc_coordinator::maintenance::{self, BackupReport};
 use ibc_coordinator::model::Class;
 use ibc_coordinator::util::{now_ms, random_hex};
@@ -93,8 +93,9 @@ async fn played_league(h: &Harness) -> (Value, Value) {
 async fn replay_status(h: &Harness, series: &Value) -> Vec<StatusCode> {
     let mut out = Vec::new();
     for m in series["matches"].as_array().unwrap() {
-        let url = m["replay_url"].as_str().unwrap();
-        out.push(h.raw("GET", url, None, Vec::new()).await.0);
+        // The stored record: the mock worker's replays are not real .ibcr files, so only view=full serves them.
+        let url = format!("{}?view=full", m["replay_url"].as_str().unwrap());
+        out.push(h.raw("GET", &url, Some(ADMIN), Vec::new()).await.0);
     }
     out
 }
