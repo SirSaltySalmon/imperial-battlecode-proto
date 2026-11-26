@@ -73,11 +73,10 @@ pub struct SeriesSpec<'a> {
     pub requested_by: Option<&'a str>,
 }
 
-/// Whether a pool map may be played in ranked series and scrims and served by `GET /v1/maps/{name}`.
-/// Every pool map is, for now. Tournament hook: a map held back until a tournament reveals it is not
-/// public; connect the tournaments' hidden-map list here.
-pub fn map_is_public(_tx: &Transaction, _name: &str) -> ApiResult<bool> {
-    Ok(true)
+/// Whether a pool map may be played in ranked series and scrims and served by `GET /v1/maps/{name}`: not
+/// while a tournament holds it back until its reveal (`tournaments::hidden_maps`).
+pub fn map_is_public(tx: &Transaction, name: &str) -> ApiResult<bool> {
+    Ok(!super::tournaments::hidden_maps(tx)?.contains(name))
 }
 
 /// The team's live submission, or 409 `no_live_submission`.
