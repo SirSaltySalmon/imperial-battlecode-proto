@@ -20,7 +20,8 @@ fn row<T: Copy + Default>(m: &Match, unit: u32, table: u32, index: u32) -> T {
     from_bytes(&buf).unwrap()
 }
 
-/// Draft kit `1 + unit`, walk at the site, use both ability slots whenever the host allows, shoot on sight.
+/// Draft kit `1 + unit`, walk at the site, use both ability slots whenever the host allows, stop and shoot on
+/// sight (a pull on a moving tick is refused).
 fn controller(m: &mut Match, unit: u32) {
     let info: MatchInfo = row(m, unit, T_MATCH, 0);
     if info.phase == PHASE_DRAFT {
@@ -34,7 +35,7 @@ fn controller(m: &mut Match, unit: u32) {
     let site: SiteInfo = row(m, unit, T_SITES, 0);
     let goal = (site.centre_x, site.centre_y);
     let heading = fixed::atan2(goal.1 - me.y, goal.0 - me.x);
-    if fixed::dist((me.x, me.y), goal) > 600 {
+    if m.count(unit, T_ENEMIES) == 0 && fixed::dist((me.x, me.y), goal) > 600 {
         m.act(unit, A_MOVE, heading, 700, 0);
         m.act(unit, A_FACE, heading, 0, 0);
     }

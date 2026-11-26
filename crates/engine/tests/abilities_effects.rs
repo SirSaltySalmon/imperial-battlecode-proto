@@ -472,13 +472,13 @@ fn thrown_incendiary_shows_in_flight_and_burns_where_a_wall_stops_it() {
     steps(&mut m, fire.delay as usize);
     assert!(m.world.projectiles.is_empty() && m.world.effects.is_empty(), "still in its startup");
     m.step();
-    for (unit, who) in [(0, "the thrower"), (2, "an enemy who sees it")] {
+    // Sight is shared (unit 2's team views): unit 3 does not see the device itself, but its teammate does.
+    for (unit, who) in [(0, "the thrower"), (2, "an enemy who sees it"), (3, "that enemy's teammate")] {
         assert_eq!(m.count(unit, T_PROJECTILES), 1, "{who} sees the device");
         let p: ProjectileInfo = row(&m, unit, T_PROJECTILES, 0);
         assert_eq!((p.kind, p.weapon, p.owner, p.team), (fire.id + 1, -1, 0, TEAM_A));
         assert_eq!((p.x, p.y, p.vx, p.vy), (c(3, 5).0 + fire.speed, c(3, 5).1, fire.speed, 0), "one tick out");
     }
-    assert_eq!(m.count(3, T_PROJECTILES), 0, "fogged for an enemy who does not see it");
     assert!(m.world.effects.is_empty());
 
     let flight = until_landed(&fire, 9 * TILE - c(3, 5).0) - fire.delay as usize;
