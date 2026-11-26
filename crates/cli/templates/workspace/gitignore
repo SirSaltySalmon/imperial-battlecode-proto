@@ -1,0 +1,5 @@
+# Written by `ibc init` and by builds; `ibc init` recreates .ibc/ from the ibc binary.
+.ibc/
+target/
+out/
+*.wasm

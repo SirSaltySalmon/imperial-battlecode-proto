@@ -1,0 +1,11 @@
+# Imperial Battlecode workspace (made by `ibc init`). Paths are relative to this file.
+
+[ibc]
+# The ibc release this workspace is pinned to. `ibc build` warns when a different ibc runs here;
+# `ibc init` moves the pin to the running ibc and refreshes .ibc/ (the SDK, the headers) to match it.
+version = "{{version}}"
+
+[run]
+# `ibc run BOT` plays BOT against `opponent` on `map` when the second bot or --map is left out.
+map = "{{map}}"
+opponent = "{{opponent}}"

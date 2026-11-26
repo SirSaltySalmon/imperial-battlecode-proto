@@ -3,11 +3,15 @@
 mod admin;
 mod batch;
 mod build;
+mod embedded;
+mod init;
 mod job;
 mod remote;
+mod new;
 mod toolchain;
 mod view;
 mod view_library;
+mod workspace;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -37,9 +41,11 @@ enum Command {
     /// Run one match between two bots (bot directories or .wasm files)
     Run {
         bot_a: PathBuf,
-        bot_b: PathBuf,
+        /// Default: `[run] opponent` of the workspace's ibc.toml
+        bot_b: Option<PathBuf>,
+        /// Default: `[run] map` of the workspace's ibc.toml
         #[arg(long)]
-        map: PathBuf,
+        map: Option<PathBuf>,
         #[arg(long, default_value_t = 0)]
         seed: u64,
         /// Output directory for replay.ibcr, summary.json and the team logs
@@ -90,15 +96,14 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Create a new bot from a template (not implemented yet)
-    New {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
     /// Moderation terminal for organisers: overview, flags, audit, suspend / ban teams, workers, dead letters
     Admin(admin::AdminArgs),
     #[command(flatten)]
     Remote(remote::RemoteCommand),
+    /// Create a participant workspace (SDK, maps, docs, a starter bot), or refresh one after an update
+    Init(init::InitArgs),
+    /// Create bots/NAME in the current workspace from a template
+    New(new::NewArgs),
 }
 
 #[derive(Subcommand)]
@@ -201,6 +206,7 @@ fn run(cli: Cli) -> Result<()> {
             println!("language {}", built.language.name());
         }
         Command::Run { bot_a, bot_b, map, seed, out, frames, max_ticks, fuel_mult_a, fuel_mult_b } => {
+            let (bot_b, map) = workspace::run_defaults(bot_b, map)?;
             let mut a = job::resolve_bot(&bot_a)?;
             let mut b = job::resolve_bot(&bot_b)?;
             a.fuel_multiplier = fuel_mult_a.unwrap_or(a.fuel_multiplier);
@@ -231,11 +237,9 @@ fn run(cli: Cli) -> Result<()> {
         Command::Toolchain { command: ToolchainCommand::Status } => toolchain::status()?,
         Command::View { args } => view::run(args)?,
         Command::Admin(args) => admin::run(args)?,
-        Command::New { .. } => {
-            eprintln!("ibc new: not implemented yet");
-            std::process::exit(2);
-        }
         Command::Remote(command) => remote::run(command)?,
+        Command::Init(args) => init::run(args)?,
+        Command::New(args) => new::run(args)?,
     }
     Ok(())
 }
