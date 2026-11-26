@@ -62,7 +62,8 @@ Run the same match twice and compare the replay files: they must be byte-identic
 
 ## Conventions
 
-- Rust stable, `cargo fmt`, no new `unsafe` outside `crates/abi`, `crates/runner` and the SDK's import layer.
+- Rust stable, `cargo fmt`, no new `unsafe` outside `crates/abi`, `crates/runner`, `crates/engine-wasm` (its C
+  exports) and the SDK's import layer.
 - Keep files under about 800 lines and functions under about 80; split by the decision the code makes.
 - Text files are LF. Maps and rules are hashed from their parsed content, not their bytes.
 - Bench and match output goes under `out/` (ignored), never the repo root.
