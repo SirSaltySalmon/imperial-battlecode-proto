@@ -6,9 +6,9 @@
     "abi": 0
   },
   "bots": {
-    "holder": "fa1a393c71e4faaa25a2b655894091a2baeb5b01f3a02f7ab3fb814a318d002b",
+    "holder": "39f0bd9761654388cd02bff3d610874a170adadbb8c997d4653d50711ec76c8b",
     "idle": "7cfdee7b32bb4c00d9a61267d8bf15e01e2e335453c7a53c355d47ce5fa89bcc",
-    "rusher": "82e70ece45c9b936fe00a9215d7a4af638370d689db36d6da54c93fe8833d906"
+    "rusher": "8568e07002381d1cf1c008c5810ce1d3cd3f87900647457833b91877e1a6799f"
   },
   "cases": [
     {
@@ -23,9 +23,9 @@
         7,
         0
       ],
-      "ticks": 553,
-      "final_state_hash": "c090144a01c2c5bb",
-      "replay_sha256": "e5970471c61f0ba683eeb7b72dfbe6241f650f44d11eb680c4b5e5e3248214e9"
+      "ticks": 551,
+      "final_state_hash": "ba22792d18e36857",
+      "replay_sha256": "a7c1dd27f17a31034eab0a514a9d750381111145389bf5fbec4d15e226dfedb3"
     },
     {
       "name": "tunnels-holder-rusher-s2",
@@ -36,12 +36,12 @@
       "finished": true,
       "winner": 1,
       "score": [
-        0,
+        1,
         7
       ],
-      "ticks": 325,
-      "final_state_hash": "9d112643c68098f0",
-      "replay_sha256": "15a2f69d853cb16b2bddac8cf8d528e549229d23f219d6fcf25ba8390fb5df84"
+      "ticks": 344,
+      "final_state_hash": "de14cce44ade3bc5",
+      "replay_sha256": "15531375e45db5bf1239ef2d8e4e5417c3d527be5f4b99c09c23ace4cfa01f7e"
     },
     {
       "name": "crossfire-idle-rusher-s5",
@@ -55,9 +55,9 @@
         0,
         7
       ],
-      "ticks": 403,
-      "final_state_hash": "bfa50bd512dce458",
-      "replay_sha256": "ecc903386a0a37c4d6a153e9f628491fccc4b01d73a81b3f7acbac38ad51b008"
+      "ticks": 405,
+      "final_state_hash": "d12be06a0c53ab6e",
+      "replay_sha256": "439056d23a8785b2c76b306c0034d722a77675e661eb0ca5668f68a39d787fdc"
     }
   ]
 }
