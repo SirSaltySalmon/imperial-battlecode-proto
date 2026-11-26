@@ -10,6 +10,8 @@ pub mod economy;
 pub mod fixed;
 mod host;
 pub mod map;
+mod objective;
+mod projectiles;
 pub mod rules;
 pub mod vision;
 mod teamplay;
