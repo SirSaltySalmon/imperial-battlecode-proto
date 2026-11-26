@@ -336,6 +336,22 @@ fn moving_skipping_a_pull_reloading_or_swapping_breaks_the_brace_and_turning_doe
 }
 
 #[test]
+fn an_ability_use_breaks_the_brace() {
+    let mut m = range(id("rifle"));
+    assert!(weapon(&m, id("rifle")).cooldown >= 1);
+    startup(&mut m);
+    assert!(m.world.units[ME].combat.braced);
+    // In the cooldown (where a refused pull keeps the brace), use the decoy of the shroud kit.
+    m.world.units[ME].kit = 2;
+    m.world.units[ME].abil.charges[0] = 1;
+    let (x, y) = m.world.units[ME].pos;
+    assert_eq!(m.act(ME as u32, A_ABILITY, 0, x + 3 * 1024, y), OK);
+    m.step();
+    assert!(!m.world.units[ME].combat.braced, "the cast took the hands off the trigger");
+    assert_eq!(me(&m).state & S_BRACED, 0);
+}
+
+#[test]
 fn an_empty_magazine_keeps_the_brace_until_the_reload() {
     let mut m = range(id("rifle"));
     let wr = weapon(&m, id("rifle"));

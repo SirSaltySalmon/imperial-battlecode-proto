@@ -111,6 +111,12 @@ pub(super) fn unbrace(w: &mut World, u: usize) {
     c.braced = false;
 }
 
+/// SEAM: an ability use was accepted (it starts its startup or happens now): the hands leave the trigger, so
+/// a weapon startup is abandoned and the brace breaks, as for a reload. A reload keeps running.
+pub fn on_cast(w: &mut World, u: usize) {
+    unbrace(w, u);
+}
+
 /// SEAM: start reloading the weapon in hand. Refused when the magazine is full or a reload is already running
 /// (it does not restart). Reloading breaks the brace; during a startup it abandons the shot and the round stays
 /// in the magazine.

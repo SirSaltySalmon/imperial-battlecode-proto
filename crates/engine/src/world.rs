@@ -484,7 +484,9 @@ impl World {
                         }
                     }
                     A_ABILITY => {
-                        abilities::use_ability(self, i, a, (b, c));
+                        if abilities::use_ability(self, i, a, (b, c)) == OK {
+                            combat::on_cast(self, i);
+                        }
                     }
                     A_PICKUP => self.pickup(i),
                     A_DROP => self.drop_item(i, a),

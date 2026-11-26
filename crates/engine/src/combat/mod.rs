@@ -23,5 +23,7 @@ mod steady;
 pub use ballistics::{bullet_damage, damage_at};
 pub use drops::{on_death, on_drop, on_pickup};
 pub use firing::{extra_spread, fan, Fan};
-pub use state::{can_fire, cancel, on_round_start, pre_step, reload, start_fire, swap, UnitCombat};
+pub use state::{
+    can_fire, cancel, on_cast, on_round_start, pre_step, reload, start_fire, swap, UnitCombat,
+};
 pub use steady::{after_move, startup_ticks, unsteadiness_after};
