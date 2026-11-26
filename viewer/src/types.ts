@@ -136,6 +136,24 @@ export interface EventFrame {
   value: number;
 }
 
+/**
+ * What a unit carries, added to frames by `crates/engine-wasm/src/view.rs` (absent from older engine builds).
+ * Indexed like the abilities and weapon slots of the rules: slot 0 primary / signature, slot 1 sidearm / bought.
+ */
+export interface LoadoutFrame {
+  id: number;
+  /** Weapon id per slot, -1 = empty. */
+  weapons: [number, number];
+  ammo: [number, number];
+  /** Slot in hand. */
+  slot: number;
+  charges: [number, number];
+  cooldown: [number, number];
+  has_kit: boolean;
+  damage: number;
+  faulted: boolean;
+}
+
 /** `[unit, kind, x0, y0, x1, y1, colour 0xRRGGBB]`. */
 export type DebugDraw = [number, number, number, number, number, number, number];
 
@@ -155,6 +173,7 @@ export interface Frame {
   events: EventFrame[];
   debug: DebugDraw[];
   winner: number | null;
+  loadout?: LoadoutFrame[];
 }
 
 export interface BotInfo {
