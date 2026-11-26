@@ -236,8 +236,8 @@ fn seeding(tx: &Transaction, hook: &dyn RatingHook) -> ApiResult<Vec<Seeded>> {
 }
 
 /// Freeze the field: resolve it to teams, snapshot each entrant's live submission and seed, fix the map
-/// hashes, and pause ranked matchmaking for `pause_ms`. Teams of the field without a live submission are
-/// left out and listed in `excluded`.
+/// hashes, and pause ranked matchmaking for `pause_ms`. Teams of the field without a live submission, and
+/// teams under a moderation sanction, are left out and listed in `excluded`.
 pub fn lock(
     tx: &Transaction,
     hook: &dyn RatingHook,
@@ -254,7 +254,12 @@ pub fn lock(
         .iter()
         .map(|m| map_sha(tx, m))
         .collect::<ApiResult<Vec<_>>>()?;
-    let ladder = seeding(tx, hook)?;
+    // Teams under a suspension or ban (moderation) are not entered; they are listed in `excluded`.
+    let blocked = super::moderation::blocked_teams(tx, now)?;
+    let ladder: Vec<Seeded> = seeding(tx, hook)?
+        .into_iter()
+        .filter(|s| !blocked.contains(&s.team_id))
+        .collect();
     let on_ladder: BTreeSet<&str> = ladder.iter().map(|s| s.team_id.as_str()).collect();
     // The teams the field names explicitly; the top N is taken from the ladder, which only holds teams
     // with a live submission.
@@ -289,8 +294,12 @@ pub fn lock(
     let mut excluded = Vec::new();
     for team_id in named.iter().filter(|id| !on_ladder.contains(id.as_str())) {
         let team = find_team(tx, team_id)?;
-        excluded
-            .push(json!({"team_id": team.id, "name": team.name, "reason": "no live submission"}));
+        let reason = if blocked.contains(team_id) {
+            "sanctioned"
+        } else {
+            "no live submission"
+        };
+        excluded.push(json!({"team_id": team.id, "name": team.name, "reason": reason}));
     }
     tx.execute(
         "UPDATE tournaments SET status = 'locked', locked_at = ?2, map_shas = ?3, excluded = ?4 WHERE id = ?1",

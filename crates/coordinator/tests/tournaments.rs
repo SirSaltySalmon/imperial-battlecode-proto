@@ -114,6 +114,28 @@ async fn drafts_are_validated() {
 }
 
 #[tokio::test]
+async fn lock_leaves_out_sanctioned_teams() {
+    let h = Harness::new(|_| {});
+    let teams = setup(&h, &["alpha", "beta", "gamma"]).await;
+    h.admin(
+        "POST",
+        &format!("/v1/admin/teams/{}/ban", teams[2].0),
+        json!({"reason": "test"}),
+    )
+    .await;
+    let id = create(&h, "single", json!({"kind": "all"})).await;
+    let locked = act(&h, &id, "lock").await;
+    assert_eq!(locked["entrants"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        (
+            locked["excluded"][0]["name"].as_str(),
+            locked["excluded"][0]["reason"].as_str()
+        ),
+        (Some("gamma"), Some("sanctioned"))
+    );
+}
+
+#[tokio::test]
 async fn lock_snapshots_live_submissions_and_pauses_ranked() {
     let h = Harness::new(|_| {});
     let teams = setup(&h, &["alpha", "beta", "gamma"]).await;
