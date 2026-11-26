@@ -4,6 +4,7 @@
 //! `400 {"error", "message"}` instead of the framework's default rejections.
 
 mod auth;
+mod distribution;
 mod manage;
 mod moderation;
 mod public;
@@ -117,6 +118,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/tournaments", get(tournaments::list))
         .route("/v1/tournaments/{id}", get(tournaments::get))
         .route("/v1/patch", get(public::patch))
+        .route("/v1/distribution", get(distribution::distribution))
         .route("/metrics", get(public::metrics))
         .route("/healthz", get(public::healthz))
         .fallback(static_files::serve)

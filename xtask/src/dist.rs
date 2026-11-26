@@ -1,11 +1,19 @@
-//! `cargo xtask dist --target <triple> [--builder cargo|zigbuild|cross] [--out dist] [--no-build]`
+//! `cargo xtask dist --target <triple> [--builder cargo|zigbuild|cross] [--out dist] [--no-build]
+//!                   [--viewer DIR | --no-viewer] [--base-url URL]`
 //! `cargo xtask dist sums [dir]`
+//! `cargo xtask dist distribution [dir] [--base-url URL]`
+//! `cargo xtask dist pip-data [--viewer DIR | --no-viewer]`
 //!
 //! Builds the release binaries that exist in this checkout (`ibc`, plus the worker and coordinator when
 //! their crates are present), stripped, and packs them into `dist/ibc-<version>-<target>.tar.gz` (`.zip`
-//! for Windows) next to the README and a `PATCH.json` with the patch identity. `sums` writes `SHA256SUMS`
-//! over everything in the directory, in the format `sha256sum -c` reads.
+//! for Windows) with everything a participant needs offline (`dist_contents`: the built viewer, the map
+//! pool, the docs, the README) and a `PATCH.json` with the patch identity, then rewrites
+//! `dist/distribution.json` (`distribution`). `sums` writes `SHA256SUMS` over everything in the directory,
+//! in the format `sha256sum -c` reads. `pip-data` stages the same participant files for the wheel
+//! (`packaging/pip/wheel-data`, installed under `<prefix>/share/imperial-battlecode/`).
 
+use crate::dist_contents::{self, Sources};
+use crate::distribution;
 use crate::patch_id;
 use crate::util::{self, Args, Result};
 use std::path::{Path, PathBuf};
@@ -186,6 +194,32 @@ fn sums(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+const USAGE: &str = "usage: cargo xtask dist --target <triple> [--builder cargo|zigbuild|cross] [--out dir] \
+[--no-build] [--viewer DIR | --no-viewer] [--base-url URL] | dist sums [dir] | dist distribution [dir] \
+[--base-url URL] | dist pip-data [--viewer DIR | --no-viewer]";
+
+/// Where the pip wheel's data directory is staged (`[tool.maturin] data` in packaging/pip/pyproject.toml).
+const PIP_DATA: &str = "packaging/pip/wheel-data/data/share/imperial-battlecode";
+
+/// The built viewer to ship: `--viewer DIR`, else `viewer/dist`; `None` with `--no-viewer`.
+fn viewer(flag: Option<String>, skip: bool) -> Result<Option<PathBuf>> {
+    if skip {
+        println!("note: --no-viewer: the replay viewer is left out");
+        return Ok(None);
+    }
+    let dir = flag.map_or_else(|| util::root().join("viewer/dist"), PathBuf::from);
+    dist_contents::check_viewer(&dir)?;
+    Ok(Some(dir))
+}
+
+fn pip_data(viewer: Option<&Path>) -> Result<()> {
+    let dest = util::root().join(PIP_DATA);
+    let files = dist_contents::participant_files(&util::root(), viewer)?;
+    dist_contents::stage(&files, &dest)?;
+    println!("{} ({} files)", dest.display(), files.len());
+    Ok(())
+}
+
 pub fn main(args: &[String]) -> Result<()> {
     let mut args = Args::new(args);
     let target = args.value("--target")?;
@@ -196,16 +230,31 @@ pub fn main(args: &[String]) -> Result<()> {
         .value("--out")?
         .map_or_else(|| util::root().join("dist"), PathBuf::from);
     let no_build = args.switch("--no-build");
+    let viewer_flag = args.value("--viewer")?;
+    let no_viewer = args.switch("--no-viewer");
+    let base_url = args.value("--base-url")?;
     let rest = args.rest()?;
+    let base = |version: &str| {
+        base_url
+            .clone()
+            .unwrap_or_else(|| distribution::default_base_url(version))
+    };
     match rest.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         ["sums"] => return sums(&out),
         ["sums", dir] => return sums(Path::new(dir)),
+        ["distribution"] | ["distribution", _] => {
+            let dir = rest.get(1).map_or_else(|| out.clone(), PathBuf::from);
+            let version = shipped()?.version;
+            return distribution::write(&dir, &version, &patch_id::source()?, &base(&version));
+        }
+        ["pip-data"] => return pip_data(viewer(viewer_flag, no_viewer)?.as_deref()),
         [] => {}
-        _ => return Err("usage: cargo xtask dist --target <triple> [--builder cargo|zigbuild|cross] [--out dir] [--no-build] | dist sums [dir]".to_string()),
+        _ => return Err(USAGE.to_string()),
     }
     let target = target
         .ok_or("dist: --target <triple> is required (for example x86_64-unknown-linux-musl)")?;
     let windows = target.contains("windows");
+    let viewer = viewer(viewer_flag, no_viewer)?;
     let ship = shipped()?;
     let patch = patch_id::source()?;
     println!(
@@ -220,33 +269,31 @@ pub fn main(args: &[String]) -> Result<()> {
 
     let name = format!("ibc-{}-{target}", ship.version);
     let stage = out.join(&name);
-    if stage.exists() {
-        std::fs::remove_dir_all(&stage).map_err(|e| format!("{}: {e}", stage.display()))?;
-    }
     let built = util::target_dir().join(&target).join("release");
+    let entries = dist_contents::manifest(&Sources {
+        root: &util::root(),
+        built: &built,
+        bins: &ship.bins,
+        target: &target,
+        viewer: viewer.as_deref(),
+    })?;
+    dist_contents::stage(&entries, &stage)?;
+    #[cfg(unix)]
     for bin in &ship.bins {
-        let file = util::exe_name(bin, windows);
-        util::write(&stage.join(&file), &util::read(&built.join(&file))?)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(stage.join(&file), std::fs::Permissions::from_mode(0o755))
-                .map_err(|e| e.to_string())?;
-        }
+        use std::os::unix::fs::PermissionsExt;
+        let file = stage.join(util::exe_name(bin, windows));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("{}: {e}", file.display()))?;
     }
     check_staged_ibc(&stage.join(util::exe_name("ibc", windows)), &patch)?;
-    util::write(
-        &stage.join("README.md"),
-        &util::read(&util::root().join("README.md"))?,
-    )?;
     let mut patch_json = serde_json::to_string_pretty(&patch).map_err(|e| e.to_string())?;
     patch_json.push('\n');
     util::write(&stage.join("PATCH.json"), patch_json.as_bytes())?;
 
     let packed = archive(&out, &name, windows)?;
     std::fs::remove_dir_all(&stage).map_err(|e| format!("{}: {e}", stage.display()))?;
-    println!("{}", packed.display());
-    Ok(())
+    println!("{} ({} files)", packed.display(), entries.len() + 1);
+    distribution::write(&out, &ship.version, &patch, &base(&ship.version))
 }
 
 #[cfg(test)]

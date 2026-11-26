@@ -2,6 +2,8 @@
 
 mod check;
 mod dist;
+mod dist_contents;
+mod distribution;
 mod engine_wasm;
 mod golden;
 mod patch_id;
@@ -13,8 +15,11 @@ const USAGE: &str = "usage: cargo xtask <task>
   check [fmt] [clippy] [test] [--exclude <pkg>]... [--strict]       what CI runs on every PR
   golden record|verify [--native] [--wasm] [--no-fresh]           golden determinism (fixtures/golden)
   engine-wasm [--require-node] [replay.ibcr ...]                  build the browser engine, compare it with native
-  dist --target <triple> [--builder cargo|zigbuild|cross]         release archive in dist/
+  dist --target <triple> [--builder cargo|zigbuild|cross]         release archive + distribution.json in dist/
+       [--viewer DIR | --no-viewer] [--base-url URL]
   dist sums [dir]                                                 write SHA256SUMS
+  dist distribution [dir] [--base-url URL]                        rewrite distribution.json from the archives
+  dist pip-data [--viewer DIR | --no-viewer]                      stage viewer, maps, docs for the pip wheel
   patch-id [--json | --markdown] [--bin <ibc>]                    engine, ruleset hash, wasmtime and ABI versions";
 
 fn main() -> ExitCode {

@@ -10,7 +10,9 @@ use std::path::PathBuf;
 #[command(
     name = "ibc-coordinator",
     version,
-    about = "Imperial Battlecode coordinator: job queue, submissions, ladder"
+    about = "Imperial Battlecode coordinator: job queue, submissions, ladder",
+    after_help = "Maintenance (docs/DEPLOY.md): ibc-coordinator backup DIR | \
+                  ibc-coordinator prune-replays --older-than DAYS [--kinds unranked] [--dry-run]"
 )]
 struct Args {
     /// Data directory: `coordinator.sqlite` and `blobs/` live here
@@ -100,6 +102,9 @@ struct Args {
     /// A balance patch widens every rating's uncertainty by this factor (>= 1)
     #[arg(long, env = "IBC_BALANCE_SIGMA_FACTOR", default_value_t = 1.5)]
     balance_sigma_factor: f64,
+    /// `distribution.json` (from `cargo xtask dist`) served at /v1/distribution for `ibc update`
+    #[arg(long, env = "IBC_DISTRIBUTION")]
+    distribution: Option<PathBuf>,
 }
 
 fn parse_language(s: &str) -> Result<(String, f64), String> {
@@ -215,12 +220,19 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         balance_sigma_factor: args.balance_sigma_factor,
         web_dir: page_dir(&args.web_dir, "web")?,
         viewer_dir: page_dir(&args.viewer_dir, "viewer")?,
+        distribution_file: args
+            .distribution
+            .clone()
+            .filter(|p| !p.as_os_str().is_empty()),
         ..defaults
     })
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if let Some(done) = ibc_coordinator::maintenance::from_args(std::env::args_os().collect()) {
+        return done;
+    }
     let args = Args::parse();
     let app = App::open(config(&args)?, &args.data)?;
     let listener = tokio::net::TcpListener::bind(args.listen).await?;

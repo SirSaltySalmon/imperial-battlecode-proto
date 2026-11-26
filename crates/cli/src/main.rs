@@ -9,6 +9,7 @@ mod job;
 mod remote;
 mod new;
 mod toolchain;
+mod update;
 mod view;
 mod view_library;
 mod workspace;
@@ -104,6 +105,12 @@ enum Command {
     Init(init::InitArgs),
     /// Create bots/NAME in the current workspace from a template
     New(new::NewArgs),
+    /// Ask the server which ibc it runs and print the command that upgrades this one (never downloads)
+    Update {
+        /// Server base URL (default: IBC_SERVER)
+        #[arg(long)]
+        server: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -240,11 +247,13 @@ fn run(cli: Cli) -> Result<()> {
         Command::Remote(command) => remote::run(command)?,
         Command::Init(args) => init::run(args)?,
         Command::New(args) => new::run(args)?,
+        Command::Update { server } => update::run(server)?,
     }
     Ok(())
 }
 
 fn main() {
+    update::check_before(std::env::args_os().nth(1).as_deref().and_then(|a| a.to_str()));
     if let Err(e) = run(Cli::parse()) {
         eprintln!("error: {e:#}");
         std::process::exit(1);

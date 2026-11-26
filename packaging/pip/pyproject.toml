@@ -1,6 +1,7 @@
-# `pip install imperial-battlecode` puts the `ibc` binary on PATH. The wheel contains only the Rust binary
-# (maturin `bindings = "bin"`): no Python code, no Python ABI, one wheel per platform.
-# Build one locally:  cd packaging/pip && maturin build --release --locked
+# `pip install imperial-battlecode` puts the `ibc` binary on PATH and the replay viewer, map pool and docs
+# under <prefix>/share/imperial-battlecode/ (where `ibc view` finds the viewer). No Python code, no Python
+# ABI, one wheel per platform (maturin `bindings = "bin"`).
+# Build one locally:  cargo xtask dist pip-data && cd packaging/pip && maturin build --release --locked
 [build-system]
 requires = ["maturin>=1.7,<2"]
 build-backend = "maturin"
@@ -23,3 +24,5 @@ classifiers = [
 bindings = "bin"
 manifest-path = "../../crates/cli/Cargo.toml"
 strip = true
+# Staged by `cargo xtask dist pip-data` (gitignored): wheel-data/data/share/imperial-battlecode/...
+data = "wheel-data"

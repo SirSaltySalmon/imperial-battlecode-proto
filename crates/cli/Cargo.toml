@@ -20,5 +20,6 @@ serde_json = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 sha2 = "0.10"
 toml = { workspace = true }
-# The coordinator client (`ibc admin`, the remote commands); same client as ibc-worker.
+# The coordinator client (`ibc admin`, the remote commands, `ibc update` and the daily version check);
+# same client as ibc-worker.
 ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }

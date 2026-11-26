@@ -9,6 +9,7 @@ everything real lives in the binary. The workflow they serve is in [`docs/hillcl
 | `tools/ab.sh <candidate> <baseline>` | paired A/B, up to 40 seeds, stops early by SPRT (`elo0=0 elo1=30`) |
 | `tools/balance.sh run <label>` | balance report into `out/balance/<label>/` |
 | `tools/balance.sh compare <old> <new>` | which metrics moved beyond their intervals between two labels |
+| `tools/devstack.sh [PORT] [--rounds N] [--exit]` | the online loop locally: coordinator + two workers + the eight reference bots as teams, ranked scheduler on; prints the ladder after N rounds (`docs/DEPLOY.md`) |
 
 ## `ibc-bench` in one screen
 

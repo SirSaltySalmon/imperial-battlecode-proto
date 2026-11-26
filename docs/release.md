@@ -124,9 +124,24 @@ lint clean-up commit, add `--strict` to the CI step.
    (`cargo build -p ibc-engine-wasm --release --target wasm32-unknown-unknown` at the tag) and picks the
    one named in the replay header. Add the new build; never remove an old one. A replay loaded with the
    wrong engine fails at load (every state hash is checked) instead of drifting.
+   Release archives and wheels carry the built viewer too (`release.yml` builds it once in its `viewer`
+   job), so `ibc view` works offline right after install.
 9. **Wheel** (optional, manual). The wheels from the draft release can be uploaded to PyPI with
    `twine upload`; CI does not publish.
 10. **Switch the ladder** (next section), then announce the patch with its identity and the balance table.
+11. **Tell participants' `ibc`.** Copy the release's `distribution.json` (every archive with its URL and
+    SHA-256, written by `cargo xtask dist distribution`) to the coordinator's `IBC_DISTRIBUTION` path.
+    From then on `ibc` warns participants on an older version within a day and `ibc update` prints their
+    upgrade command (`docs/DEPLOY.md`, "Publishing a release to participants").
+
+## What is in a release archive
+
+`ibc-<version>-<target>.tar.gz` (`.zip` on Windows) unpacks to one directory with `ibc`, `ibc-worker` and
+`ibc-coordinator`, `viewer/` (the built replay viewer with its engine wasm), `maps/` (the map pool),
+`docs/` (participants' guide when present, rules, ABI), `README.md`, `PATCH.json`, and on Linux the
+systemd units `ibc-worker.service` and `ibc-coordinator.service`. `cargo xtask dist --target <triple>`
+builds one locally (`--viewer DIR` or `--no-viewer` if `viewer/dist` is not built) and rewrites
+`dist/distribution.json` for what is in `dist/`.
 
 ## Switching the coordinator's current patch
 

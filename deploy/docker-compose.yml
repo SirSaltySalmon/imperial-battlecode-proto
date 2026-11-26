@@ -1,22 +1,37 @@
-# One box: the coordinator and N workers.
+# One box: the coordinator and two workers that play its ranked rounds.
 #
-#   export IBC_REGISTRATION_TOKEN=$(openssl rand -hex 24)
-#   docker compose -f deploy/docker-compose.yml up -d --build --scale worker=4
+#   export IBC_ADMIN_TOKEN=$(openssl rand -hex 24)
+#   export IBC_REGISTRATION_TOKEN=$(openssl rand -hex 24)          # for workers on other machines
+#   export IBC_TRUSTED_REGISTRATION_TOKEN=$(openssl rand -hex 24)  # for the workers below
+#   docker compose -f deploy/docker-compose.yml up -d --build
 #
-# ASSUMPTION: the coordinator is built by another unit. This file expects an image for it
-# (IBC_COORDINATOR_IMAGE) that listens on :8080 and takes the registration token from
-# IBC_REGISTRATION_TOKEN; adjust `coordinator:` to its real flags. The worker service is complete as is.
+# Then load the patch, maps and teams (docs/DEPLOY.md, "First start"). More workers on this box:
+# `--scale worker=N`; N x IBC_WORKER_CONCURRENCY should not exceed the cores.
 
 services:
   coordinator:
-    image: ${IBC_COORDINATOR_IMAGE:?set IBC_COORDINATOR_IMAGE to the coordinator image}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: coordinator
+    image: ibc-coordinator:local
     restart: unless-stopped
     environment:
+      IBC_ADMIN_TOKEN: ${IBC_ADMIN_TOKEN:?set IBC_ADMIN_TOKEN}
       IBC_REGISTRATION_TOKEN: ${IBC_REGISTRATION_TOKEN:?set IBC_REGISTRATION_TOKEN}
+      IBC_TRUSTED_REGISTRATION_TOKEN: ${IBC_TRUSTED_REGISTRATION_TOKEN:?set IBC_TRUSTED_REGISTRATION_TOKEN}
+      IBC_DATA: /data
+      IBC_LISTEN: 0.0.0.0:8080
+      # The ranked scheduler: a round every IBC_RANKED_INTERVAL_SECS, IBC_RANKED_GAMES games per series.
+      IBC_RANKED_INTERVAL_SECS: ${IBC_RANKED_INTERVAL_SECS:-300}
+      IBC_RANKED_GAMES: ${IBC_RANKED_GAMES:-2}
+      # What `ibc update` offers participants: a distribution.json from `cargo xtask dist` in ./release.
+      IBC_DISTRIBUTION: ${IBC_DISTRIBUTION:-}
     ports:
-      - "8080:8080" # put a TLS-terminating proxy in front before exposing this beyond the box
+      - "127.0.0.1:8080:8080" # put a TLS-terminating proxy in front; do not publish this port to the world
     volumes:
       - coordinator-data:/data
+      - ./release:/release:ro
 
   worker:
     build:
@@ -27,13 +42,16 @@ services:
     restart: on-failure
     depends_on:
       - coordinator
+    deploy:
+      replicas: 2
     environment:
       IBC_COORDINATOR: http://coordinator:8080
-      IBC_REGISTRATION_TOKEN: ${IBC_REGISTRATION_TOKEN:?set IBC_REGISTRATION_TOKEN}
-      IBC_WORKER_LABELS: trusted,x86_64-linux # same box as the coordinator: these are the trusted workers
+      # Same box as the coordinator: these are the trusted workers (final results, spot verification).
+      IBC_REGISTRATION_TOKEN: ${IBC_TRUSTED_REGISTRATION_TOKEN:?set IBC_TRUSTED_REGISTRATION_TOKEN}
+      IBC_WORKER_LABELS: x86_64-linux
       IBC_WORKER_CONCURRENCY: ${IBC_WORKER_CONCURRENCY:-2}
     # One cache per container (anonymous volume from the image): a cache directory must not be shared
-    # between worker processes. Scale with `--scale worker=N`; N x concurrency should not exceed the cores.
+    # between worker processes.
     stop_grace_period: 100s # SIGTERM drains; give running matches time to finish
     read_only: true
     tmpfs:

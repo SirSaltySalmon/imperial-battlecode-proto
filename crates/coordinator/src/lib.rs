@@ -8,6 +8,7 @@ pub mod blobs;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod maintenance;
 pub mod model;
 pub mod ratelimit;
 pub mod patch;

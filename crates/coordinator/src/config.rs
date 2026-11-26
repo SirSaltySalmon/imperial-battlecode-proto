@@ -88,6 +88,8 @@ pub struct Config {
     pub web_dir: Option<std::path::PathBuf>,
     /// The replay viewer's built files (`viewer/dist`), served at `/viewer/`.
     pub viewer_dir: Option<std::path::PathBuf>,
+    /// `distribution.json` served at `GET /v1/distribution` (written by `cargo xtask dist`). `None`: 404.
+    pub distribution_file: Option<std::path::PathBuf>,
 }
 
 /// Ladder tiers, lowest first. Iron is everything below `tier_floors[0]`.
@@ -148,6 +150,7 @@ impl Default for Config {
             balance_sigma_factor: 1.5,
             web_dir: None,
             viewer_dir: None,
+            distribution_file: None,
         }
     }
 }
