@@ -130,6 +130,7 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("patches", "runner_blobs", "TEXT"),
     ("ratings", "last_played", "INTEGER"),
     ("teams", "join_code", "TEXT"),
+    ("submissions", "note", "TEXT"),
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -295,6 +296,8 @@ pub struct NewSubmission<'a> {
     pub rejected: Option<&'a str>,
     /// Make a validated module the team's live submission at once (the default of the upload endpoint).
     pub make_live: bool,
+    /// The uploader's note (`ibc submit --note`), shown only to the team.
+    pub note: Option<&'a str>,
 }
 
 /// What a change of live submission did.
@@ -325,9 +328,9 @@ pub fn insert_submission(
     }
     let id = format!("sub{}", random_hex(6));
     tx.execute(
-        "INSERT INTO submissions(id, team_id, sha256, size, language, fuel_mult, status, reason, live, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9)",
-        params![id, s.team_id, s.sha256, s.size as i64, s.language, s.fuel_mult, if validated { "validated" } else { "rejected" }, s.rejected, now],
+        "INSERT INTO submissions(id, team_id, sha256, size, language, fuel_mult, status, reason, live, created_at, note)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10)",
+        params![id, s.team_id, s.sha256, s.size as i64, s.language, s.fuel_mult, if validated { "validated" } else { "rejected" }, s.rejected, now, s.note],
     )?;
     let change = if validated && s.make_live {
         set_live(tx, s.team_id, &id)?
@@ -410,13 +413,14 @@ pub fn live_submission(tx: &Transaction, team_id: &str) -> ApiResult<Option<Subm
 
 pub fn list_submissions(tx: &Transaction, team_id: &str) -> ApiResult<Vec<Value>> {
     let mut st = tx.prepare(
-        "SELECT id, sha256, size, language, fuel_mult, status, reason, live, created_at FROM submissions
+        "SELECT id, sha256, size, language, fuel_mult, status, reason, live, created_at, note FROM submissions
          WHERE team_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 100",
     )?;
     let rows = st.query_map([team_id], |r| {
         Ok(json!({"submission_id": r.get::<_, String>(0)?, "sha256": r.get::<_, String>(1)?, "size": r.get::<_, i64>(2)?,
                   "language": r.get::<_, String>(3)?, "fuel_mult": r.get::<_, f64>(4)?, "status": r.get::<_, String>(5)?,
-                  "reason": r.get::<_, Option<String>>(6)?, "live": r.get::<_, bool>(7)?, "created_at": rfc3339(r.get(8)?)}))
+                  "reason": r.get::<_, Option<String>>(6)?, "live": r.get::<_, bool>(7)?, "created_at": rfc3339(r.get(8)?),
+                  "note": r.get::<_, Option<String>>(9)?}))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }

@@ -98,6 +98,24 @@ pub struct SubmissionQuery {
     live: Option<bool>,
     /// Refused: the multiplier is the server's (`Config::languages`).
     fuel_mult: Option<String>,
+    /// Upload only: a note to remember the version by (`ibc submit --note`), at most `MAX_NOTE_CHARS`.
+    note: Option<String>,
+}
+
+/// Longest submission note, in characters.
+const MAX_NOTE_CHARS: usize = 200;
+
+/// The upload's note, trimmed; an empty note is none.
+fn submission_note(note: Option<&str>) -> ApiResult<Option<&str>> {
+    let Some(note) = note.map(str::trim).filter(|n| !n.is_empty()) else {
+        return Ok(None);
+    };
+    if note.chars().count() > MAX_NOTE_CHARS || note.chars().any(char::is_control) {
+        return Err(ApiError::bad_request(format!(
+            "note: at most {MAX_NOTE_CHARS} characters, no control characters"
+        )));
+    }
+    Ok(Some(note))
 }
 
 /// The team a request acts for: the token's team, or `?team=` when the organisers call.
@@ -131,6 +149,7 @@ pub async fn upload_submission(
             "the server sets the fuel multiplier from the language; send ?language= only",
         ));
     }
+    let note = submission_note(q.note.as_deref())?;
     if let Some(language) = q.language.as_deref() {
         if app.cfg.fuel_multiplier(language).is_none() {
             return Err(patch::unknown_language(&app.cfg, language));
@@ -170,6 +189,7 @@ pub async fn upload_submission(
         fuel_mult,
         rejected: verdict.as_ref().err().map(String::as_str),
         make_live: q.live.unwrap_or(true),
+        note,
     };
     let now = now_ms();
     let (id, live) = app.db.tx(|tx| {

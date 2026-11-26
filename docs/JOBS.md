@@ -221,6 +221,9 @@ among them, the upload is a 400 `language_mismatch`; without `?language=` a modu
 language is entered as that language, anything else as `rust`. This catches mistakes, not fraud: a module
 can be stripped of both sections, and release builds often are.
 
+An upload may carry `?note=<text>` (at most 200 characters, `ibc submit --note`); it is stored with the
+submission and shown only in the team's own `GET /v1/submissions`.
+
 ### Spot verification
 
 Results from untrusted workers are provisional. The coordinator re-queues a random sample of completed

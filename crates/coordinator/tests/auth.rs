@@ -531,3 +531,20 @@ async fn a_suspended_team_cannot_write_with_a_user_credential() {
         t.get("/v1/team", auth).await.is(OK, None);
     }
 }
+
+#[tokio::test]
+async fn a_submission_note_is_stored_and_shown_to_the_team() {
+    let t = T::new(|_| {});
+    let ada = t.register("ada@x.org").await;
+    t.create_team(&ada, "alpha").await;
+    let path = "/v1/submissions?note=first%20try";
+    t.send("POST", path, Cookie(&ada), bot_wasm("x"))
+        .await
+        .is(CREATED, None);
+    let list = t.get("/v1/submissions", Cookie(&ada)).await.is(OK, None);
+    assert_eq!(list.body["submissions"][0]["note"], "first try");
+    let long = format!("/v1/submissions?note={}", "x".repeat(201));
+    t.send("POST", &long, Cookie(&ada), bot_wasm("y"))
+        .await
+        .is(BAD, None);
+}
