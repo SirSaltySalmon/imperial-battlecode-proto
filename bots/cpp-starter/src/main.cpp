@@ -20,8 +20,6 @@ constexpr int32_t FINISH_CHANNEL_TICKS = 2;
 constexpr int32_t REACH_PCT = 70;
 /// `MatchInfo::charge_state` value: the charge lies on the ground.
 constexpr int32_t CHARGE_DROPPED = 1;
-/// Angle units per radian (65536 / 2 pi).
-constexpr int64_t UNITS_PER_RADIAN = 10430;
 
 class Starter {
   public:
@@ -90,18 +88,15 @@ class Starter {
         return gun_;
     }
 
-    /// How far the centre of the bullet fan is pushed off the aim line by movement and recoil.
-    static int32_t aim_error(const WeaponRules& w, int32_t speed, int32_t recoil) {
-        return static_cast<int32_t>((int64_t{w.move_spread} * speed / 1024 + int64_t{w.recoil_spread} * recoil) / 2);
-    }
-
     struct Engage {
         bool fighting;  // an enemy is in sight
-        bool hold;      // moving this tick would throw the shot off the target
+        bool hold;      // shooting: moving this tick would cancel the startup or break the brace
     };
 
-    /// Face the nearest enemy with no wall in between and shoot it when the weapon is ready and settled
-    /// enough to hit. `enemies()` is the team's sight: an enemy only a teammate sees behind a wall is skipped.
+    /// Face the nearest enemy with no wall in between and shoot it whenever the weapon is ready.
+    /// `enemies()` is the team's sight: an enemy only a teammate sees behind a wall is skipped. Shooting
+    /// roots the unit: a move cancels the startup and breaks the brace, so the caller stands still while
+    /// `hold` is set.
     Engage engage(const UnitInfo& me) {
         const Point from = pos(me);
         UnitInfo target{};
@@ -114,21 +109,22 @@ class Starter {
         }
         if (nearest == INT64_MAX) return {false, false};
         const WeaponRules& w = gun(me);
-        const int32_t aim = angle_to(from, lead(from, pos(target), vel(target), w.bullet_speed, w.windup));
+        // Braced, bullets leave on the pull; otherwise after the startup (windup plus unsteadiness).
+        const int32_t startup = has(me, S_BRACED)
+            ? 0
+            : w.windup + static_cast<int32_t>((int64_t{me.unsteadiness > 0 ? me.unsteadiness : 0} * w.startup_per_point + 50) / 100);
+        const int32_t aim = angle_to(from, lead(from, pos(target), vel(target), w.bullet_speed, startup));
         const int32_t distance = dist(from, pos(target));
-        // Half the angle the target covers from here: the fan centre must stay inside it.
-        const int32_t half = static_cast<int32_t>(core_.unit_radius * UNITS_PER_RADIAN / (distance > 1 ? distance : 1));
-        face(aim);  // bullets leave along the facing, so keep turning during the wind-up
+        face(aim);  // bullets leave along the facing, so keep turning during the startup
+        bool shooting = has(me, S_WINDUP | S_BRACED);
         if (!has(me, S_WINDUP | S_RELOADING)) {
-            const int32_t settle = w.recoil_recovery * (w.windup > 1 ? w.windup : 1);
-            const int32_t recoil = me.recoil > settle ? me.recoil - settle : 0;
             if (me.ammo <= 0) {
                 reload();
-            } else if (distance <= w.range && aim_error(w, 0, recoil) <= half) {
-                fire(aim);
+            } else if (distance <= w.range && ok(fire(aim))) {
+                shooting = true;
             }
         }
-        return {true, aim_error(w, core_.run_speed, 0) > half};
+        return {true, shooting};
     }
 
     void fight(const UnitInfo& me, const MatchInfo& info) {

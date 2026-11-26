@@ -178,7 +178,7 @@ fn no_bullet_passes_through_a_wall() {
         }
         // The same question asked independently of the engine's slice-by-slice sweep: along the whole ray
         // of each pellet, does the target's circle come before the first wall?
-        let rays: Vec<_> = fan(&wr, angle, angle, m.world.rules.core.fov_half, 0, 0, 0)
+        let rays: Vec<_> = fan(&wr, angle, angle, m.world.rules.core.fov_half, 0)
             .angles()
             .map(|a| {
                 let len = radius + wr.range + wr.bullet_speed;
@@ -402,7 +402,8 @@ fn chaos(seed: u64) -> (Vec<u64>, (i32, usize)) {
                 .map(|o| o.pos)
                 .unwrap_or(me.pos);
             let aim = fixed::atan2(foe.1 - me.pos.1, foe.0 - me.pos.0) + rng.below(2000) - 1000;
-            if rng.below(3) > 0 {
+            // A move cancels a startup, so move only now and then or nobody ever shoots.
+            if rng.below(5) == 0 {
                 m.act(unit, A_MOVE, rng.below(65536), rng.below(900), 0);
             }
             if rng.below(4) == 0 {

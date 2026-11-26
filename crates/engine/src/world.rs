@@ -425,6 +425,9 @@ impl World {
         let n = self.units.len();
         let core = self.rules.core;
 
+        // Where everyone stood, to report the velocity that actually happened (a dash included).
+        let start: Vec<V2> = self.units.iter().map(|u| u.pos).collect();
+
         // 1. intents
         for i in 0..n {
             if !self.units[i].alive {
@@ -533,7 +536,13 @@ impl World {
             }
             self.step_projectiles(s, sub);
         }
-        // Velocity reported to bots is what actually happened this tick is not tracked; keep the commanded one.
+        // Report the velocity that actually happened: a wall can stop all or part of a move.
+        for (u, from) in self.units.iter_mut().zip(start) {
+            if u.alive {
+                u.vel = (u.pos.0 - from.0, u.pos.1 - from.1);
+            }
+        }
+        combat::after_move(self);
 
         // 4. effects, statuses
         abilities::step(self);

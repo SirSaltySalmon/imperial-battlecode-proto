@@ -44,7 +44,7 @@ impl Bot for {{type}} {
 
 impl {{type}} {
     fn fight(&mut self, me: &UnitInfo, info: &MatchInfo) {
-        if self.gun.engage(me, self.core.run_speed).is_some() {
+        if self.gun.engage(me).is_some() {
             return; // an enemy is in sight: stand and shoot
         }
         let Some(site) = sites().next() else { return };

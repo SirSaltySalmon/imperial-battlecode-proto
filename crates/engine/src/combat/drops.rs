@@ -30,7 +30,7 @@ fn take(w: &mut World, u: usize, slot: usize) -> Option<i32> {
     Some(id)
 }
 
-/// SEAM: a unit died. Its wind-up and reload end, and its weapons fall where it died, except the default
+/// SEAM: a unit died. Its startup, brace and reload end, and its weapons fall where it died, except the default
 /// sidearm (everyone is handed one each round, so it is not worth leaving on the ground).
 pub fn on_death(w: &mut World, u: usize) {
     state::cancel(w, u);

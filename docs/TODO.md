@@ -54,7 +54,7 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   plantable point per site (additive ABI field).
 - [ ] **Bots cannot see their weapon cooldown or second weapon.** `UnitInfo` shows only the weapon in hand and
   has no weapon cooldown, so bots get `ERR_NOT_READY` unless they track it. Additive ABI fields.
-- [ ] **`vx`/`vy` report the commanded velocity**, even when a wall blocked the move. Report what happened.
+- [x] **`vx`/`vy` report the commanded velocity**, even when a wall blocked the move. Report what happened.
 - [ ] **`EVENT_DAMAGE` carries no weapon id**, so damage-by-weapon needs re-simulation. Additive.
 
 ## 2. Engine and runner correctness

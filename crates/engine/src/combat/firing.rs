@@ -1,6 +1,7 @@
 //! Where the bullets of one trigger pull go. Nothing here is random: `fan` is a pure function of values the
-//! shooter can read (`T_WEAPON`, its own facing, velocity and `UnitInfo.recoil`), so a bot can compute its
-//! own bullets exactly.
+//! shooter can read (`T_WEAPON`, its own facing and `UnitInfo.recoil`), so a bot can compute its own bullets
+//! exactly. Movement adds no spread (it is paid for in startup time, `steady`), and nothing pushes the fan off
+//! the aim: a single-pellet weapon always flies exactly along the clamped aim.
 
 use super::ballistics;
 use crate::fixed;
@@ -27,59 +28,38 @@ impl Fan {
     }
 }
 
-/// Spread added by moving at `speed` (units/tick) with `recoil` heat: `move_spread * speed / 1024 +
-/// recoil_spread * recoil`.
-pub fn extra_spread(wr: &WeaponRules, speed: i32, recoil: i32) -> i32 {
-    let e = wr.move_spread as i64 * speed.max(0) as i64 / 1024
-        + wr.recoil_spread as i64 * recoil.max(0) as i64;
+/// Spread added between pellets by `recoil` heat: `min(recoil_spread * recoil, 32768)`.
+pub fn extra_spread(wr: &WeaponRules, recoil: i32) -> i32 {
+    let e = wr.recoil_spread as i64 * recoil.max(0) as i64;
     e.clamp(0, 32768) as i32
 }
 
-/// The fan released by a unit looking along `facing` that asked for `aim`, moving at `speed` with `recoil`
-/// heat, having fired `shots` times before this round.
+/// The fan released by a unit looking along `facing` that asked for `aim`, with `recoil` heat.
 ///
-/// - The aim is clamped to the view cone: `facing +/- fov_half`.
-/// - Pellets are `S = spread + extra` apart, `extra = extra_spread(..)`.
-/// - The whole fan is shifted by `extra / 2`: towards larger angles on even `shots`, smaller on odd.
-pub fn fan(
-    wr: &WeaponRules,
-    facing: i32,
-    aim: i32,
-    fov_half: i32,
-    speed: i32,
-    recoil: i32,
-    shots: i32,
-) -> Fan {
-    let extra = extra_spread(wr, speed, recoil);
-    let bias = if shots % 2 == 0 {
-        extra / 2
-    } else {
-        -(extra / 2)
-    };
+/// - The aim is clamped to the view cone: `facing +/- fov_half`, and the fan is centred on it.
+/// - Pellets are `spread + extra_spread(..)` apart, so sustained fire widens multi-pellet fans only.
+pub fn fan(wr: &WeaponRules, facing: i32, aim: i32, fov_half: i32, recoil: i32) -> Fan {
     // You can only shoot where you are looking.
     let off = fixed::angle_diff(facing, aim).clamp(-fov_half, fov_half);
     Fan {
-        centre: (facing + off + bias) & 0xFFFF,
-        step: wr.spread + extra,
+        centre: (facing + off) & 0xFFFF,
+        step: wr.spread + extra_spread(wr, recoil),
         pellets: wr.pellets,
     }
 }
 
-/// The wind-up of unit `u` has finished: bullets leave, one round is used, recoil and cooldown start.
+/// The startup of unit `u` has finished: bullets leave, one round is used, recoil and cooldown start, and the
+/// unit is braced.
 pub(super) fn release(w: &mut World, u: usize) {
     let core = w.rules.core;
     let unit = w.units[u].clone();
     let wr = w.rules.weapons[unit.weapon() as usize];
-    // Speed on the tick the bullets leave (velocity was set from this tick's intent just before).
-    let speed = fixed::dist((0, 0), unit.vel);
     let fan = fan(
         &wr,
         unit.facing,
         unit.combat.aim,
         core.fov_half,
-        speed,
         unit.combat.recoil,
-        unit.combat.shots,
     );
     for ang in fan.angles() {
         if let Some(pos) = ballistics::muzzle(w, unit.pos, ang) {
@@ -99,6 +79,7 @@ pub(super) fn release(w: &mut World, u: usize) {
         let m = &mut w.units[u];
         m.ammo[m.slot] -= 1;
         m.combat.winding = false;
+        m.combat.braced = true;
         m.combat.recoil += wr.recoil_per_shot;
         m.combat.cooldown = wr.cooldown;
         m.combat.shots += 1;

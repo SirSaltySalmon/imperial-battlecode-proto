@@ -23,9 +23,11 @@ pub fn rules(r: &Ruleset) -> String {
                 "pellets": w.pellets, "windup": w.windup, "cooldown": w.cooldown, "magazine": w.magazine,
                 "reload_ticks": w.reload_ticks, "range": w.range, "falloff_start": w.falloff_start,
                 "falloff_min_pct": w.falloff_min_pct, "bullet_speed": w.bullet_speed, "spread": w.spread,
-                "move_spread": w.move_spread, "recoil_spread": w.recoil_spread,
+                "recoil_spread": w.recoil_spread,
                 "recoil_per_shot": w.recoil_per_shot, "recoil_recovery": w.recoil_recovery,
                 "move_pct": w.move_pct, "kill_reward": w.kill_reward,
+                "unsteady_gain": w.unsteady_gain, "unsteady_decay": w.unsteady_decay,
+                "unsteady_max": w.unsteady_max, "startup_per_point": w.startup_per_point,
             })
         })
         .collect();

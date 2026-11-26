@@ -43,7 +43,7 @@ impl Bot for Rusher {
             core,
             map: map_info(),
             nav: Navigator::new(),
-            gun: Gunner::new(&core),
+            gun: Gunner::new(),
             plan_for: (-1, -1),
             site: (0, 0),
             watch: (0, 0),
@@ -97,7 +97,7 @@ impl Rusher {
             return;
         }
         let speed = self.core.run_speed;
-        let shot = self.gun.engage(me, speed);
+        let shot = self.gun.engage(me);
         let (fighting, hold) = (shot.is_some(), shot.is_some_and(|s| s.hold));
         let used_hands = if info.my_side == SIDE_ATTACK {
             self.attack(me, info, fighting, hold, speed)

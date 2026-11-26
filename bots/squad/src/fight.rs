@@ -35,15 +35,24 @@ impl Squad {
         self.listen(me, info);
         let attacking = info.my_side == SIDE_ATTACK;
         let pace = self.pace(me, info);
-        let shot = self.gun.engage(me, pace);
+        let shot = self.gun.engage(me);
         if let Some(s) = shot {
             let _ = team_mem_set(MEM_SIGHT, [info.tick + 1, s.enemy.x, s.enemy.y]);
         }
         let fighting = shot.is_some();
-        // Stand still when moving would spoil the shot. Styles that are not pressing forward also stop
-        // for any enemy in effective range (a far-off one must not pin the team down until the clock runs out).
+        // Shooting roots a unit: stand still while the gun holds. Styles pressing forward walk on past an
+        // enemy out of effective range (a far-off one must not pin the team down until the clock runs out);
+        // the others also stop for any enemy in effective range.
         let effective = self.gun.weapon(me).falloff_start;
-        let hold = shot.is_some_and(|s| s.hold || (s.distance <= effective && !self.pressing(info)));
+        let pressing = self.pressing(info);
+        let hold = shot.is_some_and(|s| {
+            let close = s.distance <= effective;
+            if pressing {
+                s.hold && close
+            } else {
+                s.hold || close
+            }
+        });
         let used_hands =
             if attacking { self.attack(me, info, fighting, hold, pace) } else { self.defend(me, info, fighting, hold) };
         if used_hands {

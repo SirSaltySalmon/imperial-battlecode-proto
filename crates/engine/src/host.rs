@@ -23,6 +23,7 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
     };
     flag(u.alive, S_ALIVE);
     flag(u.combat.winding, S_WINDUP);
+    flag(u.combat.braced, S_BRACED);
     flag(u.combat.reload > 0, S_RELOADING);
     flag(u.channel_kind == CHANNEL_PLANT, S_PLANTING);
     flag(u.channel_kind == CHANNEL_DEFUSE, S_DEFUSING);
@@ -56,6 +57,7 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
         cooldown: if full { u.abil.cooldown } else { [0, 0] },
         recoil: u.combat.recoil,
         blind: if full { u.blind } else { 0 },
+        unsteadiness: u.combat.unsteady,
     }
 }
 

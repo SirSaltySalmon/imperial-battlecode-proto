@@ -1,11 +1,13 @@
 # Weapons. id = position in this list (rules/economy.toml refers to these ids: append, never reorder).
 # slot 0 = primary, slot 1 = sidearm.
-# One trigger pull releases `pellets` bullets after `windup` ticks, fanned `spread` apart; the fan widens by
-# move_spread per 1024 units/tick of speed and by recoil_spread per recoil point. One pull takes
-# windup + 1 + cooldown ticks. Formulas, a table of these values and measured time-to-kill figures are in
-# docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
+# A trigger pull by a unit that is not braced starts a startup of windup + unsteadiness * startup_per_point / 100
+# ticks, then releases `pellets` bullets fanned `spread` apart (wider by recoil_spread per recoil point) and
+# braces the unit: while it stands and keeps pulling, it fires once every 1 + cooldown ticks. Unsteadiness
+# falls by unsteady_decay every tick and rises by unsteady_gain per 1024 units/tick actually moved, up to
+# unsteady_max. Movement adds no spread. Formulas, a table of these values and measured time-to-kill figures are
+# in docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
 
-# Free sidearm everyone carries: single accurate shots, usable on the move, weak at range.
+# Free sidearm everyone carries: exact single shots and a short startup even off a run, weak at range.
 [[weapon]]
 name = "pistol"
 slot = 1
@@ -13,12 +15,11 @@ price = 0
 damage = 26
 pellets = 1
 spread = 0
-move_spread = 600
 recoil_spread = 120
 recoil_per_shot = 2
 recoil_recovery = 1
 windup = 1
-cooldown = 0
+cooldown = 1
 magazine = 12
 reload_ticks = 3
 bullet_speed = 8192
@@ -27,6 +28,10 @@ falloff_start = 8192
 falloff_min_pct = 50
 move_pct = 100
 kill_reward = 300
+unsteady_gain = 4
+unsteady_decay = 2
+unsteady_max = 4
+startup_per_point = 25
 
 # All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
 [[weapon]]
@@ -36,12 +41,11 @@ price = 2700
 damage = 22
 pellets = 3
 spread = 250
-move_spread = 1200
 recoil_spread = 250
 recoil_per_shot = 3
 recoil_recovery = 1
 windup = 1
-cooldown = 0
+cooldown = 1
 magazine = 8
 reload_ticks = 4
 bullet_speed = 14336
@@ -50,8 +54,12 @@ falloff_start = 16384
 falloff_min_pct = 70
 move_pct = 90
 kill_reward = 200
+unsteady_gain = 8
+unsteady_decay = 2
+unsteady_max = 12
+startup_per_point = 25
 
-# Run-and-gun: barely spreads on the move and carries at full speed, but short reach and steep falloff.
+# Run-and-gun: running barely unsteadies it and it carries at full speed, but short reach and steep falloff.
 [[weapon]]
 name = "smg"
 slot = 0
@@ -59,12 +67,11 @@ price = 1500
 damage = 17
 pellets = 2
 spread = 200
-move_spread = 150
 recoil_spread = 100
 recoil_per_shot = 2
 recoil_recovery = 1
 windup = 1
-cooldown = 0
+cooldown = 1
 magazine = 15
 reload_ticks = 3
 bullet_speed = 9216
@@ -73,6 +80,10 @@ falloff_start = 6144
 falloff_min_pct = 40
 move_pct = 100
 kill_reward = 400
+unsteady_gain = 2
+unsteady_decay = 2
+unsteady_max = 4
+startup_per_point = 25
 
 # Close quarters: a wide seven-bullet fan that kills in one pull inside three tiles and tickles beyond six.
 [[weapon]]
@@ -82,12 +93,11 @@ price = 1800
 damage = 15
 pellets = 7
 spread = 260
-move_spread = 300
 recoil_spread = 60
 recoil_per_shot = 4
 recoil_recovery = 2
 windup = 1
-cooldown = 2
+cooldown = 3
 magazine = 5
 reload_ticks = 5
 bullet_speed = 8192
@@ -96,9 +106,13 @@ falloff_start = 3072
 falloff_min_pct = 25
 move_pct = 95
 kill_reward = 500
+unsteady_gain = 6
+unsteady_decay = 2
+unsteady_max = 8
+startup_per_point = 25
 
-# Long range: one fast bullet with no falloff, two hits kill. Slow to cycle and useless on the move, and the
-# two-tick wind-up warns the target.
+# Long range: one fast bullet with no falloff, two hits kill. Slow to cycle, very slow to start after moving,
+# and the two-tick startup warns the target.
 [[weapon]]
 name = "marksman"
 slot = 0
@@ -106,12 +120,11 @@ price = 3200
 damage = 75
 pellets = 1
 spread = 0
-move_spread = 2400
 recoil_spread = 300
 recoil_per_shot = 4
 recoil_recovery = 1
 windup = 2
-cooldown = 2
+cooldown = 4
 magazine = 5
 reload_ticks = 5
 bullet_speed = 20480
@@ -120,9 +133,13 @@ falloff_start = 40960
 falloff_min_pct = 100
 move_pct = 80
 kill_reward = 100
+unsteady_gain = 12
+unsteady_decay = 2
+unsteady_max = 16
+startup_per_point = 25
 
 # Heavy and slow: a five-bullet wall every pull, a deep magazine and almost no recoil, for holding a lane.
-# Slow to carry, slow to start firing and very slow to reload.
+# Slow to carry, very slow to start firing after moving and very slow to reload.
 [[weapon]]
 name = "lmg"
 slot = 0
@@ -130,12 +147,11 @@ price = 2300
 damage = 16
 pellets = 5
 spread = 300
-move_spread = 2000
 recoil_spread = 60
 recoil_per_shot = 2
 recoil_recovery = 1
 windup = 2
-cooldown = 0
+cooldown = 2
 magazine = 20
 reload_ticks = 7
 bullet_speed = 12288
@@ -144,3 +160,7 @@ falloff_start = 14336
 falloff_min_pct = 60
 move_pct = 70
 kill_reward = 150
+unsteady_gain = 12
+unsteady_decay = 2
+unsteady_max = 16
+startup_per_point = 25
