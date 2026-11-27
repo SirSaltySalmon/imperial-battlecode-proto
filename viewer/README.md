@@ -31,9 +31,13 @@ or any static server over `dist/` (`npx vite preview`, `python -m http.server`),
 `/editor.html` is the map editor: `ibc view --editor [--maps DIR]` serves it with lint and save for a map
 folder (see `docs/maps.md`, "The editor"). From any other host it still opens, edits and exports maps.
 
-`/lab.html` is the combat lab. It uses this viewer's theme, units and map to draw a recording from
-`cargo run -p ibc-combatviz -- --out viewer/public/lab.json`. Drop a `lab.json` on the page if it is not
-served from `public/`.
+`/lab.html` is the combat lab. Its scenes are engine frames recorded natively by
+`cargo run -p ibc-combatviz -- --out viewer/public/lab.json` through the engine module's own frame builder,
+played by the same `Player` as replays (interpolation, perspectives, keys, camera); the lab adds only its
+panels and fan marks. `tools/lab.sh` records it and starts the dev server; under it the Play section starts
+`ibc play` with the bots and map picked on the page (`scripts/lab-play.ts`, dev server only). Every number in the recording comes from `rules/*.toml` at the time it was
+recorded, so record again after a rule change. Builds leave `lab.json` out of `dist/`; drop a `lab.json` on
+the page there.
 
 `/play.html` is the page of `ibc play` (play alongside your team's bot against another; see `docs/PLAY.md`). It only works
 served by `ibc play`, which provides its `/setup`, `/state` and input endpoints. Its code is in `src/play/`
@@ -137,7 +141,9 @@ the frame of that tick.
 | `src/perspective.ts` | what a perspective may show |
 | `src/interp.ts` | in-between positions for units and bullets |
 | `src/render.ts`, `src/draw-*.ts` | canvas drawing |
-| `src/ui.ts`, `src/main.ts` | side panel, feed, banner, controls, input |
+| `src/player.ts` | playback of any frame track: clock, speed, perspective, layers, camera, keys and pointer; shared by replays and the lab |
+| `src/ui.ts`, `src/main.ts` | side panel, feed, banner, page controls |
+| `src/lab.ts`, `src/lab-frames.ts`, `src/lab-math.ts`, `src/lab-play.ts` | the combat lab page: panels, studio frames, fan marks, the Play section |
 | `src/theme.ts` | colours for both themes |
 | `src/panels/` | buy menu (`buy.ts`), team tab (`tab.ts`), kill feed (`killfeed.ts`), round history (`history.ts`), field formatting (`shared.ts`); `index.ts` wires them and their keys |
 

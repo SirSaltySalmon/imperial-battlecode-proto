@@ -1,5 +1,8 @@
 // Integer fan, startup and falloff, matching `crates/engine/src/combat`. Drawing colours come from theme.ts, not from here.
 
+import type { Frame } from "./types";
+import type { ViewRules } from "./vision";
+
 export interface Weapon {
   name: string;
   id: number;
@@ -42,11 +45,10 @@ export interface TtkKey {
   armor: number;
 }
 
+/** The engine module's frame for the replay viewer, and per unit `[recoil, cooldown, reload, shots]`. */
 export interface LabFrame {
-  u: number[][];
-  b: number[][];
-  d: number[][];
-  hit: number[][];
+  frame: Frame;
+  x: [number, number, number, number][];
 }
 
 export interface LabScene {
@@ -75,6 +77,13 @@ export interface DamageCheck {
   damage: number;
 }
 
+/** A kit as the engine's rules export lists it. */
+export interface Kit {
+  name: string;
+  hp: number;
+  speed_pct: number;
+}
+
 export interface LabFile {
   tile: number;
   radius: number;
@@ -85,6 +94,8 @@ export interface LabFile {
   visionRange: number;
   senseRadius: number;
   ruleset: string;
+  /** The engine module's rules export, as the replay viewer reads it (`kit_rules` for the Play section). */
+  rules: Partial<ViewRules> & { kit_rules?: Kit[] };
   weapons: Weapon[];
   maps: LabMap[];
   scenes: LabScene[];

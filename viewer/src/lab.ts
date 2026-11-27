@@ -1,8 +1,11 @@
-// Combat lab page. The map, units, bullets and drops are drawn by the replay viewer (`render.ts`,
-// `theme.ts`). This file only supplies the lab's frames and the fan marks those modules do not know about.
+// Combat lab page. Scripts are engine frames recorded by `ibc-combatviz` through the engine module's own
+// frame builder, played by the replay viewer's `Player`. This file only adds the lab's panels and the fan
+// marks the viewer does not draw.
 
-import { fitCamera, pan, zoomAt, type Camera } from "./camera";
+import { fitCamera, type Camera } from "./camera";
 import { stateTags, unitLabel } from "./draw-units";
+import { damageEvents, releases, sceneBounds, studioFrame } from "./lab-frames";
+import { playSection } from "./lab-play";
 import {
   damageAt,
   fanOf,
@@ -13,26 +16,16 @@ import {
   tilesOf,
   type Fan,
   type LabFile,
-  type LabFrame,
   type LabScene,
   type Weapon,
 } from "./lab-math";
 import { parseMap, type GameMap } from "./map";
-import { ALL, viewOf } from "./perspective";
-import { FONT, render, type Pen } from "./render";
+import { viewOf } from "./perspective";
+import { Player, type Track } from "./player";
+import { FONT, type Pen } from "./render";
 import { applyTheme, alpha, type Palette, type ThemeName } from "./theme";
-import {
-  DROP_WEAPON,
-  EVENT_DAMAGE,
-  PHASE_ACTION,
-  S_ALIVE,
-  S_RELOADING,
-  S_WINDUP,
-  TILE,
-  type Frame,
-  type UnitFrame,
-} from "./types";
-import { weaponName, type ViewRules } from "./vision";
+import { TILE } from "./types";
+import { rulesFor, weaponName } from "./vision";
 
 const GROUPS: [string, string, string][] = [
   ["studio", "Weapon studio", "Fans, falloff and a held trigger. The units and the floor are the replay viewer's; the rays are the engine's fan()."],
@@ -41,16 +34,14 @@ const GROUPS: [string, string, string][] = [
   ["fans", "Where the bullets go", "Movement on the release tick, recoil walking the group off the aim, and a shot clamped to the view cone."],
   ["flight", "Flight and damage", "Falloff, the end of range, walls, a dodge, and two lethal shots in one slice."],
   ["handling", "Reload, cancel, swap", "Reloading, a free feint, dying during the wind-up, and a swap that keeps the cooldown."],
-  ["drops", "Weapons on the ground", "Death drops bought guns and not the sidearm. A gun on the ground is empty."],
+  ["drops", "Weapons on the ground", "Death drops bought guns and not the sidearm. A gun on the ground keeps its magazine."],
 ];
 
 const STUDIO_W = 46;
 const STUDIO_H = 18;
-const BASE_TPS = 8;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("canvas");
-const ctx = canvas.getContext("2d")!;
 const stage = $("stage");
 
 let lab: LabFile | null = null;
@@ -58,32 +49,16 @@ let palette: Palette = applyTheme("dark");
 let themeName: ThemeName = "dark";
 let mode = "studio";
 let scene: LabScene | null = null;
-let index = 0;
-let playing = false;
-let acc = 0;
-let lastTs = 0;
-let camera: Camera = { cx: STUDIO_W / 2, cy: STUDIO_H / 2, ppt: 20 };
-let cameraIsAuto = true;
-let width = 1;
-let height = 1;
-let dpr = 1;
 const maps = new Map<string, GameMap>();
 let studioMap: GameMap | null = null;
 const studio = { unsteady: 0, recoil: 0, tiles: 10, weapon: 1 };
-
-function rulesOf(file: LabFile): ViewRules {
-  return {
-    unit_radius: file.radius,
-    fov_half: file.fovHalf,
-    vision_range: file.visionRange,
-    sense_radius: file.senseRadius,
-    max_hp: file.maxHp,
-    plant_ticks: 12,
-    defuse_ticks: 21,
-    fuse_ticks: 80,
-    weapons: file.weapons.map((w) => w.name),
-  };
-}
+const player = new Player(canvas, stage, {
+  palette: () => palette,
+  page: (i) => updateReadout(i),
+  playing: (on) => ($("btn-play").textContent = on ? "Pause" : "Play"),
+});
+const params = new URLSearchParams(location.search);
+let play: HTMLElement | null = null;
 
 function mapOf(m: { id: string; w: number; h: number; tiles: string }): GameMap {
   const hit = maps.get(m.id);
@@ -100,90 +75,6 @@ function blankMap(): GameMap {
   const row = ".".repeat(STUDIO_W);
   studioMap = parseMap(`name: studio\nteam_size: 1\n---\n${Array(STUDIO_H).fill(row).join("\n")}\n`);
   return studioMap;
-}
-
-function toUnit(row: number[], i: number): UnitFrame {
-  let state = 0;
-  if (row[4]) state |= S_ALIVE;
-  if (row[10]) state |= S_WINDUP;
-  if (row[14] > 0) state |= S_RELOADING;
-  return {
-    id: i,
-    team: row[3],
-    side: 0,
-    kit: 0,
-    alive: row[4] === 1,
-    state,
-    x: row[0],
-    y: row[1],
-    facing: row[2],
-    vx: 0,
-    vy: 0,
-    hp: row[5],
-    armor: row[6],
-    weapon: row[7],
-    ammo: row[8],
-    channel: row[10] ? row[11] : row[14],
-    aim: row[13],
-    credits: 0,
-    seen: "0",
-    kills: 0,
-    deaths: 0,
-    sounds: [],
-  };
-}
-
-function toFrame(f: LabFrame, tick: number): Frame {
-  const units = f.u.map(toUnit);
-  return {
-    tick,
-    round: 1,
-    phase: PHASE_ACTION,
-    phase_left: 0,
-    score: [0, 0],
-    attackers: 0,
-    charge: { state: 0, x: 0, y: 0 },
-    units,
-    projectiles: f.b.map((b) => ({
-      owner: b[5],
-      team: units[b[5]]?.team ?? 0,
-      weapon: b[2],
-      kind: 0,
-      x: b[0],
-      y: b[1],
-      vx: b[3],
-      vy: b[4],
-    })),
-    effects: [],
-    drops: f.d.map((d) => ({ kind: DROP_WEAPON, x: d[0], y: d[1], item: d[2] })),
-    events: f.hit.map((h) => ({ kind: EVENT_DAMAGE, actor: h[0], target: h[1], x: 0, y: 0, value: h[2] })),
-    debug: [],
-    winner: null,
-  };
-}
-
-function studioFrame(file: LabFile, gun: Weapon): Frame {
-  const ox = 2 * TILE;
-  const oy = 9 * TILE;
-  const dist = studio.tiles * TILE;
-  const shooter = toUnit([ox, oy, 0, 0, 1, file.maxHp, 0, gun.id, gun.magazine, studio.recoil, 0, 0, 0, 0, 0, 0, gun.id, gun.magazine, -1, 0, gun.slot], 0);
-  const target = toUnit([ox + dist, oy, 32768, 1, 1, file.maxHp, 0, -1, 0, 0, 0, 0, 0, 32768, 0, 0, -1, 0, -1, 0, 1], 1);
-  return {
-    tick: 0,
-    round: 1,
-    phase: PHASE_ACTION,
-    phase_left: 0,
-    score: [0, 0],
-    attackers: 0,
-    charge: { state: 0, x: 0, y: 0 },
-    units: [shooter, target],
-    projectiles: [],
-    effects: [],
-    drops: [],
-    events: [],
-    debug: [],
-    winner: null,
-  };
 }
 
 function paintFan(pen: Pen, gun: Weapon, fan: Fan, ox: number, oy: number, ghost: boolean): void {
@@ -216,30 +107,26 @@ function mix(from: string, to: string, t: number): string {
   return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
 }
 
-function burstMarks(pen: Pen): void {
-  if (!lab || !scene) return;
-  const releases: number[] = [];
-  for (let k = 1; k <= index; k++) {
-    const prev = scene.frames[k - 1];
-    const cur = scene.frames[k];
-    if (cur.u.some((u, i) => u[15] > prev.u[i][15])) releases.push(k);
-  }
-  const shown = releases.slice(-4);
+/** The last few releases up to frame `i`, each pellet drawn out to the weapon's range. */
+function burstMarks(pen: Pen, s: LabScene, map: GameMap, i: number): void {
+  if (!lab) return;
+  const shown = releases(s, i).slice(-4);
   const { ctx, px } = pen;
   const k = 1 / TILE;
   shown.forEach((frameIndex, n) => {
-    const frame = scene!.frames[frameIndex];
+    const { frame } = s.frames[frameIndex];
     const fade = n === shown.length - 1 ? 0.85 : 0.3;
-    for (const b of frame.b) {
-      const owner = frame.u[b[5]];
-      const gun = lab!.weapons.find((w) => w.id === b[2]);
-      if (!owner || !gun) continue;
-      const len = Math.hypot(b[3], b[4]) || 1;
-      const x0 = owner[0] + (b[3] / len) * lab!.radius;
-      const y0 = owner[1] + (b[4] / len) * lab!.radius;
-      const x1 = x0 + (b[3] / len) * gun.range;
-      const y1 = y0 + (b[4] / len) * gun.range;
-      ctx.strokeStyle = alpha(palette.team[owner[3]] ?? palette.text, fade);
+    const visible = viewOf(frame, player.perspective, map, rulesFor(lab!.rules)).unitVisible;
+    for (const b of frame.projectiles) {
+      const owner = frame.units[b.owner];
+      const gun = lab!.weapons.find((w) => w.id === b.weapon);
+      if (b.kind !== 0 || !owner || !gun || !visible[b.owner]) continue;
+      const len = Math.hypot(b.vx, b.vy) || 1;
+      const x0 = owner.x + (b.vx / len) * lab!.radius;
+      const y0 = owner.y + (b.vy / len) * lab!.radius;
+      const x1 = x0 + (b.vx / len) * gun.range;
+      const y1 = y0 + (b.vy / len) * gun.range;
+      ctx.strokeStyle = alpha(palette.team[owner.team] ?? palette.text, fade);
       ctx.lineWidth = 1.4 * px;
       ctx.beginPath();
       ctx.moveTo(x0 * k, y0 * k);
@@ -249,53 +136,47 @@ function burstMarks(pen: Pen): void {
   });
 }
 
-function draw(): void {
-  if (!lab) {
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = palette.bg;
-    ctx.fillRect(0, 0, width, height);
-    return;
-  }
-  const rules = rulesOf(lab);
-  let frame: Frame;
-  let map: GameMap;
-  let marks: (pen: Pen) => void;
-  if (mode === "studio") {
-    const gun = lab.weapons.find((w) => w.id === studio.weapon) ?? lab.weapons[0];
-    frame = studioFrame(lab, gun);
-    map = blankMap();
-    const ox = 2 * TILE;
-    const oy = 9 * TILE;
-    marks = (pen) => {
-      paintFan(pen, gun, fanOf(gun, 0, 0, lab!.fovHalf, 0), ox, oy, true);
-      paintFan(pen, gun, fanOf(gun, 0, 0, lab!.fovHalf, studio.recoil), ox, oy, false);
-    };
-  } else if (scene) {
-    frame = toFrame(scene.frames[index], index);
-    map = mapOf(lab.maps.find((m) => m.id === scene!.map)!);
-    marks = burstMarks;
-  } else return;
-  const view = viewOf(frame, ALL, map, rules);
-  render(ctx, width, height, dpr, {
-    map,
-    rules,
-    frame,
-    next: null,
-    t: 0,
-    view,
-    camera,
-    palette,
-    show: { vision: true, debug: false, sounds: false },
-    selected: null,
-    marks,
-  });
-  if (mode === "studio") drawInset();
-  if (scene && mode !== "studio") updateReadout();
+function studioGun(): Weapon {
+  return lab!.weapons.find((w) => w.id === studio.weapon) ?? lab!.weapons[0];
 }
 
-function drawInset(): void {
+/** The weapon studio: one still frame on an open floor, read live from the sliders. */
+function studioTrack(file: LabFile): Track {
+  const ox = 2 * TILE;
+  const oy = 9 * TILE;
+  return {
+    count: 1,
+    frame: () => studioFrame(file, studioGun(), ox, oy, studio.tiles * TILE),
+    map: blankMap(),
+    rules: rulesFor(file.rules),
+    teamSize: 1,
+    marks: (pen) => {
+      const gun = studioGun();
+      paintFan(pen, gun, fanOf(gun, 0, 0, file.fovHalf, 0), ox, oy, true);
+      paintFan(pen, gun, fanOf(gun, 0, 0, file.fovHalf, studio.recoil), ox, oy, false);
+    },
+    overlay: drawInset,
+    fit: (w, h) => fitCamera(STUDIO_W, STUDIO_H, w, h),
+  };
+}
+
+/** A recorded script: the engine's frames as the replay viewer plays them. */
+function sceneTrack(file: LabFile, s: LabScene): Track {
+  const map = mapOf(file.maps.find((m) => m.id === s.map)!);
+  return {
+    count: s.frames.length,
+    frame: (i) => s.frames[i].frame,
+    map,
+    rules: rulesFor(file.rules),
+    teamSize: Math.max(1, s.frames[0].frame.units.length / 2),
+    marks: (pen, i) => burstMarks(pen, s, map, i),
+    fit: (w, h) => sceneCamera(file, s, map, w, h),
+  };
+}
+
+function drawInset(ctx: CanvasRenderingContext2D, width: number, height: number): void {
   if (!lab) return;
-  const gun = lab.weapons.find((w) => w.id === studio.weapon) ?? lab.weapons[0];
+  const gun = studioGun();
   const fan = fanOf(gun, 0, 0, lab.fovHalf, studio.recoil);
   const dist = studio.tiles * TILE;
   const covers = Math.trunc((lab.radius * 10430) / Math.max(1, dist));
@@ -303,7 +184,6 @@ function drawInset(): void {
   const x = width - size - 12;
   const y = height - size - 12;
   if (x < 8) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = alpha(palette.panel, 0.92);
   ctx.strokeStyle = palette.border;
   ctx.lineWidth = 1;
@@ -311,6 +191,8 @@ function drawInset(): void {
   ctx.roundRect(x, y, size, size, 8);
   ctx.fill();
   ctx.stroke();
+  ctx.save();
+  ctx.clip();
   const cx = x + size / 2;
   const cy = y + size / 2 + 8;
   const scale = 40 / lab.radius;
@@ -336,6 +218,7 @@ function drawInset(): void {
     ctx.lineTo(cx + (lx + ux * span) * scale, cy + (ly + uy * span) * scale);
     ctx.stroke();
   }
+  ctx.restore();
   ctx.fillStyle = palette.dim;
   ctx.font = `11px ${FONT}`;
   ctx.textAlign = "left";
@@ -349,45 +232,13 @@ function angleDiffSafe(angle: number): number {
   return d;
 }
 
-function fit(): void {
-  if (!lab) return;
-  if (mode === "studio") {
-    camera = fitCamera(STUDIO_W, STUDIO_H, width, height);
-    return;
-  }
-  if (!scene) return;
-  const map = mapOf(lab.maps.find((m) => m.id === scene!.map)!);
-  if (map.width <= 40 && map.height <= 40) {
-    camera = fitCamera(map.width, map.height, width, height);
-    return;
-  }
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const f of scene.frames) {
-    for (const u of f.u) grow(u[0], u[1]);
-    for (const b of f.b) grow(b[0], b[1]);
-  }
-  const pad = lab.tile * 2;
+/** A small arena whole; a large one around where the script happens. */
+function sceneCamera(file: LabFile, s: LabScene, map: GameMap, width: number, height: number): Camera {
+  if (map.width <= 40 && map.height <= 40) return fitCamera(map.width, map.height, width, height);
+  const [x0, y0, x1, y1] = sceneBounds(s);
+  const pad = file.tile * 2;
   const cam = fitCamera(Math.max(1, (x1 - x0 + pad * 2) / TILE), Math.max(1, (y1 - y0 + pad * 2) / TILE), width, height);
-  camera = { ...cam, cx: (x0 - pad) / TILE + cam.cx, cy: (y0 - pad) / TILE + cam.cy };
-  function grow(x: number, y: number): void {
-    x0 = Math.min(x0, x);
-    y0 = Math.min(y0, y);
-    x1 = Math.max(x1, x);
-    y1 = Math.max(y1, y);
-  }
-}
-
-function resize(): void {
-  const box = stage.getBoundingClientRect();
-  width = Math.max(1, box.width);
-  height = Math.max(1, box.height);
-  dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(width * dpr);
-  canvas.height = Math.round(height * dpr);
-  if (cameraIsAuto) fit();
+  return { ...cam, cx: (x0 - pad) / TILE + cam.cx, cy: (y0 - pad) / TILE + cam.cy };
 }
 
 function setTheme(name: ThemeName): void {
@@ -401,6 +252,7 @@ function setTheme(name: ThemeName): void {
   }
   paintCheck();
   renderPanel();
+  player.invalidate();
 }
 
 function load(file: LabFile): void {
@@ -425,27 +277,23 @@ function paintCheck(): void {
 }
 
 function selectGroup(id: string): void {
-  playing = false;
   mode = id;
-  if (id === "studio") scene = null;
-  else scene = lab?.scenes.find((s) => s.group === id) ?? null;
-  index = 0;
-  cameraIsAuto = true;
-  renderNav();
-  renderPanel();
-  fit();
-  syncTransport();
+  scene = id === "studio" ? null : (lab?.scenes.find((s) => s.group === id) ?? null);
+  present();
 }
 
 function selectScene(s: LabScene): void {
   scene = s;
   mode = s.group;
-  index = 0;
-  playing = false;
-  cameraIsAuto = true;
+  present();
+}
+
+/** Put the selected section or script on the player and refresh the page around it. */
+function present(): void {
+  if (!lab) return;
+  player.load(mode === "studio" ? studioTrack(lab) : scene ? sceneTrack(lab, scene) : null);
   renderNav();
   renderPanel();
-  fit();
   syncTransport();
 }
 
@@ -462,6 +310,11 @@ function renderNav(): void {
     b.className = mode === id ? "on" : "";
     b.addEventListener("click", () => selectGroup(id));
     nav.append(b);
+  }
+  if (play) {
+    const h = document.createElement("h2");
+    h.textContent = "Play";
+    nav.append(h, play);
   }
   if (lab && mode !== "studio" && mode !== "ttk") {
     const h2 = document.createElement("h2");
@@ -500,6 +353,7 @@ function renderStudio(panel: HTMLElement): void {
       studio.weapon = w.id;
       studio.unsteady = Math.min(studio.unsteady, w.unsteadyMax);
       renderPanel();
+      player.invalidate();
     });
     guns.append(b);
   }
@@ -582,6 +436,7 @@ function refreshReadouts(): void {
     table.append(tr);
   }
   paintCharts(gun);
+  player.invalidate();
 }
 
 function slider(parent: HTMLElement, name: string, min: number, max: number, step: number, value: number, on: (v: number) => void): void {
@@ -677,9 +532,9 @@ function renderScenePanel(panel: HTMLElement): void {
     const hits = document.createElement("div");
     hits.id = "hits";
     panel.append(hits);
-    updateReadout();
+    updateReadout(Math.floor(player.pos));
   }
-  panel.append(paragraph("Same units, walls and bullets as the replay viewer. Space plays, arrows step, drag pans, wheel zooms."));
+  panel.append(paragraph("Engine frames played by the replay viewer's player, with its keys: Space plays, arrows step, up / down change speed, 1 / 2 / 3 view as everyone / team A / team B, , and . step through units, click a unit to see through it, V / S / D toggle vision, sounds and debug drawings."));
 }
 
 function ttkTable(panel: HTMLElement): void {
@@ -722,11 +577,12 @@ function ttkTable(panel: HTMLElement): void {
   }
 }
 
-function updateReadout(): void {
+/** The unit list, the hits of this step and the transport, for frame `i` of the script. */
+function updateReadout(i: number): void {
   if (!lab || !scene) return;
-  const frame = toFrame(scene.frames[index], index);
+  const { frame } = scene.frames[i];
   const teamSize = Math.max(1, Math.floor(frame.units.length / 2));
-  const rules = rulesOf(lab);
+  const rules = rulesFor(lab.rules);
   const ul = document.getElementById("units");
   if (ul) {
     ul.replaceChildren();
@@ -738,16 +594,15 @@ function updateReadout(): void {
     }
   }
   const hits = document.getElementById("hits");
-  const raw = scene.frames[index].hit;
+  const raw = damageEvents(frame);
   if (hits) {
     hits.textContent = raw.length
-      ? raw.map((h) => `damage ${h[2]} on ${unitLabel(frame.units[h[1]], teamSize)}`).join("  ")
+      ? raw.map((h) => `damage ${h.value} on ${unitLabel(frame.units[h.target], teamSize)}`).join("  ")
       : "";
   }
-  $("readout").textContent = `step ${index} / ${scene.frames.length - 1}`;
+  $("readout").textContent = `step ${i} / ${scene.frames.length - 1} · ${player.speed}x`;
   $<HTMLInputElement>("scrub").max = String(scene.frames.length - 1);
-  $<HTMLInputElement>("scrub").value = String(index);
-  $("btn-play").textContent = playing ? "Pause" : "Play";
+  $<HTMLInputElement>("scrub").value = String(i);
   $("btn-jump").hidden = !(scene.ttk && /^\d+$/.test(scene.outcome));
 }
 
@@ -758,10 +613,9 @@ function syncTransport(): void {
     scrub.value = "0";
     $("readout").textContent = mode === "studio" ? "studio" : "no lab";
     $("btn-jump").hidden = true;
-    $("btn-play").textContent = "Play";
     return;
   }
-  updateReadout();
+  updateReadout(Math.floor(player.pos));
 }
 
 function heading(text: string): HTMLElement {
@@ -775,59 +629,6 @@ function paragraph(text: string): HTMLElement {
   p.textContent = text;
   return p;
 }
-
-function stepBy(delta: number): void {
-  if (!scene) return;
-  playing = false;
-  index = Math.max(0, Math.min(scene.frames.length - 1, index + delta));
-  syncTransport();
-}
-
-function frame(ts: number): void {
-  if (playing && scene) {
-    const speed = Number($<HTMLSelectElement>("speed").value);
-    const dt = lastTs ? ts - lastTs : 0;
-    lastTs = ts;
-    acc += (dt * speed * BASE_TPS) / 1000;
-    let moved = false;
-    while (acc >= 1 && index < scene.frames.length - 1) {
-      index++;
-      acc -= 1;
-      moved = true;
-    }
-    if (index >= scene.frames.length - 1) playing = false;
-    if (moved || !playing) syncTransport();
-  } else lastTs = ts;
-  draw();
-  requestAnimationFrame(frame);
-}
-
-$("btn-play").addEventListener("click", () => {
-  if (!scene) return;
-  if (index >= scene.frames.length - 1) index = 0;
-  playing = !playing;
-  acc = 0;
-  lastTs = 0;
-  $("btn-play").textContent = playing ? "Pause" : "Play";
-});
-$("btn-step-back").addEventListener("click", () => stepBy(-1));
-$("btn-step").addEventListener("click", () => stepBy(1));
-$("btn-jump").addEventListener("click", () => {
-  if (scene && /^\d+$/.test(scene.outcome)) {
-    playing = false;
-    index = Math.min(scene.frames.length - 1, Number(scene.outcome));
-    syncTransport();
-  }
-});
-$("btn-fit").addEventListener("click", () => {
-  cameraIsAuto = true;
-  fit();
-});
-$<HTMLInputElement>("scrub").addEventListener("input", (e) => {
-  playing = false;
-  index = Number((e.target as HTMLInputElement).value);
-  syncTransport();
-});
 
 function openFile(file: File): void {
   file.text().then((text) => {
@@ -849,67 +650,53 @@ function setStatus(text: string, error = false): void {
 function choose(): void {
   $<HTMLInputElement>("file").click();
 }
-$("btn-open").addEventListener("click", choose);
-$("btn-open-2").addEventListener("click", choose);
-$<HTMLInputElement>("file").addEventListener("change", () => {
-  const file = $<HTMLInputElement>("file").files?.[0];
-  if (file) openFile(file);
-});
-$("btn-theme").addEventListener("click", () => setTheme(themeName === "dark" ? "light" : "dark"));
 
-stage.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  stage.classList.add("dragover");
-});
-stage.addEventListener("dragleave", () => stage.classList.remove("dragover"));
-stage.addEventListener("drop", (e) => {
-  e.preventDefault();
-  stage.classList.remove("dragover");
-  const file = e.dataTransfer?.files?.[0];
-  if (file) openFile(file);
-});
-
-canvas.addEventListener("pointerdown", (e) => {
-  canvas.setPointerCapture(e.pointerId);
-  canvas.classList.add("panning");
-  canvas.dataset.x = String(e.clientX);
-  canvas.dataset.y = String(e.clientY);
-});
-canvas.addEventListener("pointermove", (e) => {
-  if (!canvas.classList.contains("panning")) return;
-  camera = pan(camera, e.clientX - Number(canvas.dataset.x), e.clientY - Number(canvas.dataset.y));
-  canvas.dataset.x = String(e.clientX);
-  canvas.dataset.y = String(e.clientY);
-  cameraIsAuto = false;
-});
-canvas.addEventListener("pointerup", () => canvas.classList.remove("panning"));
-canvas.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  camera = zoomAt(camera, e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - rect.left, e.clientY - rect.top, width, height);
-  cameraIsAuto = false;
-}, { passive: false });
-canvas.addEventListener("dblclick", () => {
-  cameraIsAuto = true;
-  fit();
-});
-
-window.addEventListener("keydown", (e) => {
-  const tag = document.activeElement?.tagName;
-  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-  if (e.key === " ") {
+function bindControls(): void {
+  $("btn-play").addEventListener("click", () => player.setPlaying(!player.playing));
+  $("btn-step-back").addEventListener("click", () => player.step(-1));
+  $("btn-step").addEventListener("click", () => player.step(1));
+  $("btn-jump").addEventListener("click", () => {
+    if (scene && /^\d+$/.test(scene.outcome)) {
+      player.setPlaying(false);
+      player.seek(Number(scene.outcome));
+    }
+  });
+  $("btn-fit").addEventListener("click", () => player.fit());
+  $<HTMLInputElement>("scrub").addEventListener("input", (e) => {
+    player.setPlaying(false);
+    player.seek(Number((e.target as HTMLInputElement).value));
+  });
+  $<HTMLSelectElement>("speed").addEventListener("change", (e) => {
+    player.setSpeed(Number((e.target as HTMLSelectElement).value));
+  });
+  $("btn-open").addEventListener("click", choose);
+  $("btn-open-2").addEventListener("click", choose);
+  $<HTMLInputElement>("file").addEventListener("change", () => {
+    const file = $<HTMLInputElement>("file").files?.[0];
+    if (file) openFile(file);
+  });
+  $("btn-theme").addEventListener("click", () => setTheme(themeName === "dark" ? "light" : "dark"));
+  stage.addEventListener("dragover", (e) => {
     e.preventDefault();
-    $("btn-play").click();
-  } else if (e.key === "ArrowLeft") stepBy(e.shiftKey ? -10 : -1);
-  else if (e.key === "ArrowRight") stepBy(e.shiftKey ? 10 : 1);
-  else if (e.key === "f") {
-    cameraIsAuto = true;
-    fit();
-  } else if (e.key === "t") setTheme(themeName === "dark" ? "light" : "dark");
-  else if (e.key === "o") choose();
-});
+    stage.classList.add("dragover");
+  });
+  stage.addEventListener("dragleave", () => stage.classList.remove("dragover"));
+  stage.addEventListener("drop", (e) => {
+    e.preventDefault();
+    stage.classList.remove("dragover");
+    const file = e.dataTransfer?.files?.[0];
+    if (file) openFile(file);
+  });
+}
 
-new ResizeObserver(() => resize()).observe(stage);
+bindControls();
+player.bindPointer();
+player.bindKeys(() => ({
+  t: () => setTheme(themeName === "dark" ? "light" : "dark"),
+  o: choose,
+}));
+new ResizeObserver(() => player.resize()).observe(stage);
+player.resize();
 
 try {
   const saved = localStorage.getItem("ibc-theme");
@@ -918,7 +705,7 @@ try {
   // Ignore.
 }
 
-const query = new URLSearchParams(location.search).get("lab");
+const query = params.get("lab");
 const initial = query ? fetch(query) : fetch("lab.json");
 initial
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(query ? `could not load ${query}` : "no lab.json beside this page"))))
@@ -926,6 +713,10 @@ initial
   .catch(() => {
     renderNav();
     setStatus("");
+    $("empty").hidden = false;
+  })
+  .then(() => playSection(lab?.rules.kit_rules ?? []))
+  .then((el) => {
+    play = el;
+    renderNav();
   });
-
-requestAnimationFrame(frame);

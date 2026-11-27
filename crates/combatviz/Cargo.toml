@@ -15,5 +15,6 @@ path = "src/main.rs"
 
 [dependencies]
 ibc-engine = { workspace = true }
+ibc-engine-wasm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

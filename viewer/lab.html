@@ -24,10 +24,11 @@
         <nav id="lab-nav"></nav>
         <div id="stage">
           <canvas id="canvas"></canvas>
-          <div id="empty">
+          <div id="empty" hidden>
             <div class="empty-card">
               <h1>Drop a combat lab here</h1>
-              <p><code>cargo run -p ibc-combatviz</code> writes <code>out/combat-lab/lab.json</code>.</p>
+              <p><code>tools/lab.sh</code> records the lab from the current rules and serves it here.
+                <code>cargo run -p ibc-combatviz</code> writes <code>out/combat-lab/lab.json</code> to drop in.</p>
               <button id="btn-open-2">Choose a file</button>
               <p id="status" role="status"></p>
             </div>
