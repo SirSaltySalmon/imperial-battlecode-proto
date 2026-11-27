@@ -9,8 +9,6 @@ use crate::{tile_of, used_spawns, Map, Ruleset, TILE};
 pub const MAX_SIDE: usize = 128;
 /// A site smaller than this has no room for a carrier plus anyone guarding it.
 pub const MIN_SITE_TILES: usize = 4;
-/// Bots stop within this distance of `SiteInfo.centre` and plant where they stand.
-pub const PLANT_TOLERANCE: i32 = TILE / 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {
@@ -241,7 +239,7 @@ fn check_map(map: &Map, rules: &Ruleset, issues: &mut Vec<Issue>) {
     }
 
     for site in &map.sites {
-        check_site(map, &g, &reach, site, r, issues);
+        check_site(map, &g, &reach, site, issues);
         check_blast_escape(map, &g, site, rules.core.blast_radius, issues);
     }
 
@@ -271,7 +269,6 @@ fn check_site(
     g: &TileGraph,
     reach: &[bool],
     site: &crate::SiteInfo,
-    r: i32,
     issues: &mut Vec<Issue>,
 ) {
     let label = site.id + 1;
@@ -309,41 +306,8 @@ fn check_site(
             format!("site {label} is not one connected region"),
         ));
     }
-    // Bots navigate to the bounding-box centre and plant within PLANT_TOLERANCE of it: every point
-    // that close to the centre must be standable and on this site.
-    let c = (site.centre_x, site.centre_y);
-    let (ctx, cty) = tile_of(c);
-    if map.circle_blocked(c, r) {
-        issues.push(error(
-            "site-centre",
-            format!("site {label}: a unit cannot stand on the bounding-box centre (tile {ctx},{cty}); bots plant there"),
-        ));
-        return;
-    }
-    let (x0, x1) = (
-        (c.0 - PLANT_TOLERANCE).div_euclid(TILE),
-        (c.0 + PLANT_TOLERANCE).div_euclid(TILE),
-    );
-    let (y0, y1) = (
-        (c.1 - PLANT_TOLERANCE).div_euclid(TILE),
-        (c.1 + PLANT_TOLERANCE).div_euclid(TILE),
-    );
-    for ty in y0..=y1 {
-        for tx in x0..=x1 {
-            let on_site =
-                tx >= 0 && ty >= 0 && tx < map.width && ty < map.height && own(g.index(tx, ty));
-            if !on_site {
-                issues.push(error(
-                    "site-centre",
-                    format!(
-                        "site {label}: bounding-box centre is at the edge of tile ({tx},{ty}), which is not a site {label} tile; \
-                         bots that stop there cannot plant"
-                    ),
-                ));
-                return;
-            }
-        }
-    }
+    // Where bots plant needs no check of its own: the plant point is the centre of a site tile whatever the
+    // site's shape, and `narrow-gap` and `pocket` already report tile centres a unit cannot stand on or reach.
 }
 
 /// From every tile a charge can be planted on, a unit must be able to walk to a tile whose centre is outside

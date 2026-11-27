@@ -35,9 +35,13 @@ and the size limit is 128x128. One tile is 1024 world units; a unit is a circle 
 
 Two facts of the engine that shape maps:
 
-- `SiteInfo.centre` is the centre of the site's **bounding box**, and the reference bots walk to it and
-  plant there. It must be a standable point on the site (lint checks this), so keep sites rectangular or
-  at least keep their middle on the site.
+- A site can have **any shape** as long as it is one connected region: L-shaped, a corridor that bends,
+  a ring round a pillar or round a patch of low cover. Bots see each site as its bounding box
+  (`SiteInfo.min_tx` to `max_ty`, with its centre in `centre_x`, `centre_y`) and a **plant point**
+  (`plant_x`, `plant_y`): the centre of the site tile nearest the box centre, ties to the first in
+  row-major order. The reference bots walk to the plant point and plant there, so the box centre may be
+  floor, cover or wall. On a filled rectangle with odd sides the two points are the same; along an even
+  side the plant point is half a tile up or left of the box centre.
 - With a radius under half a tile, a unit fits any 1-tile corridor, but two blocked tiles that touch only
   at a corner leave a zero-width gap: units cannot pass, while a sightline or bullet can graze through.
   Lint warns about these (`diagonal-pinch`); close them or open them properly.
@@ -74,7 +78,6 @@ Structural checks; exits non-zero on any error (`--strict`: on warnings too).
 | `spawn-unreachable` | error | A spawn tile cannot be reached from the others |
 | `pocket` | error | Floor nobody can reach |
 | `site-unreachable`, `site-small` | error | A site is cut off, or has fewer than 4 tiles |
-| `site-centre` | error | The bounding-box centre is blocked or not on the site, so bots cannot plant |
 | `spawn-sightline` | error | An attacker and a defender spawn tile see each other at round start |
 | `blast-escape` | error | From some plant tile no reachable tile lies outside `blast_radius` (12 tiles) of a charge anywhere on that tile: a lost retake would cost everyone near the site their gun |
 | `diagonal-pinch` | warning | Two floor tiles touch only at a corner between blocked tiles |
@@ -93,16 +96,16 @@ about 1% of it; it is not an 8-connected step count. Times are ticks at `run_spe
 
 | Number | How it is measured |
 |---|---|
-| Attacker / defender time to site | Fastest used spawn tile to the site centre |
+| Attacker / defender time to site | Fastest used spawn tile to the site's plant point |
 | Timing advantage | Attacker ticks minus defender ticks: how long defenders are on site before first contact |
 | Spawn to spawn | Ticks until the teams meet if both run at the other spawn |
-| Rotation | Site centre to site centre |
-| Retake | From each other site and from the defender spawn: run to within `interact_reach` of a charge on the centre, plus `defuse_ticks`, against `fuse_ticks` |
+| Rotation | Plant point to plant point |
+| Retake | From each other site and from the defender spawn: run to within `interact_reach` of a charge on the plant point, plus `defuse_ticks`, against `fuse_ticks` |
 | Routes, chokepoints, widths | Minimum tile cut (max-flow) between the start of the attack and the site. Each cluster of cut tiles is one route; its size is that choke's width |
 | Longest sightlines | Longest clear lines between standable tile centres, near-duplicates removed, with their end tiles |
 | Hold positions | Off-site tiles near the site that a defender reaches before any attacker; for each, the share of site tiles it sees. Best and mean are reported |
 | Cover density | Walls and low cover among the tiles around the site |
-| Post-plant | Tiles that can watch a charge planted on the centre, and the farthest of them |
+| Post-plant | Tiles that can watch a charge planted on the plant point, and the farthest of them |
 
 Values outside their band are marked in the Markdown and listed under **Flags** (and in `flags` in the
 JSON). The route cut ignores the first 40% of the attackers' way, so a narrow spawn exit is not reported as
@@ -236,7 +239,7 @@ reference bots against each other on both sides, 3 seeds (details under "League 
 | [`spillway`](../maps/spillway.ibcmap)<br>![spillway](../maps/renders/spillway.svg) | 5v5, 25x40, 2 sites | 42 / 39 | 24 / 21 | 18 / 18 | 22 | 3 / 3 | 22.3 | 0 | 61.9% [57.6, 66.2] |
 | [`steppe`](../maps/steppe.ibcmap)<br>![steppe](../maps/renders/steppe.svg) | 5v5, 44x34, 2 sites | 32 / 46 | 15 / 32 | 17 / 14 | 26 | 3 / 4 | 24.5 | 0 | 51.3% [47.6, 55.0] |
 | [`trident`](../maps/trident.ibcmap)<br>![trident](../maps/renders/trident.svg) | 5v5, 33x27, 3 sites | 31 / 27 / 32 | 25 / 21 / 25 | 6 / 6 / 7 | 16 / 30 / 16 | 5 / 5 / 5 | 24.7 | 0 | 60.0% [55.0, 65.0] |
-| [`tunnels`](../maps/tunnels.ibcmap)<br>![tunnels](../maps/renders/tunnels.svg) | 3v3, 24x13, 2 sites | 30 / 32 | 6 / 7 | 24 / 25 | 14 | 2 / 2 | 20.5 | 6 | 72.9% [68.6, 77.2] |
+| [`tunnels`](../maps/tunnels.ibcmap)<br>![tunnels](../maps/renders/tunnels.svg) | 3v3, 24x13, 2 sites | 29 / 31 | 6 / 6 | 23 / 25 | 14 | 2 / 2 | 20.5 | 6 | 72.9% [68.6, 77.2] |
 | [`warrens`](../maps/warrens.ibcmap)<br>![warrens](../maps/renders/warrens.svg) | 5v5, 35x25, 2 sites | 39 / 39 | 21 / 21 | 18 / 18 | 28 | 3 / 3 | 22.2 | 0 | 47.1% [42.4, 51.7] |
 
 | Map | Identity |
@@ -253,7 +256,7 @@ reference bots against each other on both sides, 3 seeds (details under "League 
 | `postern` | 3v3. Small and fast: three one-tile entrances per site, 18-tick rotation |
 | `culvert` | 3v3, diagonal. Spawns in opposite corners, sites in the other two, so each site has a different timing |
 | `quarry` | 4v4. A central pit full of low cover that you can shoot across but not run through, sites above and below it |
-| `crossfire`, `tunnels` | The two original maps, unchanged (byte-identical). They predate the bands: defenders start next to the sites (advantage 24 to 35 ticks) and `crossfire` has 30-tile sightlines |
+| `crossfire`, `tunnels` | The two original maps, unchanged (byte-identical). They predate the bands: defenders start next to the sites (advantage 23 to 35 ticks) and `crossfire` has 30-tile sightlines |
 
 The "without" rotations for `delta` and `fulcrum` were measured on a copy of the map with those doors walled.
 
@@ -322,3 +325,8 @@ Read these with the bots in mind: they were written before the timings changed a
   one to watch.
 - The older figures in this file's history (rusher against holder, 10 seeds) were for a ruleset that no longer
   exists and a two-bot pool; they are not comparable and were removed.
+- Since 2026-11-27 the bots walk to the plant point (`SiteInfo.plant_x`, `plant_y`) instead of the box centre.
+  On every map but `tunnels` the two are the same point and every game is identical. On `tunnels` (2x2
+  sites, so the plant point is half a tile up and left of the box centre), on ruleset `5795cbc069627a93`,
+  attackers won 72.4% [68.1, 76.8] of rounds before and 71.3% [66.8, 75.7] after, 192 games each: no change
+  beyond the noise. The table above is the 2026-11-25 measurement.
