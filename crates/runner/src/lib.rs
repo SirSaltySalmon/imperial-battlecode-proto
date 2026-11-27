@@ -76,6 +76,9 @@ pub struct UnitStats {
 
 pub struct MatchOutput {
     pub replay: Replay,
+    /// `replay.encode()`: the bytes of `replay.ibcr`, which `summary.replay_sha256` hashes. Write these rather
+    /// than encoding again; the deflate is a large share of a match's cost.
+    pub replay_bytes: Vec<u8>,
     pub summary: Summary,
     /// Captured stdout/stderr/`ibc.log` output, indexed by unit id. The replay has the same bytes per turn, but
     /// not the `[ibc] log truncated` notice.
@@ -450,7 +453,8 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
         f.max_unit_turn = f.max_unit_turn.max(s.max_turn);
     }
     let replay = writer.finish(result.clone());
-    let replay_sha256 = sha256_hex(&replay.encode());
+    let replay_bytes = replay.encode();
+    let replay_sha256 = sha256_hex(&replay_bytes);
     for (t, f) in team_fuel.iter_mut().enumerate() {
         f.set_turn_percentiles(&replay, t);
     }
@@ -478,5 +482,5 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
         replay_sha256,
         game: game_summary,
     };
-    Ok(MatchOutput { replay, summary, logs, frames, units })
+    Ok(MatchOutput { replay, replay_bytes, summary, logs, frames, units })
 }

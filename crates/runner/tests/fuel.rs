@@ -214,6 +214,8 @@ fn same_match_twice_is_byte_identical() {
     assert_eq!(a.logs, b.logs);
     assert_eq!(a.units, b.units);
     assert_eq!(a.summary.replay_sha256, ibc_replay::sha256_hex(&a.replay.encode()));
+    // The bytes the runner hands out for `replay.ibcr` are that encoding.
+    assert_eq!(a.replay_bytes, a.replay.encode());
 }
 
 #[test]
