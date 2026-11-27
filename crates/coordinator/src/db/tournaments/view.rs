@@ -102,23 +102,25 @@ fn stage_name(stage: Stage) -> &'static str {
     }
 }
 
-/// The bracket grouped by (stage, round), in play order within each stage.
+/// The bracket grouped by (stage, round), in play order within each stage. A bracket stored before the
+/// grand final reset was part of the shape shows the matches it has rows for.
 fn rounds_view(t: &Tournament, entrants: &[Entrant], rows: &[MatchRow]) -> Value {
     let (shape, states) = bracket_state(t, entrants.len(), rows);
     let mut rounds: Vec<Value> = Vec::new();
     let mut current: Option<(Stage, u32)> = None;
-    for (idx, (m, state)) in shape.iter().zip(&states).enumerate() {
+    for (idx, ((m, state), row)) in shape.iter().zip(&states).zip(rows).enumerate() {
         if current != Some((m.stage, m.round)) {
             current = Some((m.stage, m.round));
             let name = match m.stage {
-                Stage::Final => "Grand final".to_string(),
+                Stage::Final if m.round == 1 => "Grand final".to_string(),
+                Stage::Final => "Grand final reset".to_string(),
                 Stage::Winners if t.format == Format::Single => format!("Round {}", m.round),
                 Stage::Winners => format!("Winners round {}", m.round),
                 Stage::Losers => format!("Losers round {}", m.round),
             };
             rounds.push(json!({"name": name, "stage": stage_name(m.stage), "round": m.round, "pairings": []}));
         }
-        let pairing = pairing_view(idx, state, entrants, &rows[idx]);
+        let pairing = pairing_view(idx, state, entrants, row);
         if let Some(Value::Array(list)) = rounds.last_mut().map(|r| &mut r["pairings"]) {
             list.push(pairing);
         }

@@ -188,9 +188,16 @@ series = floor( core_seconds_per_hour * utilisation / batches_per_hour
 
 `cost_per_game` is the measured mean cost of recent finished games (core-seconds, from `wall_ms`), passed as
 `Some(mean)`. With `None` (a new season, nothing measured) or a mean that is zero, negative or not finite, the
-prior `prior_core_seconds_per_game` (10) is used, so a fresh ladder can start; the cost is never taken below
-`min_core_seconds_per_game` (0.25), so a mean polluted by instantly-failing jobs cannot flood the queue. Both
-numbers are placeholders until `crates/bench` has measured real games: set the prior on the high side.
+prior `prior_core_seconds_per_game` (2) is used, so a fresh ladder can start; the cost is never taken below
+`min_core_seconds_per_game` (0.05), so a mean polluted by instantly-failing jobs cannot flood the queue.
+
+Both are measured (2026-11-27; native `ibc` on an i7-12700H; all 14 maps, 4 seeds, both sides). `bots/burner`,
+every unit of which spends its whole fuel every tick, costs 0.53 core-seconds per game on average and 0.66 at
+most, and the longest legal match projects to about 0.9; the prior is twice that, for slower cloud vCPUs. It is
+not a hard bound: code that misses the cache on every access reaches 20 to 31 core-seconds, and host calls are
+not priced yet (`docs/TODO.md`), so a first round of such bots overruns and the measured mean sizes the next.
+Today's reference bots cost about 0.03: the floor holds a ladder of them to 60 % of the fleet, where 0.25 held
+it to an eighth.
 
 Other defaults: `utilisation` 0.7 (headroom for retries, spot verification and the other job classes),
 `batches_per_hour` 6, `games_per_series` 5, `max_series_per_batch` 500. A capacity or configuration that is

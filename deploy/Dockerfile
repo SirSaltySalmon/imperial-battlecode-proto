@@ -50,8 +50,8 @@ ENTRYPOINT ["/usr/local/bin/ibc-worker", "--cache", "/var/cache/ibc-worker"]
 
 # One process: API, job queue, ranked scheduler. Everything it keeps is in /data (back it up with
 # `ibc-coordinator backup`, docs/DEPLOY.md). Set IBC_ADMIN_TOKEN and the registration tokens at run time.
-# The built viewer and web front end are put at IBC_VIEWER_DIR / IBC_WEB_DIR for the coordinator to serve;
-# a coordinator without static file serving (this tree today) ignores both and serves the API only.
+# The built viewer and web front end are put at IBC_VIEWER_DIR / IBC_WEB_DIR: the coordinator serves the
+# web front end at / and the viewer at /viewer/.
 FROM gcr.io/distroless/cc-debian12:nonroot AS coordinator
 COPY --from=build /out/bin/ibc-coordinator /usr/local/bin/
 COPY --from=sites /out/viewer /srv/viewer

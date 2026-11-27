@@ -260,7 +260,8 @@ fn tampering_with_a_kept_memory_write_fails() {
 
 #[test]
 fn records_json_lists_only_kept_teams() {
-    let full = record(10);
+    // The first accepted team-memory write is on tick 10: ticks 0 and 5 are the draft and the buy phase.
+    let full = record(11);
     let all: serde_json::Value = serde_json::from_str(&records_json(&full, true)).unwrap();
     assert!(!all["logs"].as_array().unwrap().is_empty());
     assert!(!all["mem"].as_array().unwrap().is_empty());
@@ -269,4 +270,69 @@ fn records_json_lists_only_kept_teams() {
         assert!(none[key].as_array().unwrap().is_empty(), "{key}");
     }
     assert_eq!(none["redacted"], serde_json::json!([true, true]));
+}
+
+#[test]
+fn refused_calls_leave_no_input_and_writes_are_kept_once_per_team_and_scope() {
+    use ibc_engine::abi::*;
+    let mut m = Match::new(Ruleset::builtin(), Map::parse(MAP).unwrap(), 7);
+    let team_b = m.unit_count() / 2;
+    // The draft tick: moves and team memory are refused, and so is a bad scope or range.
+    assert_eq!(m.act(0, A_MOVE, 0, 100, 0), ERR_NOT_ALLOWED);
+    assert_eq!(m.mem_write(0, MEM_TEAM, 0, &[1; 1 << 20]), ERR_NOT_ALLOWED);
+    assert_eq!(m.mem_write(0, 9, 0, &[1]), ERR_BAD_ARG);
+    assert_eq!(m.mem_write(0, MEM_DRAFT, 1020, &[1; 8]), ERR_OUT_OF_RANGE);
+    assert!(m.take_inputs().is_empty());
+    // Three writes of team A become one input over their span, under the unit that wrote last.
+    assert_eq!(m.mem_write(0, MEM_DRAFT, 8, &[1, 2, 3]), OK);
+    assert_eq!(m.mem_write(1, MEM_DRAFT, 4, &[9]), OK);
+    assert_eq!(m.mem_write(0, MEM_DRAFT, 9, &[7]), OK);
+    assert_eq!(m.mem_write(team_b, MEM_DRAFT, 0, &[5]), OK);
+    assert_eq!(m.act(0, A_DRAFT, 1, 0, 0), OK);
+    let draft = |unit, off, data: &[u8]| Input::MemWrite { unit, scope: MEM_DRAFT, off, data: data.to_vec() };
+    assert_eq!(
+        m.take_inputs(),
+        [
+            Input::Act { unit: 0, kind: A_DRAFT, a: 1, b: 0, c: 0 },
+            draft(0, 4, &[9, 0, 0, 0, 1, 7, 3]),
+            draft(team_b, 0, &[5])
+        ]
+    );
+    assert!(m.take_inputs().is_empty());
+
+    // In the action phase a unit gets MAX_ACTS accepted actions a tick; the rest are refused and not kept.
+    while !m.world.in_action() {
+        m.step();
+    }
+    for i in 0..ibc_engine::MAX_ACTS {
+        assert_eq!(m.act(0, A_MOVE, i as i32, 100, 0), OK);
+    }
+    assert_eq!(m.act(0, A_FACE, 0, 0, 0), ERR_NOT_ALLOWED);
+    assert_eq!(m.act(2, A_FACE, 0, 0, 0), OK, "the cap is per unit");
+    assert_eq!(m.take_inputs().len(), ibc_engine::MAX_ACTS as usize + 1);
+    m.step();
+    assert_eq!(m.act(0, A_FACE, 0, 0, 0), OK, "and per tick");
+}
+
+#[test]
+fn a_recorded_match_keeps_only_accepted_inputs_and_simulating_keeps_none() {
+    let r = record(40);
+    // Tick 0 is the draft: every move and team-memory write of `record` is refused there.
+    assert!(r.ticks[0].events.is_empty(), "{:?}", r.ticks[0].events);
+    for (i, t) in r.ticks.iter().enumerate() {
+        let mut writes: Vec<(usize, u32)> = t
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Input(Input::MemWrite { unit, scope, .. }) => Some((r.header.unit_team(*unit), *scope)),
+                _ => None,
+            })
+            .collect();
+        let n = writes.len();
+        writes.dedup();
+        assert_eq!(writes.len(), n, "tick {i}: more than one write per team and scope");
+        assert_eq!(n > 0, i % 5 == 0 && i >= 10, "tick {i}");
+    }
+    let mut m = r.simulate(|_| {}).unwrap();
+    assert!(m.take_inputs().is_empty(), "re-simulation keeps no copy of the inputs");
 }

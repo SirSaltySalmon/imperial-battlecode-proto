@@ -4,6 +4,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::{fake_result, Harness, MockWorker, ADMIN};
+use ibc_coordinator::util::sha256_hex;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -301,20 +302,9 @@ async fn complete_checks_the_lease_token_the_result_and_the_replay_blob() {
         StatusCode::OK
     );
     assert_eq!(
-        h.raw("GET", &format!("/v1/blobs/{sha}"), Some(&w.token), vec![])
+        h.raw("GET", &format!("/v1/blobs/{sha}"), Some(ADMIN), vec![])
             .await,
         (StatusCode::OK, replay)
-    );
-    assert_eq!(
-        h.raw(
-            "GET",
-            &format!("/v1/blobs/{}", "0".repeat(64)),
-            Some(&w.token),
-            vec![]
-        )
-        .await
-        .0,
-        StatusCode::NOT_FOUND
     );
 
     // Wrong lease token.
@@ -402,6 +392,137 @@ async fn complete_checks_the_lease_token_the_result_and_the_replay_blob() {
         .await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(job_state(&h, &job_id).await["result"], result);
+}
+
+async fn get_blob(h: &Harness, token: &str, sha: &str) -> StatusCode {
+    let path = format!("/v1/blobs/{sha}");
+    h.raw("GET", &path, Some(token), vec![]).await.0
+}
+
+/// The status and the error code of a blob upload.
+async fn put_blob(h: &Harness, token: &str, bytes: &[u8]) -> (StatusCode, Option<String>) {
+    let path = format!("/v1/blobs/{}", sha256_hex(bytes));
+    let (status, body) = h.raw("PUT", &path, Some(token), bytes.to_vec()).await;
+    let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    (status, body["error"].as_str().map(str::to_owned))
+}
+
+/// The test patch, with `runner` as its `linux-x86_64` runner blob.
+async fn set_patch_runner(h: &Harness, runner: &str) {
+    h.admin(
+        "POST",
+        "/v1/admin/patch",
+        json!({"engine": "0.1.0", "ruleset_hash": "00112233aabbccdd", "wasmtime": "51.0.0",
+               "runner_blobs": {"linux-x86_64": runner}}),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_worker_reads_only_the_blobs_of_its_leases_and_uploads_only_while_it_holds_one() {
+    let h = Harness::new(|c| c.verify_fraction = 1.0);
+    let runner = h.blob(b"pretend this is an ibc binary").await;
+    set_patch_runner(&h, &runner).await;
+    let job_id = id(&h.enqueue("ranked", 1).await);
+    let mut named: Vec<String> = [b"bot a".as_slice(), b"bot b", b"a map"]
+        .map(sha256_hex)
+        .into();
+    named.push(runner);
+    let unrelated = h.blob(b"some other team's bot").await;
+    let (w, idle) = (
+        MockWorker::register(&h, "w", false).await,
+        MockWorker::register(&h, "idle", false).await,
+    );
+    let lease_lost = (StatusCode::CONFLICT, Some("lease_lost".to_owned()));
+
+    // Without a lease a worker reads nothing and writes nothing; the organisers are not restricted.
+    for sha in &named {
+        assert_eq!(get_blob(&h, &w.token, sha).await, StatusCode::FORBIDDEN);
+        assert_eq!(get_blob(&h, ADMIN, sha).await, StatusCode::OK);
+    }
+    assert_eq!(put_blob(&h, &w.token, b"new").await, lease_lost);
+    assert_eq!(put_blob(&h, ADMIN, b"new").await.0, StatusCode::CREATED);
+
+    // With the job leased: its bots, map and patch runner, nothing else, and only for this worker.
+    let job = w.lease_one(&h).await;
+    for sha in &named {
+        assert_eq!(get_blob(&h, &w.token, sha).await, StatusCode::OK);
+        assert_eq!(get_blob(&h, &idle.token, sha).await, StatusCode::FORBIDDEN);
+    }
+    assert_eq!(
+        get_blob(&h, &w.token, &unrelated).await,
+        StatusCode::FORBIDDEN
+    );
+    // A blob that does not exist is refused like any other the lease does not name.
+    assert_eq!(
+        get_blob(&h, &w.token, &"0".repeat(64)).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(put_blob(&h, &idle.token, b"new").await, lease_lost);
+    // The replay is uploaded under the lease. No lease names it, so it is not read back.
+    let (replay, _) = fake_result(&job, false);
+    assert_eq!(put_blob(&h, &w.token, &replay).await.0, StatusCode::CREATED);
+    let replay_sha = sha256_hex(&replay);
+    assert_eq!(
+        get_blob(&h, &w.token, &replay_sha).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(w.complete(&h, &job).await.0, StatusCode::OK);
+
+    // The lease is over, and so is the access. The trusted re-run reads the same blobs.
+    assert_eq!(
+        get_blob(&h, &w.token, &named[0]).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(put_blob(&h, &w.token, b"late").await, lease_lost);
+    let trusted = MockWorker::register(&h, "trusted", true).await;
+    assert_ne!(id(&trusted.lease_one(&h).await), job_id);
+    for sha in &named {
+        assert_eq!(get_blob(&h, &trusted.token, sha).await, StatusCode::OK);
+    }
+
+    // An expired lease that the sweeper has not reclaimed yet grants nothing.
+    let expire = "UPDATE jobs SET lease_expires_at = 1 WHERE state = 'leased'";
+    h.app.db.tx(|tx| Ok(tx.execute(expire, [])?)).unwrap();
+    assert_eq!(
+        get_blob(&h, &trusted.token, &named[0]).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(put_blob(&h, &trusted.token, b"late").await, lease_lost);
+}
+
+#[tokio::test]
+async fn a_lease_keeps_the_runner_it_was_sent_when_the_organisers_replace_it() {
+    let h = Harness::new(|_| {});
+    let old = h.blob(b"pretend this is an ibc binary").await;
+    set_patch_runner(&h, &old).await;
+    h.enqueue("ranked", 1).await;
+    h.enqueue("ranked", 2).await;
+    let (a, b) = (
+        MockWorker::register(&h, "a", false).await,
+        MockWorker::register(&h, "b", false).await,
+    );
+    a.lease_one(&h).await;
+    let new = h.blob(b"the same patch, rebuilt").await;
+    set_patch_runner(&h, &new).await;
+    assert_eq!(get_blob(&h, &a.token, &old).await, StatusCode::OK);
+    assert_eq!(get_blob(&h, &a.token, &new).await, StatusCode::FORBIDDEN);
+    let job = b.lease_one(&h).await;
+    assert_eq!(job["runner_blobs"]["linux-x86_64"], new.as_str());
+    assert_eq!(get_blob(&h, &b.token, &new).await, StatusCode::OK);
+    assert_eq!(get_blob(&h, &b.token, &old).await, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_missing_blob_that_a_lease_names_is_404_so_the_job_fails() {
+    let h = Harness::new(|_| {});
+    h.set_patch().await;
+    h.enqueue("ranked", 1).await;
+    let w = MockWorker::register(&h, "w", false).await;
+    w.lease_one(&h).await;
+    let map = sha256_hex(b"a map");
+    assert!(h.app.blobs.delete(&map).unwrap());
+    assert_eq!(get_blob(&h, &w.token, &map).await, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

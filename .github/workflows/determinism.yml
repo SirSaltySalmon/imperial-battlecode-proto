@@ -49,6 +49,11 @@ jobs:
         run: cargo xtask golden verify
       - name: Browser engine equals native engine
         run: cargo xtask engine-wasm --require-node out/golden/wasm/*/replay.ibcr
+      # The only place the worker meets the real runner on Windows and macOS. The goldens built this ibc.
+      - name: Worker against the release runner
+        env:
+          IBC_RUNNER: ${{ github.workspace }}/target/release/ibc${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo test --locked -p ibc-worker
       - name: Keep the outputs of a failed run
         if: failure()
         uses: actions/upload-artifact@v4

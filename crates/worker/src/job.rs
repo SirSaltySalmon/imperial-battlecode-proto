@@ -86,6 +86,11 @@ fn process(
     dir: &Path,
     seq: u64,
 ) -> Result<Finished, Stop> {
+    // Granted by a long poll that returned after the drain began: nothing has started, so give it back now
+    // (no attempt spent) rather than start a match the machine may not live to finish.
+    if active.leased_while_draining {
+        return Err(Stop::Release("worker shutting down".into()));
+    }
     if lease.kind != "match" {
         return Err(Stop::Release(format!("unknown job kind {:?}", lease.kind)));
     }
@@ -143,7 +148,11 @@ fn resolve_runner(
         .runner_blobs
         .as_ref()
         .and_then(|m| m.get(&crate::runner::platform()));
-    let Some(sha) = named.filter(|s| ctx.cfg.allow_runner_fetch && crate::is_sha256(s)) else {
+    // A patch that cannot name a runner directory could never be installed: do not download its binary.
+    let installable = spec.patch.dir_name().is_some();
+    let Some(sha) =
+        named.filter(|s| ctx.cfg.allow_runner_fetch && installable && crate::is_sha256(s))
+    else {
         return Ok(None);
     };
     let blob = fetch(ctx, active, sha, until)?;

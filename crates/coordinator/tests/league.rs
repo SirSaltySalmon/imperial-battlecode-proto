@@ -152,12 +152,18 @@ async fn upload_validates_stores_and_switches_the_live_submission() {
         .as_str()
         .unwrap()
         .contains("env.something"));
-    // The validated module is a blob workers can fetch.
+    // The validated module is stored as a blob; a worker reads it only for a job it holds.
+    assert_eq!(
+        h.raw("GET", &format!("/v1/blobs/{first}"), Some(ADMIN), vec![])
+            .await,
+        (StatusCode::OK, bot_wasm("alpha"))
+    );
     let w = MockWorker::register(&h, "w", false).await;
     assert_eq!(
         h.raw("GET", &format!("/v1/blobs/{first}"), Some(&w.token), vec![])
-            .await,
-        (StatusCode::OK, bot_wasm("alpha"))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
     );
 
     // Unknown language, missing auth, someone else's token class.

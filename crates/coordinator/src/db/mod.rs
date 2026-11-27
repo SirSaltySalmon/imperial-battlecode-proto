@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS jobs(
   require_label TEXT, verifies TEXT, avoid_worker TEXT,
   result TEXT, replay_sha256 TEXT, verified INTEGER NOT NULL DEFAULT 0, error TEXT,
   timeouts INTEGER NOT NULL DEFAULT 0,
+  lease_runners TEXT,
   created_at INTEGER NOT NULL, queued_at INTEGER NOT NULL, finished_at INTEGER);
 CREATE INDEX IF NOT EXISTS jobs_queue ON jobs(state, class, created_at);
 CREATE INDEX IF NOT EXISTS jobs_worker ON jobs(worker_id, state);
@@ -133,6 +134,7 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("teams", "join_code", "TEXT"),
     ("submissions", "note", "TEXT"),
     ("series", "placement_for", "TEXT"),
+    ("jobs", "lease_runners", "TEXT"),
 ];
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {

@@ -10,7 +10,7 @@
 #   --exit        stop everything after that; without it the stack keeps running until Ctrl-C
 #   --interval S  seconds between full ranked scheduler rounds (default 30); between them the scheduler
 #                 tops the queue up whenever the workers run low, until each team reaches its series cap
-#                 (5 per 15 minutes)
+#                 (5 per 15 minutes). Until it has timed games it assumes 2 core-seconds per game.
 #
 # Builds natively in debug (honours CARGO_TARGET_DIR). Starts from an empty out/devstack/ every time; logs
 # and the data directory stay there afterwards. Needs bash, curl and the wasm32-wasip1 Rust target.

@@ -58,12 +58,19 @@ jobs:
       # The toolchain and its wasm targets come from rust-toolchain.toml.
       - name: Install the pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
+      # Only ./target is cached. The reference bots' own targets (bots/*/target) would not help: they hold
+      # nothing but path crates, which cargo rebuilds after every checkout because their sources are newer.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: check
           # PRs read the cache that main wrote; they do not write their own.
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: fmt, clippy, tests
+        # The worker tests play real matches with this ibc, which `cargo test --workspace` builds before
+        # any test runs. Absolute, since each test runs in its own package directory. Under CI a test
+        # that needs it fails instead of skipping.
+        env:
+          IBC_RUNNER: ${{ github.workspace }}/target/debug/ibc
         run: cargo xtask check
       - name: Native goldens
         run: cargo xtask golden verify --native

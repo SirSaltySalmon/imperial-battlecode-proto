@@ -54,8 +54,9 @@ if any match failed.
 HTTPS, JSON bodies (`Content-Type: application/json`), UTF-8. Times are RFC 3339 UTC strings. All SHA-256
 values are 64 lower-case hex digits. Every request except `register` carries
 `Authorization: Bearer <worker token>`. Errors are `{"error": "<code>", "message": "..."}` with status 400
-(malformed), 401 (bad token), 404 (unknown job or blob), 409 (lease lost: wrong or expired `lease_token`;
-the worker must drop the job), 429/503 (retry with exponential backoff, 1 s doubling to 60 s, with jitter).
+(malformed), 401 (bad token), 403 (a blob that no lease of this worker names), 404 (unknown job or blob), 409
+(lease lost: wrong or expired `lease_token`, or an upload without a lease; the worker must drop the job),
+429/503 (retry with exponential backoff, 1 s doubling to 60 s, with jitter).
 
 **Revision 1.1** (marked *1.1* below) only adds optional fields and one endpoint; peers of either revision
 interoperate. A 1.1 coordinator uses the summary's `outcome` when a 1.0 worker sends none; a 1.1 worker whose
@@ -116,6 +117,11 @@ going through a double. Unknown fields must be ignored; a job of an unknown `kin
 result where it does not. `wall_ms` is not part of the match's determinism (it is not compared); the
 coordinator uses it to size ranked batches to the fleet.
 
+`blobs`: a worker reads only what a job it holds a live lease on names: `bot_a`, `bot_b`, `map` and the
+`runner_blobs` sent with the lease (even if the organisers replace them meanwhile). Any other hash is 403,
+whether the blob exists or not; a 404 means a blob the lease names is missing. A worker uploads only while it holds a live lease (otherwise 409 `lease_lost`), and
+its replay is named by no lease, so it is not read back. The organisers' admin token reads and writes any blob.
+
 The ladder is rated per series, not per job: when every map of a ranked series has finished, the series'
 `outcome`s (maps won, lost, drawn) move the two ratings once, from the pre-series ratings
 (`docs/api/league.md`). A ranked series is `IBC_RANKED_GAMES` maps (default 3), queued by the built-in
@@ -129,12 +135,14 @@ workers, so an idle fleet keeps playing; a per-team series cap bounds how much.
    side-by-side runner's. If not: `release` with `reason: "patch mismatch"`. Never run a job on a different
    patch.
 2. Fetch `bot_a`, `bot_b` and `map` with `GET /v1/blobs/{sha256}` (cache by hash; verify the hash of what
-   was received). A 404 is `fail` with `retryable: false`.
+   was received). A 404 is `fail` with `retryable: false`; a 403 (the lease is no longer held) is `fail`
+   with `retryable: true`.
 3. Run it (`run-batch --jsonl`, mapping `language` to `language_a/b` and `fuel_mult`, when present, to
    `fuel_mult_a/b`), sending `heartbeat` six times per
    lease: every `lease_secs / 6` (30 s for 180 s). A worker that got no `lease_secs` assumes 180 s.
 4. On `finished`: `PUT /v1/blobs/{replay_sha256}` with the replay bytes, then `complete`. The coordinator
    rejects (400) a blob whose content does not hash to the path, and a `complete` whose replay blob is absent.
+   A 409 on the `PUT` means the worker holds no lease any more: drop the job.
 5. On `failed`: `fail`. `retryable: false` when the input itself is bad (invalid wasm or map), `true` for
    anything environmental (I/O error, crash).
 6. A match that runs past the worker's wall-clock limit is killed and failed with `retryable: true,

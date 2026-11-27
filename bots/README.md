@@ -40,6 +40,54 @@ What the squad bots do that the first three do not:
   wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` and
   `rusher` (so `utility`) do the same (measured below).
 
+## Load bot: `burner`
+
+Not in the pool and not registered in `ibc-sim` (natively there is no fuel meter, so it burns nothing). Every
+unit spends its whole budget on every tick and yields about 250 fuel short of zero, so it is never paused.
+`src/main.rs` does nothing else, like `idle`: the match then always plays all 18 rounds (2,305 ticks).
+`examples/` holds `forcer` plus burning, `forcer` alone from the same sources (the control: same final state
+hash), and kernels that spend the same fuel in costlier ways (`div`, `chase`, `fuel_calls`, `los`, `reads`,
+`draws`, `mem_read`, `mem_write`, and `logs`, `prints`, `randoms` for `log`, WASI `fd_write` and
+`random_get`). Build them with `cargo build --release --target wasm32-wasip1 --examples` in `bots/burner` and
+pass the `.wasm` files to `ibc run`.
+
+Measured on 2026-11-27, ruleset `5795cbc069627a93`, wasm runner, one match per process, i7-12700H:
+
+| Mirror | Games | Core-seconds per game, mean / max |
+|---|---:|---:|
+| `burner` (multiply chain), 14 maps | 112 (56 distinct) | 0.53 / 0.66 |
+| `forcer` plus burning, 14 maps | 112 (56 distinct) | 0.47 / 0.66 |
+| `forcer` alone, 14 maps | 56 | 0.32 / 0.41 |
+| `div` / `fuel_calls` / `los` / `reads`, 4 maps | 4 each | 1.1 / 2.0 / 5.2 / 5.3 (max 5.6) |
+| `chase` (16 MiB per unit), 4 maps | 4 | 20.3 / 22.3 |
+| `draws`, 4 maps | 4 | 74.3 / 76.6, and a 14 MB replay |
+| `mem_read`, first 20 ticks only | 1 | 13.5 for 20 ticks (about 750 for a whole match) |
+
+The fuel budget bounds CPU time only as well as host calls are priced. The same fuel costs 0.18 ns of CPU
+per unit as arithmetic, 0.37 as division, 2 as `los` or table reads, 8 as cache misses, 28 as `debug_draw`
+calls (free then) and about 290 as 1 MiB `mem_read` calls (charged 20 fuel whatever the length). `mem_write` was
+worse: the engine recorded every call in the replay, refused or not, so one refused 1 MiB call per unit-turn
+grew the runner's memory by about 23 MB a tick. Both are fixed: the engine checks a memory call before
+anything of the requested length exists, and the replay keeps only what accepted calls left
+(docs/REPLAY.md, "Inputs").
+
+Pricing `debug_draw` (140 fuel, and 2,048 kept drawings per team and tick instead of 4,096 for the world),
+`fd_write` (5 per iovec) and `random_get` (2 per 8 bytes), measured later that day on `crossfire`, seed 1,
+with the binaries before and after run alternately (the machine was slower than above: table reads at about
+4.5 ns per fuel, start-up of about 0.3 s included):
+
+| Mirror | Before | After |
+|---|---:|---:|
+| `draws`, whole match | 84.3 core-s, 566 MB peak, 14.3 MB replay | 32.8 core-s, 628 MB, 20.9 MB |
+| `prints` (64 one-byte iovecs per `fd_write`), 300 ticks | 19.2 core-s (53 ns per fuel) | 1.4 (4.0) |
+| `randoms` (4 KiB per `random_get`) | 306 ms a tick (242 ns per fuel) | 4.5 ms (3.8) |
+| `logs` / `reads` / `burner`, 300 ticks | 1.5 / 1.7 / 0.36 core-s | 1.6 / 1.6 / 0.33 |
+
+`log` and `fuel_remaining` cost no more per fuel than a table read and stay free. What is left of `draws` is
+storing the 4,096 drawings a tick that the cap keeps, about 3 µs of CPU each; the replay is larger because
+drawings from several units compress worse than one unit's run. Only a lower cap, or a cheaper replay writer,
+reduces that.
+
 ## Measured
 
 Taken on 2026-11-25, ruleset `47ebd4e1efcddb9b`, native backend. The first table is on the ten maps the pool
@@ -171,3 +219,15 @@ Fuel, wasm runner (measured before the timing change): 40 matches (every pair of
 `warrens`, seed 11) had no out-of-fuel turn and no fault; the largest single turn was 297,188 of the
 400,000 a buy tick allows. Native and wasm gave the same final state hash for `sapper` against `retaker`
 on `crossfire`, seed 1, and that replay was produced twice byte-identical and verified.
+
+### `holder` writes its site in the action phase (2026-11-27, ruleset `b884be2eabbb7c1e`)
+
+`holder` used to write the attack site to team memory while planning on the first buy tick, where team
+memory is read-only, so every attacker's write was refused every round. The first attacker to act on the
+first action tick now writes it, and the others read it there. Every attacker computes the same site
+from the seed and the round, so the games did not change. The native league (14 maps, 3 seeds, 3,024 games,
+672 per bot) is identical before and after: `holder` wins 28.7% [25.4, 32.3] of matches and 43.7% of its
+attacking rounds. On the wasm runner, where the extra memory calls cost fuel, `ibc replay dump` prints the
+same state on every tick (team memory aside) for `holder` against `rusher` on `tunnels`, seed 1, both ways
+round, and the goldens kept every score and length. Only the team memory part of the state hash moved. The
+`holder`-first replay now holds 6 accepted site writes where it held 18 refused ones.

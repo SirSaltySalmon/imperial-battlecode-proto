@@ -9,14 +9,17 @@
 //! * the driver arms an async yield slice of exactly `B` before resuming the bot, so wasm that reaches the
 //!   floor suspends inside Wasmtime's out-of-fuel hook and resumes at the same instruction next turn;
 //! * a host call with cost `c` moves the odometer down by `c` and re-arms the slice to what is left, so host
-//!   charges and wasm instructions draw on the same budget. If less than `c` is left the call itself
-//!   suspends until the next turn (the rest of this turn's fuel is discarded);
+//!   charges and wasm instructions draw on the same budget. If no more than `c` is left the call itself
+//!   suspends until the next turn (the rest of this turn's fuel is discarded). If `c` is at least the
+//!   turn's whole budget, the call takes what is left and owes the rest as debt (below). WASI calls are paid
+//!   like instructions instead: at once, and what runs past the floor is debt;
 //! * `end_turn` suspends; unused fuel is discarded because the next turn computes a fresh floor.
 //!
 //! Wasmtime only checks fuel at loop headers and function entries, so a unit can run past the floor by the
-//! length of one check-free path. The driver reads the odometer after every turn and subtracts that
-//! overshoot (the "debt") from the next budget, so total consumption never exceeds total budget by more
-//! than one such path, no matter how long the match is.
+//! cost of one check-free path: its instructions, plus the bytes of any `memory.copy`/`memory.fill` and the
+//! WASI fees on it, or an `ibc` fee as large as a turn. The driver reads the odometer after every turn and
+//! subtracts that overshoot (the "debt") from the next budget, so total consumption never exceeds total
+//! budget by more than one such path, no matter how long the match is.
 
 use ibc_abi::Host as _;
 use ibc_engine::Match;
@@ -33,8 +36,6 @@ use wasmtime::{
 pub(crate) const INITIAL_FUEL: u64 = u64::MAX / 2;
 /// Fuel available to instantiation (data segment initialisation, wasm start function).
 const INSTANTIATE_FUEL: u64 = 1_000_000;
-/// Largest `mem_read` / `mem_write` length passed on to the engine.
-const MAX_MEM_IO: u32 = 1 << 20;
 /// Most elements of a unit's one table (the function table of indirect calls; toolchains emit a few dozen).
 const MAX_TABLE_ELEMENTS: usize = 1 << 16;
 
@@ -67,11 +68,16 @@ pub struct UnitData {
     log: Vec<u8>,
     log_limit: usize,
     log_truncated: bool,
+    /// Where `get` has the engine write a row before copying it to the guest, kept so that a `get` allocates
+    /// nothing. Empty between calls; its capacity is the longest row read so far.
+    row: Vec<u8>,
     rng: u64,
     pause: Pause,
     pub(crate) exit: Option<Exit>,
     /// Odometer reading at which this turn's budget is used up.
     floor: u64,
+    /// This turn's budget, before any debt is taken off it; 0 before the first turn.
+    budget: u64,
     /// The stack height global added by `stack::instrument`, and the limit it counts against.
     stack_height: Option<Global>,
     stack_limit: u32,
@@ -167,7 +173,24 @@ fn remaining(caller: &Caller<'_, UnitData>) -> wasmtime::Result<u64> {
     Ok(caller.get_fuel()?.saturating_sub(caller.data().floor))
 }
 
+/// Pay `cost` for a WASI call at once, as an instruction is paid: whatever this turn's budget cannot cover is
+/// owed by the next turns, and the bot stops at its next fuel check. For calls that touch only the unit's own
+/// memory and log, so nothing they do needs to wait for a turn that can pay for it.
+pub(crate) fn charge_now(caller: &mut Caller<'_, UnitData>, cost: u64) -> wasmtime::Result<()> {
+    let fuel = caller.get_fuel()?;
+    caller.set_fuel(fuel.saturating_sub(cost))?;
+    // Before the first turn (a wasm start function) there is no slice to keep.
+    if caller.data().budget > 0 {
+        // A slice of what is left, or of 1 fuel once past the floor: the next fuel check suspends the bot.
+        let left = fuel.saturating_sub(caller.data().floor);
+        caller.fuel_async_yield_interval(Some(left.saturating_sub(cost).max(1)))?;
+    }
+    Ok(())
+}
+
 /// Pay `cost` for a host call out of this turn's budget, waiting for a later turn if it cannot be paid.
+/// A call that costs a whole turn's budget or more takes what is left and owes the rest, so no fee is too
+/// large for a budget: it delays the call by as many turns as it costs.
 async fn charge(caller: &mut Caller<'_, UnitData>, cost: u64) -> wasmtime::Result<()> {
     loop {
         let fuel = caller.get_fuel()?;
@@ -179,9 +202,17 @@ async fn charge(caller: &mut Caller<'_, UnitData>, cost: u64) -> wasmtime::Resul
             caller.fuel_async_yield_interval(Some(left - cost))?;
             return Ok(());
         }
+        caller.data_mut().pause = Pause::HostOutOfFuel;
+        if cost >= caller.data().budget {
+            // No turn of this budget could pay: move the odometer past the floor. The driver books the
+            // overrun as debt, the next turns pay it off before they poll again, and the call goes through
+            // on the first turn that has fuel left after it.
+            caller.set_fuel(fuel.saturating_sub(cost))?;
+            YieldOnce(false).await;
+            return Ok(());
+        }
         // Out of fuel inside a host call. The driver starts a new turn (new floor, new slice) before it
         // polls again; then the call is charged against that turn.
-        caller.data_mut().pause = Pause::HostOutOfFuel;
         YieldOnce(false).await;
     }
 }
@@ -202,24 +233,32 @@ async fn h_count(mut caller: C<'_>, table: u32) -> wasmtime::Result<i32> {
 
 async fn h_get(mut caller: C<'_>, table: u32, index: u32, out: u32, cap: u32) -> wasmtime::Result<i32> {
     charge(&mut caller, ibc_abi::FUEL_GET).await?;
-    let mut row = Vec::new();
+    let mut row = std::mem::take(&mut caller.data_mut().row);
+    let r = copy_row(&mut caller, table, index, out, cap, &mut row);
+    row.clear();
+    caller.data_mut().row = row;
+    Ok(r)
+}
+
+/// `get` once paid for: the engine writes the row into `row`, then as much of it as fits goes to `out`.
+fn copy_row(caller: &mut C<'_>, table: u32, index: u32, out: u32, cap: u32, row: &mut Vec<u8>) -> i32 {
     let r = {
         let d = caller.data();
-        lock(&d.game).get(d.unit, table, index, &mut row)
+        lock(&d.game).get(d.unit, table, index, row)
     };
     if r < 0 {
-        return Ok(r);
+        return r;
     }
     // Records only grow at the end, so a bot built against a shorter record gets the prefix it knows.
     // A map row has no such prefix: it must fit.
     if row.len() > cap as usize && table == ibc_abi::T_MAP_ROW {
-        return Ok(-ibc_abi::ERR_BUFFER_TOO_SMALL);
+        return -ibc_abi::ERR_BUFFER_TOO_SMALL;
     }
     let n = row.len().min(cap as usize);
-    if !write_bytes(&mut caller, out, &row[..n]) {
-        return Ok(-ibc_abi::ERR_BAD_PTR);
+    if !write_bytes(caller, out, &row[..n]) {
+        return -ibc_abi::ERR_BAD_PTR;
     }
-    Ok(n as i32)
+    n as i32
 }
 
 async fn h_act(mut caller: C<'_>, kind: u32, a: i32, b: i32, c: i32) -> wasmtime::Result<i32> {
@@ -240,31 +279,41 @@ async fn h_raycast(mut caller: C<'_>, x: i32, y: i32, angle: i32, max: i32) -> w
 
 async fn h_mem_read(mut caller: C<'_>, scope: u32, off: u32, ptr: u32, len: u32) -> wasmtime::Result<i32> {
     charge(&mut caller, ibc_abi::FUEL_MEM).await?;
-    if len > MAX_MEM_IO {
-        return Ok(ibc_abi::ERR_BAD_ARG);
-    }
-    let mut buf = vec![0u8; len as usize];
-    let r = {
-        let d = caller.data();
-        lock(&d.game).mem_read(d.unit, scope, off, &mut buf)
-    };
-    if r != ibc_abi::OK {
-        return Ok(r);
-    }
-    Ok(if write_bytes(&mut caller, ptr, &buf) { ibc_abi::OK } else { ibc_abi::ERR_BAD_PTR })
+    Ok(mem_to_guest(&mut caller, scope, off, ptr, len))
 }
 
+/// `mem_read`: the engine checks the request first and lends the bytes, which are copied straight into guest
+/// memory. Nothing the size of `len` is allocated, so a refused read costs what its fuel says.
+fn mem_to_guest(caller: &mut C<'_>, scope: u32, off: u32, ptr: u32, len: u32) -> i32 {
+    let memory = caller.data().memory;
+    let (guest, data) = match memory {
+        Some(mem) => {
+            let (guest, data) = mem.data_and_store_mut(&mut *caller);
+            (Some(guest), data)
+        }
+        None => (None, caller.data_mut()),
+    };
+    let game = lock(&data.game);
+    let src = match game.mem_view(data.unit, scope, off, len as usize) {
+        Ok(src) => src,
+        Err(e) => return e,
+    };
+    match guest.and_then(|g| range(g.len(), ptr, len).map(|r| &mut g[r])) {
+        Some(dst) => {
+            dst.copy_from_slice(src);
+            ibc_abi::OK
+        }
+        None => ibc_abi::ERR_BAD_PTR,
+    }
+}
+
+/// `mem_write` hands the engine the guest's bytes in place.
 async fn h_mem_write(mut caller: C<'_>, scope: u32, off: u32, ptr: u32, len: u32) -> wasmtime::Result<i32> {
     charge(&mut caller, ibc_abi::FUEL_MEM).await?;
-    if len > MAX_MEM_IO {
-        return Ok(ibc_abi::ERR_BAD_ARG);
-    }
-    let mut buf = vec![0u8; len as usize];
-    if !read_bytes(&caller, ptr, &mut buf) {
-        return Ok(ibc_abi::ERR_BAD_PTR);
-    }
-    let d = caller.data();
-    Ok(lock(&d.game).mem_write(d.unit, scope, off, &buf))
+    let Some(mem) = caller.data().memory else { return Ok(ibc_abi::ERR_BAD_PTR) };
+    let (guest, data) = mem.data_and_store_mut(&mut caller);
+    let Some(r) = range(guest.len(), ptr, len) else { return Ok(ibc_abi::ERR_BAD_PTR) };
+    Ok(lock(&data.game).mem_write(data.unit, scope, off, &guest[r]))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -369,10 +418,12 @@ impl UnitVm {
             log: Vec::new(),
             log_limit,
             log_truncated: false,
+            row: Vec::new(),
             rng: seed ^ (unit as u64 + 1).wrapping_mul(0xd6e8feb86659fd93),
             pause: Pause::None,
             exit: None,
             floor: INITIAL_FUEL,
+            budget: 0,
             stack_height: None,
             stack_limit,
         };
@@ -449,6 +500,7 @@ impl UnitVm {
         }
         let allowance = budget - debt;
         store.data_mut().floor = start - allowance;
+        store.data_mut().budget = budget;
         store.data_mut().pause = Pause::None;
         // Arms the active slice to exactly `allowance` (the reserve is far larger).
         store.fuel_async_yield_interval(Some(allowance)).expect("fuel is enabled");

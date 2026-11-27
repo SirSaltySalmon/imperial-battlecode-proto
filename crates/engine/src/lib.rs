@@ -19,6 +19,7 @@ pub mod vision;
 mod teamplay;
 pub mod world;
 
+pub use host::MAX_ACTS;
 pub use ibc_abi as abi;
 pub use language::LanguageRules;
 pub use map::Map;
@@ -91,7 +92,8 @@ impl StateHashes {
 /// One `debug_draw` call: (unit, kind, x0, y0, x1, y1, color). Never part of the state hash.
 pub type DebugDraw = (u32, u32, i32, i32, i32, i32, u32);
 
-/// Everything a bot can do to the world. A replay is the list of these per tick.
+/// Everything a bot can do to the world. A replay is the list of these per tick: every accepted `Act`, and per
+/// team and scope one `MemWrite` of what the team's accepted writes left in memory (`Match::take_inputs`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Input {
     Act { unit: u32, kind: u32, a: i32, b: i32, c: i32 },
@@ -102,7 +104,12 @@ pub enum Input {
 /// `take_inputs()` (for the replay) and `step()`.
 pub struct Match {
     pub world: World,
+    /// Accepted actions since the inputs were last taken, then the flushed memory writes.
     inputs: Vec<Input>,
+    /// Memory written since the last flush, by team and scope (`MEM_*`).
+    written: [[Option<host::Written>; 3]; 2],
+    /// Actions accepted from each unit this tick (`MAX_ACTS`).
+    acts: Vec<u32>,
     stats: MatchStats,
 }
 
@@ -111,7 +118,8 @@ impl Match {
         let mut world = World::new(rules, map, seed);
         // Tick 0 is the draft tick; nothing to see yet.
         world.events.clear();
-        Match { world, inputs: Vec::new(), stats: MatchStats::default() }
+        let acts = vec![0; world.units.len()];
+        Match { world, inputs: Vec::new(), written: [[None; 3]; 2], acts, stats: MatchStats::default() }
     }
 
     pub fn unit_count(&self) -> u32 {
@@ -157,20 +165,22 @@ impl Match {
         (c.fuel_per_tick.max(0) as u64) * (mult.max(1) as u64)
     }
 
-    /// Inputs accepted since the last call. Call right before `step()` when recording a replay.
+    /// What to record since the last call: the accepted actions in order, then for each team and scope it
+    /// wrote one `MemWrite` of the bytes those writes left. Refused calls leave no input. Call right before
+    /// `step()`, and before `fault()`, when recording a replay.
     pub fn take_inputs(&mut self) -> Vec<Input> {
+        self.flush_writes();
         std::mem::take(&mut self.inputs)
     }
 
-    /// Replay path: re-apply a recorded input.
+    /// Replay path: re-apply a recorded input. Nothing is recorded again.
     pub fn apply_input(&mut self, input: &Input) {
-        use abi::Host;
         match input {
             Input::Act { unit, kind, a, b, c } => {
-                self.act(*unit, *kind, *a, *b, *c);
+                self.apply_act(*unit, *kind, *a, *b, *c);
             }
             Input::MemWrite { unit, scope, off, data } => {
-                self.mem_write(*unit, *scope, *off, data);
+                self.apply_mem_write(*unit, *scope, *off, data);
             }
         }
     }
@@ -179,6 +189,9 @@ impl Match {
         if self.finished() {
             return;
         }
+        // Round starts zero memory: a recorder that takes the inputs after the step still gets these bytes.
+        self.flush_writes();
+        self.acts.fill(0);
         self.world.step();
         self.stats.observe(&self.world);
     }
@@ -212,10 +225,12 @@ impl Match {
         self.world.state_hashes()
     }
 
-    /// Debug drawings made since the last call (or the last step, which discards them). Call before `step()`
-    /// to record them; they are not simulation inputs.
+    /// Debug drawings made since the last call (or the last step, which discards them): team A's, then team
+    /// B's, each in call order. Call before `step()` to record them; they are not simulation inputs.
     pub fn take_debug(&mut self) -> Vec<DebugDraw> {
-        std::mem::take(&mut self.world.debug)
+        let [mut a, b] = std::mem::take(&mut self.world.debug);
+        a.extend(b);
+        a
     }
 
     /// The bot of this unit crashed: it idles for the rest of the match.
