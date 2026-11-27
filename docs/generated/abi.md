@@ -78,7 +78,7 @@ The `table` argument of `count` and `get`.
 | `T_SITES` | `14` | `u32` | `SiteInfo` per plant site. |
 | `T_DROPS` | `15` | `u32` | `DropInfo` per dropped item seen by this unit's team (the charge is always visible to attackers). |
 | `T_KIT` | `16` | `u32` | `KitRules` per kit id. |
-| `T_EVENTS` | `17` | `u32` | `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight; kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the team does not know the position. See docs/ABI.md for each kind. |
+| `T_EVENTS` | `17` | `u32` | `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight; kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the team does not know the position. Teammates read the same rows, except that only the unit an event happened to reads where it came from (`dir`, `src_x`, `src_y`). See docs/ABI.md for each kind. |
 | `T_ROSTER` | `18` | `u32` | `RosterInfo` per unit of both teams, in unit id order. Readable in every phase. |
 | `T_ROUNDS` | `19` | `u32` | `RoundInfo` per finished round of the match, oldest first. |
 
@@ -226,7 +226,8 @@ Bits of `UnitInfo.state`.
 | `EVENT_DEFUSE` | `3` | `i32` |  |
 | `EVENT_DETONATE` | `4` | `i32` |  |
 | `EVENT_ROUND_END` | `5` | `i32` |  |
-| `EVENT_DAMAGE` | `6` | `i32` |  |
+| `EVENT_DAMAGE` | `6` | `i32` | actor = attacker, or -1 (none, or not on the reader's team); target = victim; value = amount. The victim alone also reads where it came from (`EventInfo.dir`). |
+| `EVENT_EFFECT` | `7` | `i32` | An effect gave a unit a status (blinded, slowed, revealed). actor = the effect's owner, or -1 when not on the reader's team; target = the unit; value = `EFFECT_*` kind. The unit alone also reads the effect's centre (`EventInfo.dir`, `src_x`, `src_y`). Delivered like `EVENT_DAMAGE`. |
 
 ### Round win reasons
 
@@ -275,7 +276,8 @@ Charged on top of the WebAssembly instructions the call itself runs.
 
 | Name | Value | Type | Meaning |
 | --- | --- | --- | --- |
-| `POS_HIDDEN` | `-2147483648` | `i32` | `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real position: check for it before using the coordinates. |
+| `POS_HIDDEN` | `-2147483648` | `i32` | `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real position: check for it before using the coordinates. Also `src_x` and `src_y` when the reader is not told. |
+| `DIR_HIDDEN` | `-1` | `i32` | `EventInfo.dir` when the reader is not told where the event came from. Never a real angle (0..65535). |
 
 ## Records
 
@@ -398,7 +400,7 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 
 ### SiteInfo
 
-28 bytes, 7 fields.
+36 bytes, 9 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -407,8 +409,10 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 | 8 | `min_ty` | `i32` | 4 |  |
 | 12 | `max_tx` | `i32` | 4 |  |
 | 16 | `max_ty` | `i32` | 4 |  |
-| 20 | `centre_x` | `i32` | 4 |  |
+| 20 | `centre_x` | `i32` | 4 | Centre of the bounding box. Not necessarily on the site (an L-shaped or hollow site): walk to `plant_x`, `plant_y` to plant. |
 | 24 | `centre_y` | `i32` | 4 |  |
+| 28 | `plant_x` | `i32` | 4 | The plant point: the centre of the site tile whose centre is nearest the box centre, ties to the first in row-major order (lowest `ty`, then lowest `tx`). A unit standing here is on the site. |
+| 32 | `plant_y` | `i32` | 4 |  |
 
 ### DropInfo
 
@@ -423,16 +427,19 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 
 ### EventInfo
 
-24 bytes, 6 fields.
+36 bytes, 9 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
 | 0 | `kind` | `i32` | 4 |  |
-| 4 | `actor` | `i32` | 4 | Acting unit id or -1. |
+| 4 | `actor` | `i32` | 4 | Acting unit id or -1. For `EVENT_DAMAGE` and `EVENT_EFFECT`, -1 unless the actor is on the reader's team: a unit never learns which enemy hit it. |
 | 8 | `target` | `i32` | 4 | Target unit id or -1. |
 | 12 | `x` | `i32` | 4 | Where it happened, or `POS_HIDDEN` in both `x` and `y` when the receiving team does not know. |
 | 16 | `y` | `i32` | 4 |  |
 | 20 | `value` | `i32` | 4 |  |
+| 24 | `dir` | `i32` | 4 | Only for the unit the event happened to (`target`, reading its own `EVENT_DAMAGE` or `EVENT_EFFECT`): the angle from it towards where the hit came from. A bullet: back along the bullet's flight. An effect (fire, flash, ...): towards the effect's centre. `DIR_HIDDEN` for every other reader and kind. |
+| 28 | `src_x` | `i32` | 4 | Only for the target, like `dir`: the centre of the effect that hit it. `POS_HIDDEN` in both for a bullet (the shooter's position is never told), for every other reader and every other kind. |
+| 32 | `src_y` | `i32` | 4 |  |
 
 ### CoreRules
 
