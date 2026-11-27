@@ -1,16 +1,16 @@
-//! Per-tick observation of a match. The engine's summary has only end-of-match totals, so everything a
-//! balance report needs beyond those (first contact, kill distances, buy patterns, movement) is collected
-//! here by watching the world after every step. The same collector runs on a live native match and on a
-//! re-simulated replay, so both backends produce identical details.
+//! Per-tick observation of a match. The engine's summary has end-of-match totals, every round (with
+//! whether the charge was planted) and every kill (with its weapon), so a balance report reads those from
+//! it; what it needs beyond them (first contact, kill distances, buy patterns, movement, shots by weapon) is
+//! collected here by watching the world after every step. The same collector runs on a live native match and
+//! on a re-simulated replay, so both backends produce identical details.
 
-use ibc_abi::{EVENT_DAMAGE, EVENT_KILL, EVENT_PLANT, EVENT_ROUND_END, PHASE_BUY, SIDE_ATTACK};
+use ibc_abi::{EVENT_DAMAGE, EVENT_KILL, EVENT_ROUND_END, PHASE_BUY, SIDE_ATTACK};
 use ibc_engine::{fixed, Match};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoundDetail {
     pub round: i32,
-    pub planted: bool,
     /// Action ticks until some unit first saw an enemy / until the first kill. `None` if it never happened.
     pub first_contact: Option<i32>,
     pub first_kill: Option<i32>,
@@ -30,8 +30,6 @@ pub struct RoundDetail {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KillRec {
     pub round: i32,
-    /// Weapon id from the kill event (negative when it was not a weapon).
-    pub weapon: i32,
     /// Euclidean distance between killer and victim in fixed-point units, -1 without a killer.
     pub dist: i32,
     /// Action tick of the round.
@@ -167,13 +165,11 @@ impl Collector {
                     };
                     self.detail.kills.push(KillRec {
                         round: w.round,
-                        weapon: e.value,
                         dist,
                         tick: event_tick,
                     });
                 }
                 EVENT_DAMAGE => self.current.damage += e.value as i64,
-                EVENT_PLANT => self.current.planted = true,
                 EVENT_ROUND_END => round_ended = true,
                 _ => {}
             }

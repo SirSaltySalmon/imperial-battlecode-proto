@@ -176,6 +176,23 @@ pub struct RoundRec {
     pub reason: i32,
     pub attackers: i32,
     pub ticks: i32,
+    /// The charge was planted. `None` from a summary that does not say (a runner older than the field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planted: Option<bool>,
+}
+
+/// One row of the engine summary's `kills`: every `EVENT_KILL`, friendly kills and the blast included.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Kill {
+    pub tick: u32,
+    pub round: i32,
+    /// -1 for the detonation blast.
+    pub killer: i32,
+    pub victim: i32,
+    pub killer_team: i32,
+    pub victim_team: i32,
+    /// Weapon id, -1 for an ability or the blast.
+    pub weapon: i32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,6 +236,12 @@ pub struct GameResult {
     pub rounds: Vec<RoundRec>,
     /// Per team (A, B), summed over its units.
     pub totals: [TeamTotals; 2],
+    /// Every kill, from the engine summary. `None` if the summary has no `kills` (an older runner).
+    #[serde(default)]
+    pub kills: Option<Vec<Kill>>,
+    /// The engine summary's `digest`: how the game went, without the seed.
+    #[serde(default)]
+    pub digest: Option<String>,
     /// Native backend: per team `[act calls, act errors]`.
     pub act: Option<[[u64; 2]; 2]>,
     /// Wasm backend: per team fuel accounting from `summary.json`.
@@ -253,6 +276,8 @@ impl GameResult {
             ruleset_hash: String::new(),
             rounds: Vec::new(),
             totals: Default::default(),
+            kills: None,
+            digest: None,
             act: None,
             fuel: None,
             faults: [0, 0],
@@ -284,10 +309,27 @@ impl GameResult {
                         reason: int(&r["reason"]) as i32,
                         attackers: int(&r["attackers"]) as i32,
                         ticks: int(&r["ticks"]) as i32,
+                        planted: r["planted"].as_bool(),
                     })
                     .collect()
             })
             .unwrap_or_default();
+        // [tick, round, killer, victim, killer_team, victim_team, weapon]
+        self.kills = game["kills"].as_array().map(|kills| {
+            kills
+                .iter()
+                .map(|k| Kill {
+                    tick: int(&k[0]) as u32,
+                    round: int(&k[1]) as i32,
+                    killer: int(&k[2]) as i32,
+                    victim: int(&k[3]) as i32,
+                    killer_team: int(&k[4]) as i32,
+                    victim_team: int(&k[5]) as i32,
+                    weapon: int(&k[6]) as i32,
+                })
+                .collect()
+        });
+        self.digest = game["digest"].as_str().map(str::to_string);
         self.totals = Default::default();
         for u in game["units"].as_array().into_iter().flatten() {
             let Some(t) = self.totals.get_mut(int(&u["team"]) as usize) else {
@@ -312,12 +354,24 @@ impl GameResult {
     }
 
     /// What happened in the game, without the seed: two games with the same signature are exact repeats
-    /// as far as any statistic here can tell. (The final state hash cannot be used: it covers the seed.)
+    /// as far as any statistic here can tell. That is the engine summary's `digest` (the final state hash
+    /// cannot be used: it covers the seed); a result without one, from an older runner, falls back to its
+    /// rounds and totals.
     pub fn signature(&self) -> String {
-        format!(
-            "{}|{}|{}|{:?}|{:?}|{}|{:?}|{:?}",
-            self.map, self.a, self.b, self.winner, self.score, self.ticks, self.rounds, self.totals
-        )
+        match &self.digest {
+            Some(digest) => format!("{}|{}|{}|{digest}", self.map, self.a, self.b),
+            None => format!(
+                "{}|{}|{}|{:?}|{:?}|{}|{:?}|{:?}",
+                self.map,
+                self.a,
+                self.b,
+                self.winner,
+                self.score,
+                self.ticks,
+                self.rounds,
+                self.totals
+            ),
+        }
     }
 
     /// The match ended level on rounds and was decided by the tie-break.

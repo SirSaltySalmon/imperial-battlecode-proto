@@ -331,7 +331,7 @@ pub fn analyse(
     }
     if pairs.distinct < pairs.played {
         warnings.push(format!(
-            "{} of {} pairs are exact repeats of an earlier pair (same map, same rounds, kills, damage and length): the seed \
+            "{} of {} pairs are exact repeats of an earlier pair (same map, same game digest): the seed \
              did not change those games. Intervals and tests use the {} distinct pairs; more seeds will not help, \
              more maps will",
             pairs.played - pairs.distinct,

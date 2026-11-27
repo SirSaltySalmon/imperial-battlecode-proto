@@ -55,6 +55,7 @@ fn fake(id: usize, map: &str, seed: u64, a_rounds: i32, b_rounds: i32) -> GameRe
         reason: 1,
         attackers: 0,
         ticks: id as i32,
+        planted: Some(false),
     }];
     r
 }
@@ -423,6 +424,20 @@ fn details_agree_with_the_engine_summary() {
             d.kills.len() as i64,
             "{label}"
         );
+        // What the summary carries agrees with what re-simulation would see.
+        let kills = g.kills.as_ref().expect("the summary lists kills");
+        let unit_kills: Vec<_> = kills.iter().filter(|k| k.killer >= 0).collect();
+        assert_eq!(unit_kills.len(), d.kills.len(), "summary kills, {label}");
+        for (s, k) in unit_kills.iter().zip(&d.kills) {
+            assert_eq!(s.round, k.round, "{label}");
+        }
+        let planted = g.rounds.iter().filter(|r| r.planted == Some(true)).count() as i64;
+        assert_eq!(
+            planted,
+            g.totals[0].plants + g.totals[1].plants,
+            "plants, {label}"
+        );
+        assert!(g.digest.as_ref().is_some_and(|d| d.len() == 16), "{label}");
         for (r, log) in d.rounds.iter().zip(&g.rounds) {
             assert_eq!(r.round, log.round);
             assert!(r.loadout[0].len() == r.loadout[1].len() && !r.loadout[0].is_empty());
@@ -578,6 +593,11 @@ fn native_and_wasm_backends_agree() {
         assert_eq!(
             n.detail, w.detail,
             "the collector must see the same match on both backends"
+        );
+        assert_eq!(
+            (&n.rounds, &n.kills, &n.digest),
+            (&w.rounds, &w.kills, &w.digest),
+            "the runner's summary carries the engine's statistics"
         );
     }
 }

@@ -94,7 +94,8 @@ pub fn dump(replay: &Replay) -> Result<Dump, String> {
          atk_credits,def_credits,atk_spent,def_spent\n",
     );
     let opt = |v: Option<i32>| v.map(|x| x.to_string()).unwrap_or_default();
-    for (log, d) in m.world.rounds.iter().zip(&detail.rounds) {
+    let planted = &m.stats().planted;
+    for (i, (log, d)) in m.world.rounds.iter().zip(&detail.rounds).enumerate() {
         let _ = writeln!(
             csv,
             "{},{},{},{},{},{},{},{},{},{},{},{:.1},{},{},{},{}",
@@ -103,7 +104,7 @@ pub fn dump(replay: &Replay) -> Result<Dump, String> {
             log.winner,
             reason_name(log.reason),
             log.ticks,
-            d.planted as u8,
+            planted.get(i).copied().unwrap_or(false) as u8,
             opt(d.first_contact),
             opt(d.first_kill),
             d.shots,
