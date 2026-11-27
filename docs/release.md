@@ -32,6 +32,7 @@ A toolchain bump goes through the same checklist as a patch.
 | ABI, breaking | major, new season only | - | bumps | re-record |
 | Wasmtime bump | **patch**, even with no other change | same | same | re-record the wasm goldens (fuel counts change) |
 | Stack limiter (`crates/runner/src/stack.rs`): what a frame costs, or the code it adds | **patch**, as a Wasmtime bump | same | same | re-record the wasm goldens (fuel counts change) |
+| Host-call fees (`FUEL_*` in `crates/abi`) or how the runner charges them | **patch**, as a Wasmtime bump | same | same | re-record the wasm goldens if a golden bot pays the fee |
 | Toolchain bump | patch if any golden moves, otherwise none | same | same | verify; re-record if they move |
 | Engine refactor with identical state hashes, CLI, worker, coordinator, viewer, docs | none required | same | same | must verify unchanged |
 

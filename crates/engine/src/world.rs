@@ -141,8 +141,9 @@ pub struct World {
     pub econ: [economy::TeamEcon; 2],
     pub rounds: Vec<RoundLog>,
     pub winner: Option<i32>,
-    /// Debug drawings of the current tick: (unit, kind, x0, y0, x1, y1, color). Not part of the state hash.
-    pub debug: Vec<crate::DebugDraw>,
+    /// Debug drawings of the current tick per team: (unit, kind, x0, y0, x1, y1, color). Not part of the
+    /// state hash.
+    pub debug: [Vec<crate::DebugDraw>; 2],
 }
 
 impl World {
@@ -209,7 +210,7 @@ impl World {
             econ: Default::default(),
             rounds: Vec::new(),
             winner: None,
-            debug: Vec::new(),
+            debug: Default::default(),
         };
         economy::on_match_start(&mut w);
         w
@@ -419,7 +420,7 @@ impl World {
         for u in self.units.iter_mut() {
             u.intent = Intent::default();
         }
-        self.debug.clear();
+        self.debug.iter_mut().for_each(Vec::clear);
         self.tick += 1;
         // Running out of ticks is a draw, whatever the score.
         if self.phase != PHASE_MATCH_END && self.tick as i32 >= self.rules.core.max_ticks {

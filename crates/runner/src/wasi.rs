@@ -1,7 +1,7 @@
 //! A hand-written, deterministic WASI preview1 shim: just enough for `wasm32-wasip1` command modules
 //! (Rust std, wasi-libc) to start, print and abort. No filesystem, no clock, no entropy from the host.
 
-use crate::vm::{log_guest, read_bytes, write_bytes, Exit, UnitData};
+use crate::vm::{charge_now, log_guest, read_bytes, write_bytes, Exit, UnitData};
 use wasmtime::{Caller, Linker};
 
 pub const MODULE: &str = "wasi_snapshot_preview1";
@@ -12,7 +12,8 @@ const EFAULT: i32 = 21;
 const EINVAL: i32 = 28;
 const ENOSYS: i32 = 52;
 
-/// Most iovecs honoured per `fd_write`, and most bytes per `random_get`; both keep free host work bounded.
+/// Most iovecs honoured per `fd_write`, and most bytes per `random_get`: both bound the host work of a call,
+/// and so its fee.
 const MAX_IOVS: u32 = 64;
 const MAX_RANDOM: u32 = 4096;
 
@@ -51,30 +52,51 @@ fn sizes_get(mut caller: Caller<'_, UnitData>, count: u32, size: u32) -> i32 {
     a.max(b)
 }
 
+fn fd_write(
+    mut caller: Caller<'_, UnitData>,
+    fd: i32,
+    iovs: u32,
+    n: u32,
+    out: u32,
+) -> wasmtime::Result<i32> {
+    charge_now(&mut caller, ibc_abi::FUEL_IOV * u64::from(n.min(MAX_IOVS)))?;
+    if fd != 1 && fd != 2 {
+        return Ok(EBADF);
+    }
+    let mut written = 0u32;
+    for i in 0..n.min(MAX_IOVS) {
+        let mut iov = [0u8; 8];
+        let Some(at) = iovs.checked_add(i * 8) else {
+            return Ok(EFAULT);
+        };
+        if !read_bytes(&caller, at, &mut iov) {
+            return Ok(EFAULT);
+        }
+        let ptr = u32::from_le_bytes(iov[..4].try_into().unwrap());
+        let len = u32::from_le_bytes(iov[4..].try_into().unwrap());
+        if !log_guest(&mut caller, ptr, len, false) {
+            return Ok(EFAULT);
+        }
+        written = written.saturating_add(len);
+    }
+    Ok(put(&mut caller, out, &written.to_le_bytes()))
+}
+
+fn random_get(mut caller: Caller<'_, UnitData>, buf: u32, len: u32) -> wasmtime::Result<i32> {
+    charge_now(
+        &mut caller,
+        ibc_abi::FUEL_RANDOM * u64::from(len.min(MAX_RANDOM).div_ceil(8)),
+    )?;
+    if len > MAX_RANDOM {
+        return Ok(EINVAL);
+    }
+    let mut bytes = vec![0u8; len as usize];
+    caller.data_mut().fill_random(&mut bytes);
+    Ok(put(&mut caller, buf, &bytes))
+}
+
 pub fn add_to_linker(l: &mut Linker<UnitData>) -> wasmtime::Result<()> {
-    l.func_wrap(MODULE, "fd_write", |mut caller: Caller<'_, UnitData>, fd: i32, iovs: u32, n: u32, out: u32| -> i32 {
-        if fd != 1 && fd != 2 {
-            return EBADF;
-        }
-        let mut written = 0u32;
-        for i in 0..n.min(MAX_IOVS) {
-            let mut iov = [0u8; 8];
-            let at = match iovs.checked_add(i * 8) {
-                Some(a) => a,
-                None => return EFAULT,
-            };
-            if !read_bytes(&caller, at, &mut iov) {
-                return EFAULT;
-            }
-            let ptr = u32::from_le_bytes(iov[..4].try_into().unwrap());
-            let len = u32::from_le_bytes(iov[4..].try_into().unwrap());
-            if !log_guest(&mut caller, ptr, len, false) {
-                return EFAULT;
-            }
-            written = written.saturating_add(len);
-        }
-        put(&mut caller, out, &written.to_le_bytes())
-    })?;
+    l.func_wrap(MODULE, "fd_write", fd_write)?;
     l.func_wrap(MODULE, "proc_exit", |mut caller: Caller<'_, UnitData>, code: i32| -> wasmtime::Result<()> {
         caller.data_mut().exit = Some(Exit::ProcExit(code));
         Err(wasmtime::Error::msg("proc_exit"))
@@ -88,14 +110,7 @@ pub fn add_to_linker(l: &mut Linker<UnitData>) -> wasmtime::Result<()> {
         let now = caller.data().tick() as u64 * 1_000_000;
         put(&mut caller, out, &now.to_le_bytes())
     })?;
-    l.func_wrap(MODULE, "random_get", |mut caller: Caller<'_, UnitData>, buf: u32, len: u32| -> i32 {
-        if len > MAX_RANDOM {
-            return EINVAL;
-        }
-        let mut bytes = vec![0u8; len as usize];
-        caller.data_mut().fill_random(&mut bytes);
-        put(&mut caller, buf, &bytes)
-    })?;
+    l.func_wrap(MODULE, "random_get", random_get)?;
     l.func_wrap(MODULE, "fd_close", |_: Caller<'_, UnitData>, _fd: i32| -> i32 { EBADF })?;
     l.func_wrap(MODULE, "fd_seek", |_: Caller<'_, UnitData>, _fd: i32, _off: i64, _whence: i32, _out: u32| -> i32 {
         EBADF

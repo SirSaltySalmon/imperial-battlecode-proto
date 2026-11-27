@@ -131,7 +131,8 @@ kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
 ## Compute and memory
 
 - Each unit gets `fuel_per_tick` fuel per tick (times a per-language multiplier), more on the draft tick and in
-  the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
+  the buy phase. Fuel is counted WebAssembly instructions plus a charge per host call (`FUEL_*`), fixed or by
+  size: `debug_draw` 140, WASI `fd_write` 5 per iovec and `random_get` 2 per 8 bytes (`docs/ABI.md`).
   `memory.copy` and `memory.fill` cost 1 fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
   One `memory.copy` or `memory.fill` always runs to completion, even past the budget, and the excess is taken

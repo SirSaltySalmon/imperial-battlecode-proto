@@ -80,7 +80,12 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   - `mem_read` allocates a zeroed buffer of the requested length (`h_mem_read` in `crates/runner/src/vm.rs`)
     before the engine refuses it, for a flat 20 fuel: about 750 to 1,200 core-s a match, past the worker's
     300 s job timeout. Check the length against the scope first, or charge per byte.
-  - `debug_draw` costs 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB replay, 568 MB peak.
+  - Done (`fix/host-call-fees`): `debug_draw` cost 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB
+    replay, 568 MB peak. Now 140 fuel and 2,048 drawings per team and tick: 33 core-s (84 before, same
+    machine and hour). The rest is storing 4,096 drawings a tick at about 3 µs each; a lower cap is the next
+    lever. WASI `fd_write` (64 iovecs) and `random_get` (4 KiB) were worse, 53 and 242 ns per fuel; now 5 per
+    iovec and 2 per 8 bytes, at the table-read rate. `log` and `fuel_remaining` are no dearer per fuel than a
+    table read and stay free. Fees need the engine patch bump (`docs/release.md`).
   - `count`/`get` and `los` spend about 1.9 ns per fuel, about 5 core-s per game.
   Per unit of fuel, arithmetic costs 0.18 ns, `count`/`get` and `los` about 11 times that, cache-missing
   loads about 43 times, `mem_read` about 1,600 times, and `debug_draw` is free. Fix these before trusting

@@ -96,7 +96,8 @@ Fuel is counted in wasm instructions, refilled every tick (`CoreRules::fuel_per_
 unit's first tick and in the buy phase). Running out ends your turn early.
 
 - Host calls cost extra on top of the call itself: `get` 40, `count` 10, `act` 20, `los` 60, `raycast` 80,
-  memory 20 (`FUEL_*`). Row iterators make one `count` and then one `get` per row actually consumed.
+  memory 20, `debug_line`/`debug_dot` 140 (`FUEL_*`); `log` is free. Row iterators make one `count` and then
+  one `get` per row actually consumed.
 - Fetch `me()` and `match_info()` once per tick and pass them around; `move_towards`, `face_point` and
   `fire_at` each call `me()` again, so prefer `angle_to` plus the angle forms.
 - Rules and the map never change: read `core_rules()`, weapons, sites and `Grid::load()` once, in `new` or

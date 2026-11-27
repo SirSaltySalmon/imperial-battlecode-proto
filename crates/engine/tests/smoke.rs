@@ -177,3 +177,36 @@ fn summary_lists_plants_and_kills_and_its_digest_leaves_out_the_seed() {
     assert_eq!(s["digest"], t["digest"]);
     assert_ne!(s["digest"], p["digest"]);
 }
+
+#[test]
+fn each_team_keeps_its_own_debug_drawings() {
+    let mut m = Match::new(Ruleset::builtin(), Map::parse(OPEN).unwrap(), 1);
+    let (a, b) = (0, m.unit_count() - 1);
+    assert_eq!((m.unit_team(a), m.unit_team(b)), (0, 1));
+    // Team A draws far past its cap first; team B's few drawings are all kept, and every call succeeds.
+    for i in 0..10_000 {
+        assert_eq!(m.debug_draw(a, DEBUG_DOT, i, 0, 0, 0, 0xff0000), OK);
+    }
+    for i in 0..10 {
+        assert_eq!(m.debug_draw(b, DEBUG_LINE, i, 0, 1, 1, 0x00ff00), OK);
+    }
+    assert_eq!(
+        m.debug_draw(m.unit_count(), DEBUG_DOT, 0, 0, 0, 0, 0),
+        ERR_BAD_ARG
+    );
+    let kept = m.take_debug();
+    let (of_a, of_b): (Vec<&ibc_engine::DebugDraw>, Vec<_>) = kept.iter().partition(|d| d.0 == a);
+    assert_eq!((of_a.len(), of_b.len()), (2048, 10));
+    assert!(
+        of_a.iter().enumerate().all(|(i, d)| d.2 == i as i32),
+        "the first calls are kept, in order"
+    );
+    // A step discards what was not taken; the cap starts again every tick.
+    m.debug_draw(a, DEBUG_DOT, 0, 0, 0, 0, 0);
+    m.step();
+    assert!(m.take_debug().is_empty());
+    for _ in 0..3000 {
+        m.debug_draw(a, DEBUG_DOT, 0, 0, 0, 0, 0);
+    }
+    assert_eq!(m.take_debug().len(), 2048);
+}

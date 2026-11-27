@@ -269,7 +269,9 @@ Charged on top of the WebAssembly instructions the call itself runs.
 | `FUEL_LOS` | `60` | `u64` |  |
 | `FUEL_RAYCAST` | `80` | `u64` |  |
 | `FUEL_MEM` | `20` | `u64` |  |
-| `FUEL_DEBUG` | `0` | `u64` |  |
+| `FUEL_DEBUG` | `140` | `u64` | `debug_draw`, whether the drawing is kept or dropped at the per-team cap. |
+| `FUEL_IOV` | `5` | `u64` | Per iovec of a WASI `fd_write`, up to the 64 it honours. Paid like an instruction: at once, and a call that runs past the turn's budget is owed by the next turns. |
+| `FUEL_RANDOM` | `2` | `u64` | Per 8 bytes asked of a WASI `random_get` (rounded up), up to the 4096 it fills. Paid like `FUEL_IOV`. |
 
 ### Other constants
 

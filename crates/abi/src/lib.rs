@@ -223,13 +223,23 @@ pub const ITEM_KIND_ABILITY_CHARGE: i32 = 3;
 pub const ITEM_KIND_DEFUSE_KIT: i32 = 4;
 
 // ---- fuel charged for host calls (on top of the wasm instructions of the call itself) ----
+// A call pays before its arguments are checked. The fees of `debug_draw`, `fd_write` and `random_get` are set
+// from measurements: about the CPU time per fuel of a table read. `end_turn`, `fuel_remaining`, `log` and the
+// other WASI calls do a small, fixed amount of work and are free: per fuel of their own call instructions they
+// cost no more than a table read.
 pub const FUEL_GET: u64 = 40;
 pub const FUEL_COUNT: u64 = 10;
 pub const FUEL_ACT: u64 = 20;
 pub const FUEL_LOS: u64 = 60;
 pub const FUEL_RAYCAST: u64 = 80;
 pub const FUEL_MEM: u64 = 20;
-pub const FUEL_DEBUG: u64 = 0;
+/// `debug_draw`, whether the drawing is kept or dropped at the per-team cap.
+pub const FUEL_DEBUG: u64 = 140;
+/// Per iovec of a WASI `fd_write`, up to the 64 it honours. Paid like an instruction: at once, and a call
+/// that runs past the turn's budget is owed by the next turns.
+pub const FUEL_IOV: u64 = 5;
+/// Per 8 bytes asked of a WASI `random_get` (rounded up), up to the 4096 it fills. Paid like `FUEL_IOV`.
+pub const FUEL_RANDOM: u64 = 2;
 
 // ---- records ----
 

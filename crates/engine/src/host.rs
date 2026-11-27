@@ -7,6 +7,10 @@ use crate::{abilities, combat, economy, teamplay, Input, Match};
 use ibc_abi::*;
 use serde_json::json;
 
+/// Debug drawings kept per team and tick. Later calls in the tick succeed and are dropped, so one team cannot
+/// crowd out the other, and a tick stores at most 4,096 drawings in the replay.
+const DEBUG_DRAWS_PER_TEAM: usize = 2048;
+
 fn push<T: Copy>(out: &mut Vec<u8>, v: &T) -> i32 {
     let b = bytes_of(v);
     out.extend_from_slice(b);
@@ -367,8 +371,12 @@ impl Host for Match {
     }
 
     fn debug_draw(&mut self, unit: u32, kind: u32, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) -> i32 {
-        if self.world.debug.len() < 4096 {
-            self.world.debug.push((unit, kind, x0, y0, x1, y1, color));
+        let Some(team) = self.world.units.get(unit as usize).map(|u| u.team as usize) else {
+            return ERR_BAD_ARG;
+        };
+        let kept = &mut self.world.debug[team];
+        if kept.len() < DEBUG_DRAWS_PER_TEAM {
+            kept.push((unit, kind, x0, y0, x1, y1, color));
         }
         OK
     }
@@ -415,7 +423,7 @@ pub fn frame_json(w: &World) -> String {
         "drops": w.drops.iter().map(|d| json!({ "kind": d.kind, "x": d.x, "y": d.y, "item": d.item })).collect::<Vec<_>>(),
         "events": w.events.iter().map(|e| json!({
             "kind": e.kind, "actor": e.actor, "target": e.target, "x": e.x, "y": e.y, "value": e.value })).collect::<Vec<_>>(),
-        "debug": w.debug.iter().map(|d| json!([d.0, d.1, d.2, d.3, d.4, d.5, d.6])).collect::<Vec<_>>(),
+        "debug": w.debug.iter().flatten().map(|d| json!([d.0, d.1, d.2, d.3, d.4, d.5, d.6])).collect::<Vec<_>>(),
         "winner": w.winner,
     })
     .to_string()
