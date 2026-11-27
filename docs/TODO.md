@@ -81,7 +81,11 @@ it on the current ten-map pool before acting; the numbers below predate the new 
     before the engine refuses it, for a flat 20 fuel: about 750 to 1,200 core-s a match, past the worker's
     300 s job timeout. Check the length against the scope first, or charge per byte.
   - `debug_draw` costs 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB replay, 568 MB peak.
-  - `count`/`get` and `los` spend about 1.9 ns per fuel, about 5 core-s per game.
+  - `count`/`get` and `los` spend about 1.9 ns per fuel, about 5 core-s per game. Partly fixed: reading a
+    perceived table row by row redid the visibility pass per row (n passes, now one a tick: 11 times
+    faster for 14 of 64 drops), `get` allocated a row buffer per call, and the `los` walk divided at
+    every step. The `reads` kernel costs 12 to 15% less, `los` about 3% (noise). What is left is mostly
+    the fixed cost of any host call (the charge, the game lock, Wasmtime's async call path).
   Per unit of fuel, arithmetic costs 0.18 ns, `count`/`get` and `los` about 11 times that, cache-missing
   loads about 43 times, `mem_read` about 1,600 times, and `debug_draw` is free. Fix these before trusting
   the cost prior (section 3).
