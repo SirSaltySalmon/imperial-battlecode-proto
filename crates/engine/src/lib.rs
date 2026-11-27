@@ -13,6 +13,7 @@ pub mod map;
 mod objective;
 mod projectiles;
 pub mod rules;
+pub mod stats;
 pub mod vision;
 mod teamplay;
 pub mod world;
@@ -20,6 +21,7 @@ pub mod world;
 pub use ibc_abi as abi;
 pub use map::Map;
 pub use rules::{RulesSource, Ruleset};
+pub use stats::{Kill, MatchStats};
 pub use world::World;
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -99,6 +101,7 @@ pub enum Input {
 pub struct Match {
     pub world: World,
     inputs: Vec<Input>,
+    stats: MatchStats,
 }
 
 impl Match {
@@ -106,7 +109,7 @@ impl Match {
         let mut world = World::new(rules, map, seed);
         // Tick 0 is the draft tick; nothing to see yet.
         world.events.clear();
-        Match { world, inputs: Vec::new() }
+        Match { world, inputs: Vec::new(), stats: MatchStats::default() }
     }
 
     pub fn unit_count(&self) -> u32 {
@@ -171,7 +174,16 @@ impl Match {
     }
 
     pub fn step(&mut self) {
+        if self.finished() {
+            return;
+        }
         self.world.step();
+        self.stats.observe(&self.world);
+    }
+
+    /// Plants per round and every kill so far, read from the events of each step (`stats`).
+    pub fn stats(&self) -> &MatchStats {
+        &self.stats
     }
 
     pub fn finished(&self) -> bool {
@@ -218,6 +230,6 @@ impl Match {
 
     /// End-of-match statistics as JSON.
     pub fn summary_json(&self) -> String {
-        host::summary_json(&self.world)
+        host::summary_json(&self.world, &self.stats)
     }
 }

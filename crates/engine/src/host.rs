@@ -421,7 +421,8 @@ pub fn frame_json(w: &World) -> String {
     .to_string()
 }
 
-pub fn summary_json(w: &World) -> String {
+/// `kills` rows are `[tick, round, killer, victim, killer_team, victim_team, weapon]` (`stats::Kill`).
+pub fn summary_json(w: &World, stats: &crate::MatchStats) -> String {
     json!({
         "engine": crate::ENGINE_VERSION,
         "ruleset_hash": format!("{:016x}", w.rules.hash()),
@@ -429,9 +430,14 @@ pub fn summary_json(w: &World) -> String {
         "seed": w.seed.to_string(),
         "winner": w.winner, "score": w.score, "ticks": w.tick, "team_size": w.team_size,
         "final_hash": format!("{:016x}", w.state_hash()),
-        "rounds": w.rounds.iter().map(|r| json!({
+        "digest": format!("{:016x}", stats.digest(w)),
+        "rounds": w.rounds.iter().enumerate().map(|(i, r)| json!({
             "round": r.round, "winner": r.winner, "reason": r.reason, "attackers": r.attackers, "ticks": r.ticks,
+            "planted": stats.planted.get(i).copied().unwrap_or(false),
         })).collect::<Vec<_>>(),
+        "kills": stats.kills.iter().map(|k| json!([
+            k.tick, k.round, k.killer, k.victim, k.killer_team, k.victim_team, k.weapon,
+        ])).collect::<Vec<_>>(),
         "units": w.units.iter().map(|u| json!({
             "id": u.id, "team": u.team, "kit": u.kit, "faulted": u.faulted,
             "kills": u.stats.kills, "deaths": u.stats.deaths, "damage": u.stats.damage, "shots": u.stats.shots,
