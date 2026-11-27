@@ -37,8 +37,10 @@ What the squad bots do that the first three do not:
   The logic survives a change to `rules/weapons.toml`.
 - **Stay inside the fuel budget.** The expensive questions (where does the enemy come into view of a site,
   how far is it) are asked one per buy tick, last in the turn, and kept for the match. Measured with the
-  wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` still
-  overruns its first buy tick (it plans the whole round at once).
+  wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` plans
+  the whole round on its first buy tick. Since the SDK's pathfinding got about three times cheaper
+  (2026-11-27) that mostly fits: against `rusher`, seed 1, it ran out of fuel 8, 9 and 8 times a match on
+  `quarry`, `steppe` and `spillway` before, and 0, 1 and 0 times after.
 
 ## Measured
 

@@ -5,8 +5,9 @@
 //   IBC_BOT(MyBot)
 //
 // One bot instance runs per unit and lives for the whole match; `turn` is called once per tick.
-// Nothing here throws, and nothing allocates after the first call that needs a buffer (the map grid and
-// up to `Pathfinder::CACHE` distance fields are `malloc`ed once and reused). See README.md.
+// Nothing here throws, and nothing allocates after the first call that needs a buffer (the map grid, up
+// to `Pathfinder::CACHE` distance fields and up to `Pathfinder::KEPT` kept ones are `malloc`ed once and
+// reused). See README.md.
 #pragma once
 
 #include "ibc_abi.h"
@@ -455,6 +456,23 @@ inline void debug_dot(Point p, uint32_t color) { ibc_sys_debug_draw(DEBUG_DOT, p
 
 // ---------------------------------------------------------------------------------------------------
 // Navigation: wall grid, cached distance-field pathfinder and a stuck-proof `Navigator`.
+//
+// This is expensive, and it is meant as a starting point: exact 8-connected shortest paths over the whole
+// map, tile by tile, are the largest fuel cost most bots have. If you want the fuel for something else,
+// copy this section and cut it down, or write your own (a coarser grid, a few waypoints between the spawns
+// and the sites, routes worked out once and kept for the match). Fuel measured with the wasm runner on the
+// map pool; with the current rules a unit gets 100,000 per tick, 400,000 on a buy tick and 1,000,000 on
+// its first tick (the draft):
+//
+//   Grid::load, Navigator()                      about 70 per map tile (22,500 on tunnels, 99,000 on steppe)
+//   A whole field: complete, or path_len to a    about 215 per floor tile (45,000 on tunnels, 177,000 on
+//     new goal from far away                       steppe)
+//   next_waypoint, go towards a new goal         up to 43,000 a call (160 tiles) until the field reaches you
+//   path_len, next_waypoint, go after that       about 230, 500 and 900
+//
+// First tick: construct the Navigator, then `complete` the goals you will use all match (site centres,
+// spawns). Buy ticks: `path_len` for anything new. Action ticks: `go` towards goals whose field already
+// reaches you; for a new goal `go` walks straight until the field arrives.
 // ---------------------------------------------------------------------------------------------------
 
 namespace detail {
@@ -502,6 +520,67 @@ inline constexpr Step NEIGHBOURS[8] = {
 inline constexpr uint8_t ORTH_BITS = 0b0000'1111;
 inline constexpr uint32_t UNREACHABLE = UINT32_MAX;
 inline constexpr uint32_t NONE = UINT32_MAX;
+
+/// Is the tile at (dx, dy) floor in a 3x3 block of floor flags (bit `3 * (dx + 1) + (dy + 1)`)?
+constexpr bool floor_in(uint32_t block, int32_t dx, int32_t dy) { return (block >> (3 * (dx + 1) + dy + 1)) & 1; }
+
+/// The step mask of the centre of a 3x3 block of floor flags: `Grid::can_step` for every direction.
+inline constexpr std::array<uint8_t, 512> STEP_LUT = [] {
+    std::array<uint8_t, 512> lut{};
+    for (uint32_t block = 0; block < 512; ++block) {
+        for (int d = 0; d < 8; ++d) {
+            const Step s = NEIGHBOURS[d];
+            const bool can = floor_in(block, s.dx, s.dy) &&
+                             (s.dx == 0 || s.dy == 0 || (floor_in(block, s.dx, 0) && floor_in(block, 0, s.dy)));
+            lut[block] |= static_cast<uint8_t>(can << d);
+        }
+    }
+    return lut;
+}();
+
+/// The `via` of a tile reached from the goal: nothing is pruned.
+inline constexpr uint8_t FROM_GOAL = 8;
+
+/// Is the tile at (x, y) from a floor tile reached in direction `code` known to be floor: the tile itself,
+/// its parent, or a tile that a step in `mask` needs open?
+constexpr bool known_floor(int code, uint8_t mask, int32_t x, int32_t y) {
+    if ((x == 0 && y == 0) || (x == -NEIGHBOURS[code].dx && y == -NEIGHBOURS[code].dy)) return true;
+    for (int e = 0; e < 8; ++e) {
+        const Step s = NEIGHBOURS[e];
+        const bool needs = (x == s.dx && y == s.dy) || (s.dx != 0 && s.dy != 0 && ((x == s.dx && y == 0) || (x == 0 && y == s.dy)));
+        if ((mask & (1 << e)) && needs) return true;
+    }
+    return false;
+}
+
+/// The steps in `mask` whose target is the parent, or a tile the parent can step to itself.
+constexpr uint8_t parent_covers(int code, uint8_t mask) {
+    const int32_t px = -NEIGHBOURS[code].dx, py = -NEIGHBOURS[code].dy;
+    uint8_t covered = 0;
+    for (int e = 0; e < 8; ++e) {
+        const int32_t nx = NEIGHBOURS[e].dx, ny = NEIGHBOURS[e].dy, rx = nx - px, ry = ny - py;
+        const bool parent_steps = rx >= -1 && rx <= 1 && ry >= -1 && ry <= 1 && known_floor(code, mask, nx, ny) &&
+                                  (rx == 0 || ry == 0 || (known_floor(code, mask, px + rx, py) && known_floor(code, mask, px, py + ry)));
+        if ((mask & (1 << e)) && ((nx == px && ny == py) || parent_steps)) covered |= static_cast<uint8_t>(1 << e);
+    }
+    return covered;
+}
+
+/// `KEEP[code][mask]`: the steps in `mask` still worth trying from a tile reached in direction `code`.
+/// A step is dropped when its target is the parent, or a tile the parent can step to: the parent was
+/// settled first and is at least 5 cheaper, and a step costs at most 7, so the way through this tile can
+/// never be cheaper (the neighbour pruning of Jump Point Search, applied to Dijkstra). The same tiles get
+/// the same costs; only relaxations that cannot succeed are skipped. Codes 8 and up keep everything.
+inline constexpr std::array<std::array<uint8_t, 256>, 16> KEEP = [] {
+    std::array<std::array<uint8_t, 256>, 16> table{};
+    for (int code = 0; code < 16; ++code) {
+        for (int mask = 0; mask < 256; ++mask) {
+            const uint8_t m = static_cast<uint8_t>(mask);
+            table[code][mask] = code < 8 ? static_cast<uint8_t>(m & ~parent_covers(code, m)) : m;
+        }
+    }
+    return table;
+}();
 }  // namespace detail
 
 /// The whole tile grid, fetched once (`height` host calls). Walls never change during a match.
@@ -512,7 +591,7 @@ class Grid {
 
     Grid() = default;
 
-    /// Load every map row from the host.
+    /// Load every map row from the host: about 70 fuel per map tile (99,000 on `steppe`). Once per match.
     static Grid load() {
         const MapInfo info = map_info();
         Grid g(info.width > 0 ? info.width : 0, info.height > 0 ? info.height : 0);
@@ -557,14 +636,23 @@ class Grid {
   private:
     Grid(int32_t w, int32_t h) : width(w), height(h), tiles_(static_cast<uint32_t>(w * h)), steps_(static_cast<uint32_t>(w * h)) {}
 
+    /// `can_step` in all 8 directions for every tile: a 3x3 block of floor flags slides along each row and
+    /// indexes `detail::STEP_LUT` (outside the map is wall).
     void index_steps() {
+        // A missing row (above the top, below the bottom) is all wall.
+        static constexpr uint8_t walls[1] = {TILE_WALL};
         for (int32_t ty = 0; ty < height; ++ty) {
+            const uint8_t* mid = tiles_.data() + ty * width;
+            const uint8_t* up = ty > 0 ? mid - width : walls;
+            const uint8_t* down = ty + 1 < height ? mid + width : walls;
+            const int32_t up_step = ty > 0, down_step = ty + 1 < height;
+            const auto column = [&](int32_t tx) -> uint32_t {
+                return (up[tx * up_step] == TILE_FLOOR) | (mid[tx] == TILE_FLOOR) << 1 | (down[tx * down_step] == TILE_FLOOR) << 2;
+            };
+            uint32_t block = width > 0 ? column(0) << 6 : 0;
             for (int32_t tx = 0; tx < width; ++tx) {
-                uint8_t bits = 0;
-                for (int d = 0; d < 8; ++d) {
-                    bits |= static_cast<uint8_t>(can_step(tx, ty, detail::NEIGHBOURS[d].dx, detail::NEIGHBOURS[d].dy) << d);
-                }
-                steps_[index(tx, ty)] = bits;
+                block = block >> 3 | (tx + 1 < width ? column(tx + 1) << 6 : 0);
+                steps_[index(tx, ty)] = detail::STEP_LUT[block];
             }
         }
     }
@@ -576,17 +664,20 @@ class Grid {
 /// 8-connected shortest paths over the wall grid, without cutting corners. Each distinct goal tile
 /// gets a cached distance field that is grown lazily from the goal until it covers the asking unit,
 /// so a query for a known goal costs a handful of array reads and a new goal costs at most
-/// `EXPAND_PER_CALL` settled tiles per `next_waypoint` call. Buffers are allocated once per cache slot.
+/// `EXPAND_PER_CALL` settled tiles per `next_waypoint` call (about 215 fuel each). Buffers are allocated
+/// once per cache slot; each field takes 9 bytes per map tile.
 class Pathfinder {
   public:
     /// Distance fields kept; the oldest is evicted first.
     static constexpr uint32_t CACHE = 6;
     /// Tiles a single `next_waypoint` call may settle.
     static constexpr uint32_t EXPAND_PER_CALL = 160;
+    /// Goals `complete` can keep.
+    static constexpr uint32_t KEPT = 8;
 
     /// Path length in world units from `from` to `goal` (tile resolution), or nothing if unreachable.
-    /// Always exact, so on a goal that is new and far away it does the whole search in this call:
-    /// use it in the buy phase, not mid-fight.
+    /// Always exact, so on a goal that is new and far away it does the whole search in this call (about
+    /// 215 fuel per floor tile, 177,000 on `steppe`): use it in the draft or buy phase, not mid-fight.
     std::optional<int32_t> path_len(const Grid& grid, Point from, Point goal) {
         const Point f = tile_of(from), g = tile_of(goal);
         if (!grid.inside(g.x, g.y) || grid.is_blocked(f.x, f.y)) return std::nullopt;
@@ -601,7 +692,8 @@ class Pathfinder {
     /// The point to walk towards right now to get from `from` to `goal`: the goal itself when it is in
     /// this tile or the next one, otherwise the centre of the next tile on a shortest path.
     /// Nothing if there is no path, or if the search for a new goal needs more calls to reach `from`
-    /// (work per call is capped so a turn never blows its fuel; ask again next tick).
+    /// (work per call is capped so a turn never blows its fuel; ask again next tick). Up to 43,000 fuel a
+    /// call while the field grows, about 500 once it reaches `from`.
     std::optional<Point> next_waypoint(const Grid& grid, Point from, Point goal) {
         const Point f = tile_of(from), g = tile_of(goal);
         if (!grid.inside(g.x, g.y) || grid.is_blocked(f.x, f.y)) return std::nullopt;
@@ -613,11 +705,12 @@ class Pathfinder {
         const uint32_t here = field.cost[tile];
         uint32_t best_cost = here;
         Point best = f;
+        const uint8_t mask = grid.steps(tile);
         for (int d = 0; d < 8; ++d) {
-            if (!(grid.steps(tile) & (1 << d))) continue;
+            if (!(mask & (1 << d))) continue;
             const detail::Step& s = detail::NEIGHBOURS[d];
             const uint32_t c = field.cost[grid.index(f.x + s.dx, f.y + s.dy)];
-            if (c != detail::UNREACHABLE && c + s.cost <= here && c < best_cost) {
+            if (c < best_cost && c + s.cost <= here) {
                 best_cost = c;
                 best = {f.x + s.dx, f.y + s.dy};
             }
@@ -625,58 +718,160 @@ class Pathfinder {
         return best == g ? goal : tile_centre(best);
     }
 
+    /// Build the whole distance field to `goal` and keep it for the rest of the match: it is never evicted,
+    /// so `path_len`, `next_waypoint` and `Navigator::go` to this goal tile are lookups from anywhere.
+    /// Settles at most `budget` tiles in this call (`UINT32_MAX` for all) and returns true once the field
+    /// is whole; false if the budget ran out (call again, it carries on). Made for the first tick: site
+    /// centres and spawns. Up to `KEPT` goals: for a further goal it does nothing and returns false.
+    bool complete(const Grid& grid, Point goal, uint32_t budget) {
+        const Point g = tile_of(goal);
+        if (!grid.inside(g.x, g.y)) return true;
+        const uint32_t tile = grid.index(g.x, g.y);
+        Field* field = nullptr;
+        for (uint32_t i = 0; i < kept_used_; ++i) {
+            if (kept_[i].goal == tile && kept_[i].cost.size() == grid.size()) field = &kept_[i];
+        }
+        if (!field) {
+            if (kept_used_ == KEPT) return false;
+            field = &kept_[kept_used_++];
+            // Keep the work already done for this goal; its cache slot is empty until it is reused.
+            for (uint32_t i = 0; i < used_; ++i) {
+                if (fields_[i].goal == tile && fields_[i].cost.size() == grid.size()) {
+                    *field = std::move(fields_[i]);
+                    fields_[i] = Field{};
+                }
+            }
+            if (field->goal != tile) field->reset(grid, tile);
+        }
+        return field->settle(grid, detail::NONE, budget);
+    }
+
   private:
     /// Shortest-path costs from every tile to one goal tile, grown outwards from the goal on demand:
     /// Dijkstra with a bucket queue (steps cost 5 or 7, so 8 buckets are enough). The buckets are
-    /// intrusive doubly linked lists through `next`/`prev`, so the queue never allocates.
+    /// intrusive singly linked lists through `next`, so the queue never allocates.
     struct Field {
         uint32_t goal = detail::NONE;
-        detail::Buf<uint32_t> cost, next, prev;
+        detail::Buf<uint32_t> cost, next;
+        /// Per queued tile: the direction it was reached in, or `detail::FROM_GOAL` (see `detail::KEEP`).
+        detail::Buf<uint8_t> via;
         uint32_t head[8] = {};
         /// Cost level being drained; every tile with `cost <= level` is final.
         uint32_t level = 0;
+        /// Tiles queued, counting the goal until it is settled.
         uint32_t queued = 0;
+        /// The goal has been settled (it is the first tile, and it counts against the budget).
+        bool started = false;
 
         void reset(const Grid& grid, uint32_t goal_tile) {
             if (cost.size() != grid.size()) {
                 cost = detail::Buf<uint32_t>(grid.size());
                 next = detail::Buf<uint32_t>(grid.size());
-                prev = detail::Buf<uint32_t>(grid.size());
+                via = detail::Buf<uint8_t>(grid.size());
             }
             std::memset(cost.data(), 0xff, size_t{cost.size()} * 4);
             for (uint32_t& h : head) h = detail::NONE;
             goal = goal_tile;
             level = 0;
             queued = 1;
+            started = false;
             cost[goal] = 0;
-            link(goal);
+        }
+
+        /// Settle the goal: queue its neighbours. Stepping is symmetric between floor tiles, so the
+        /// goal-outwards search uses the forward step masks; a blocked goal only seeds its orthogonal
+        /// neighbours ("as close as possible").
+        void start(const Grid& grid) {
+            uint8_t seed = grid.steps(goal);
+            if (grid.tile_index(goal) != TILE_FLOOR) seed &= detail::ORTH_BITS;
+            queued = 0;
+            for (int d = 0; d < 8; ++d) {
+                if (!(seed & (1 << d))) continue;
+                const detail::Step& s = detail::NEIGHBOURS[d];
+                const uint32_t n = static_cast<uint32_t>(static_cast<int32_t>(goal) + s.dy * grid.width + s.dx);
+                cost[n] = s.cost;
+                via[n] = detail::FROM_GOAL;
+                link(n);
+                ++queued;
+            }
+            started = true;
+        }
+
+        /// Lower the cost of tile `n`, reached in direction `d`, to `c` if that is cheaper. A tile with a
+        /// finite cost above `level` is still queued: it moves to its new bucket.
+        void relax(uint32_t n, uint8_t d, uint32_t c) {
+            if (c >= cost[n]) return;
+            if (cost[n] != detail::UNREACHABLE) {
+                unlink(n);
+            } else {
+                ++queued;
+            }
+            cost[n] = c;
+            via[n] = d;
+            link(n);
+        }
+
+        /// Relax the steps in nibble `M` of a step mask: `Diag` picks bits 4-7 (shifted down), else 0-3.
+        template <uint32_t M, bool Diag>
+        void relax_nibble(uint32_t at, int32_t w, uint32_t c) {
+            const uint32_t uw = static_cast<uint32_t>(w);
+            if constexpr (!Diag) {
+                if constexpr ((M & 1) != 0) relax(at + 1, 0, c);
+                if constexpr ((M & 2) != 0) relax(at + uw, 1, c);
+                if constexpr ((M & 4) != 0) relax(at - 1, 2, c);
+                if constexpr ((M & 8) != 0) relax(at - uw, 3, c);
+            } else {
+                if constexpr ((M & 1) != 0) relax(at + uw + 1, 4, c);
+                if constexpr ((M & 2) != 0) relax(at + uw - 1, 5, c);
+                if constexpr ((M & 4) != 0) relax(at - uw - 1, 6, c);
+                if constexpr ((M & 8) != 0) relax(at - uw + 1, 7, c);
+            }
+        }
+
+        /// `relax_nibble` for a nibble known at run time: one jump into 16 straight-line bodies.
+        template <bool Diag>
+        void relax_mask(uint32_t nibble, uint32_t at, int32_t w, uint32_t c) {
+            switch (nibble) {
+#define IBC_DETAIL_NIBBLE(M) \
+    case M:                  \
+        relax_nibble<M, Diag>(at, w, c); \
+        break;
+                IBC_DETAIL_NIBBLE(1) IBC_DETAIL_NIBBLE(2) IBC_DETAIL_NIBBLE(3) IBC_DETAIL_NIBBLE(4)
+                IBC_DETAIL_NIBBLE(5) IBC_DETAIL_NIBBLE(6) IBC_DETAIL_NIBBLE(7) IBC_DETAIL_NIBBLE(8)
+                IBC_DETAIL_NIBBLE(9) IBC_DETAIL_NIBBLE(10) IBC_DETAIL_NIBBLE(11) IBC_DETAIL_NIBBLE(12)
+                IBC_DETAIL_NIBBLE(13) IBC_DETAIL_NIBBLE(14) IBC_DETAIL_NIBBLE(15)
+#undef IBC_DETAIL_NIBBLE
+                default:
+                    break;
+            }
         }
 
         void link(uint32_t t) {
             uint32_t& h = head[cost[t] & 7];
             next[t] = h;
-            prev[t] = detail::NONE;
-            if (h != detail::NONE) prev[h] = t;
             h = t;
         }
 
+        /// Take queued tile `t` out of its bucket. A queued tile is improved rarely (reached diagonally
+        /// first, then straight from the next level), so walking the bucket is cheaper than keeping
+        /// back links up to date for every tile.
         void unlink(uint32_t t) {
-            const uint32_t p = prev[t], n = next[t];
-            if (p != detail::NONE) {
-                next[p] = n;
-            } else {
-                head[cost[t] & 7] = n;
-            }
-            if (n != detail::NONE) prev[n] = p;
+            uint32_t* at = &head[cost[t] & 7];
+            while (*at != t) at = &next[*at];
+            *at = next[t];
         }
 
         /// Grow the field until the cost of `tile` is final, settling at most `budget` tiles.
         /// Returns false if the budget ran out first.
         bool settle(const Grid& grid, uint32_t tile, uint32_t budget) {
-            int32_t offsets[8];
-            for (int d = 0; d < 8; ++d) offsets[d] = detail::NEIGHBOURS[d].dy * grid.width + detail::NEIGHBOURS[d].dx;
             for (;;) {
-                if (cost[tile] <= level || queued == 0) return true;
+                if ((tile < cost.size() && cost[tile] <= level) || queued == 0) return true;
+                if (!started) {
+                    if (budget == 0) return false;
+                    --budget;
+                    start(grid);
+                    continue;
+                }
                 const uint32_t at = head[level & 7];
                 if (at == detail::NONE) {
                     ++level;
@@ -684,32 +879,19 @@ class Pathfinder {
                 }
                 if (budget == 0) return false;
                 --budget;
-                unlink(at);
+                head[level & 7] = next[at];
                 --queued;
-                // Stepping is symmetric between floor tiles, so the goal-outwards search can use the forward
-                // step masks. A blocked goal still seeds its orthogonal neighbours ("as close as possible").
-                uint8_t bits = grid.steps(at);
-                if (at == goal && grid.tile_index(at) != TILE_FLOOR) bits &= detail::ORTH_BITS;
-                for (int d = 0; d < 8; ++d) {
-                    if (!(bits & (1 << d))) continue;
-                    const uint32_t n = static_cast<uint32_t>(static_cast<int32_t>(at) + offsets[d]);
-                    const uint32_t c = level + detail::NEIGHBOURS[d].cost;
-                    if (c < cost[n]) {
-                        // A tile with a finite cost above `level` is still queued: move it to its new bucket.
-                        if (cost[n] != detail::UNREACHABLE) {
-                            unlink(n);
-                        } else {
-                            ++queued;
-                        }
-                        cost[n] = c;
-                        link(n);
-                    }
-                }
+                const uint8_t mask = detail::KEEP[via[at]][grid.steps(at)];
+                relax_mask<false>(mask & 15u, at, grid.width, level + detail::ORTH);
+                relax_mask<true>(mask >> 4, at, grid.width, level + detail::DIAG);
             }
         }
     };
 
     Field& field_for(const Grid& grid, uint32_t goal) {
+        for (uint32_t i = 0; i < kept_used_; ++i) {
+            if (kept_[i].goal == goal && kept_[i].cost.size() == grid.size()) return kept_[i];
+        }
         for (uint32_t i = 0; i < used_; ++i) {
             if (fields_[i].goal == goal && fields_[i].cost.size() == grid.size()) return fields_[i];
         }
@@ -727,6 +909,9 @@ class Pathfinder {
     Field fields_[CACHE];
     uint32_t used_ = 0;
     uint32_t evict_ = 0;
+    /// Fields `complete` was asked for: kept for the match, never evicted.
+    Field kept_[KEPT];
+    uint32_t kept_used_ = 0;
 };
 
 /// Grid + pathfinder + stuck detection: call `go` every tick you want to travel somewhere.
@@ -739,11 +924,12 @@ class Navigator {
     /// Result of the last move issued by `go`.
     Error last_error = Error::Ok;
 
-    /// Loads the map grid from the host.
+    /// Loads the map grid from the host (`Grid::load`, about 70 fuel per map tile): once, at construction.
     Navigator() : max_speed_(core_rules().run_speed) {}
 
     /// Walk towards `goal` around walls at `speed` (capped at the run speed). Returns true once there
-    /// (no move issued), false while travelling. If no path exists it walks straight at the goal.
+    /// (no move issued), false while travelling. If no path exists it walks straight at the goal, and so it
+    /// does while the field of a new goal is still growing towards it. About 900 fuel a call after that.
     bool go(const UnitInfo& me, Point goal, int32_t speed) {
         const Point at = pos(me);
         const int32_t left = dist(at, goal);
@@ -780,6 +966,10 @@ class Navigator {
 
     /// Path length in world units, or nothing if unreachable.
     std::optional<int32_t> path_len(Point from, Point goal) { return paths.path_len(grid, from, goal); }
+
+    /// `Pathfinder::complete` on this navigator's grid and pathfinder: `go` and `path_len` to `goal` become
+    /// lookups for the rest of the match.
+    bool complete(Point goal, uint32_t budget) { return paths.complete(grid, goal, budget); }
 
   private:
     /// Ticks without progress before side-stepping, and how long the side-step lasts.

@@ -74,7 +74,7 @@ ticks after `fire` (`windup` plus the unit's unsteadiness), or at once while bra
 | World queries | `los(a, b)`, `raycast(x, y, angle, max)` |
 | Team memory | `team_mem_read/write(off, bytes)`, `team_mem_get::<N>(off)` / `team_mem_set(off, [i32; N])` (writes in action phases), `mem_read/write(scope, ..)`, `mem_get::<N>(scope, off)` / `mem_set(scope, off, [i32; N])` for `MEM_DRAFT` (draft tick) and `MEM_BUY` (buy phase) |
 | Geometry (integer only) | `angle_to(dx, dy)`, `angle_diff(a, b)`, `norm_angle`, `dist`, `dist2`, `len`, `isqrt`, `cos_sin`, `offset(x, y, angle, d)`, `lead(from, target, vel, bullet_speed, windup)` |
-| Navigation | `Pathfinder` (`next_waypoint`, `path_len`; 8-connected, no corner cutting, one cached distance field per goal tile), `Navigator` (`go(&me, x, y, speed)`, `heading`, `path_len`; adds stuck detection) |
+| Navigation | `Pathfinder` (`next_waypoint`, `path_len`, `complete`; 8-connected, no corner cutting, one cached distance field per goal tile), `Navigator` (`go(&me, x, y, speed)`, `heading`, `path_len`, `complete`; adds stuck detection) |
 | Tactics (optional) | `tactics::Gunner` (`engage`, `top_up`), `tactics::shop`, `tactics::approach_point`, `tactics::hold_spot`, `target_half_angle`, `startup_ticks` |
 | Debug | `log(&str)`, `log!(...)`, `debug_line(a, b, 0xRRGGBB)`, `debug_dot(p, color)` |
 | Native only | `native::with_host(&mut host, unit, \|\| ...)`, `native::stats()`, `native::reset_stats()`, `native::set_log(true)` |
@@ -106,8 +106,12 @@ unit's first tick and in the buy phase). Running out ends your turn early.
   can stream, and keep per-tick allocations out of hot loops.
 - Each unit has `memory_bytes` (8 MiB) of linear memory, its 1 MiB stack included. An allocation past that
   aborts, which faults the unit.
-- `Pathfinder` keeps 6 distance fields, one per goal tile, grown lazily from the goal. `next_waypoint` /
-  `Navigator::go` settle at most 160 tiles per call (about 200 instructions each) and return `None` /
-  walk straight until the search reaches you; `path_len` and `tactics::approach_point` finish the search
-  in one call, so use those in the buy phase. Aim at a few stable goals, not a new tile every tick.
+- Path searches are the biggest cost most bots have (measured per call and per map in the comment at the
+  top of `src/nav.rs`). `Pathfinder` keeps 6 distance fields, one per goal tile, grown lazily from the goal
+  at about 200 fuel per floor tile. `next_waypoint` / `Navigator::go` settle at most 160 tiles per call
+  (up to 45,000 fuel) and return `None` / walk straight until the search reaches you; `path_len` and
+  `tactics::approach_point` finish the search in one call (up to 160,000), so use those in the buy phase.
+  `complete` builds a whole field and keeps it for the match: do it on the first tick for the sites and
+  spawns. Aim at a few stable goals, not a new tile every tick. If you need the fuel elsewhere, write a
+  cheaper search of your own: a coarser grid, a waypoint graph, routes worked out once.
 - `log!` formats a `String`: handy while debugging, wasteful in a submitted bot.

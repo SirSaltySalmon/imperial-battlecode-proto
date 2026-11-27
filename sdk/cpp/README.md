@@ -54,7 +54,7 @@ IBC_BOT(MyBot)
 | World | `los(a, b)`, `raycast(p, angle, max)` |
 | Memory | `team_mem_read/write`, `team_mem_get<N>/set<N>` (writes in action phases), `mem_read/write(scope, ...)`, `mem_get<N>/set<N>(scope, ...)` for `MEM_DRAFT` (draft tick) and `MEM_BUY` (buy phase) |
 | Geometry | `angle_to`, `angle_diff`, `norm_angle`, `dist`, `dist2`, `len`, `isqrt`, `cos_sin`, `offset`, `lead`, `tile_of`, `tile_centre`: integer only, `constexpr`, bit-for-bit equal to the Rust SDK |
-| Navigation | `Grid`, `Pathfinder` (cached distance fields, work capped per call), `Navigator::go` (path following with stuck recovery) |
+| Navigation | `Grid`, `Pathfinder` (cached distance fields, work capped per call; `complete` keeps a whole field), `Navigator::go` (path following with stuck recovery) |
 | Debug | `log`, `logf`, `debug_line`, `debug_dot` |
 
 Positions are fixed-point (`TILE` = 1024 per tile, +y down). Angles are 0..65535 per turn, 0 = +x,
@@ -123,9 +123,14 @@ and the bot is paused mid-turn and resumes next tick, one tick late on everythin
   `match_info()` once per tick; cache `core_rules()` and weapon rules, which never change during a match.
 - **No heap in the turn loop.** `malloc`, `std::vector` growth, `std::string` and `std::function` all cost
   instructions and usually a `memcpy`. The SDK allocates only once per buffer (the grid, six distance
-  fields); do the same: fixed arrays, `std::array`, `std::optional`.
-- **Plan in the buy phase.** `Pathfinder::path_len` runs a whole search; `next_waypoint` and `Navigator::go`
-  spread a new search over several ticks (160 tiles per call) and are safe mid-fight.
+  fields and the ones `complete` keeps); do the same: fixed arrays, `std::array`, `std::optional`.
+- **Path searches are the biggest cost most bots have** (measured per call and per map in `ibc.h`, above
+  `class Grid`). A whole distance field is about 215 fuel per floor tile (up to 177,000 on the largest map):
+  `Pathfinder::path_len` runs one in a single call, so plan in the buy phase; `next_waypoint` and
+  `Navigator::go` spread a new search over several ticks (160 tiles, up to 43,000 fuel per call).
+  `Navigator::complete` builds a whole field and keeps it for the match: do it on the first tick for the
+  sites and spawns. If you need the fuel elsewhere, write a cheaper search of your own: a coarser grid, a
+  waypoint graph, routes worked out once.
 - **Keep `<iostream>` and `printf` out of release bots.** `logf` pulls in `vsnprintf` (about 10 KB of wasm
   and thousands of instructions per call); `log("text")` is one host call.
 - **Integer geometry is cheap**: `angle_to` and `dist` are a few dozen instructions. There is no reason to

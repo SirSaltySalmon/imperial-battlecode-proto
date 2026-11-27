@@ -140,7 +140,9 @@ pub fn shop(me: &UnitInfo) -> Option<i32> {
 
 /// Where will someone walking from `origin` come into view of `site`? Walks the shortest path from
 /// `site` towards `origin` and returns the last point on it that `site` still has line of sight to.
-/// A unit standing near `site` should watch this point. Runs a full path search: call it in the buy phase.
+/// A unit standing near `site` should watch this point. Grows the field towards `origin` until it reaches
+/// `site` (about 200 fuel per floor tile, up to 81,000 from a spawn on the pool's maps; nothing more if
+/// `Navigator::complete` built it), then 3,000 to 5,000 for the walk: call it in the draft or buy phase.
 pub fn approach_point(nav: &mut Navigator, site: (i32, i32), origin: (i32, i32)) -> (i32, i32) {
     // Finish the search towards `origin` now, so the walk below never has to wait for it.
     if nav.path_len(site, origin).is_none() {
@@ -162,7 +164,8 @@ pub fn approach_point(nav: &mut Navigator, site: (i32, i32), origin: (i32, i32))
 }
 
 /// The tile centre within `radius_tiles` of `anchor` with the longest clear line through `watch`,
-/// i.e. a spot to hold an angle from. `skip` picks the n-th best so teammates spread out.
+/// i.e. a spot to hold an angle from. `skip` picks the n-th best so teammates spread out. Two `los` and a
+/// `raycast` per tile of the square: 11,000 to 38,000 fuel at radius 3, so call it in the buy phase.
 pub fn hold_spot(nav: &Navigator, anchor: (i32, i32), watch: (i32, i32), radius_tiles: i32, skip: usize) -> (i32, i32) {
     let (ax, ay) = tile_of(anchor.0, anchor.1);
     let mut best: Vec<(i32, (i32, i32))> = Vec::new();
