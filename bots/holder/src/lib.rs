@@ -25,7 +25,8 @@ const CHARGE_DROPPED: i32 = 1;
 // Team memory layout (little-endian i32s).
 /// [tick + 1, x, y] of the last enemy any teammate saw.
 const MEM_SIGHT: u32 = 0;
-/// [round + 1, site index] chosen by the attackers this round.
+/// [round + 1, site index] the attackers go for this round, written by the first of them to act in the action
+/// phase (see `agree_site`).
 const MEM_SITE: u32 = 12;
 
 pub struct Holder {
@@ -38,6 +39,8 @@ pub struct Holder {
     plan_for: (i32, i32),
     /// Index of the site this unit defends or attacks.
     site: usize,
+    /// An attacker that has not yet checked its site against team memory this round.
+    agree_pending: bool,
     /// Where this unit stands, and the point it watches from there.
     post: (i32, i32),
     watch: (i32, i32),
@@ -54,6 +57,7 @@ impl Bot for Holder {
             sites: sites().collect(),
             plan_for: (-1, -1),
             site: 0,
+            agree_pending: false,
             post: (0, 0),
             watch: (0, 0),
         }
@@ -75,7 +79,12 @@ impl Bot for Holder {
             PHASE_BUY => {
                 shop(&me);
             }
-            PHASE_ACTION | PHASE_PLANTED => self.fight(&me, &info),
+            PHASE_ACTION | PHASE_PLANTED => {
+                if self.agree_pending {
+                    self.agree_site(&me, &info);
+                }
+                self.fight(&me, &info)
+            }
             _ => {}
         }
     }
@@ -92,24 +101,38 @@ impl Holder {
         self.map = map_info(); // spawns swap with the sides
         let n = self.sites.len();
         let slot = info.unit_slot.max(0) as usize;
-        let rank = if info.my_side == SIDE_ATTACK {
-            // The first attacker to run this round picks the site; the rest read it.
-            let [stamp, chosen] = team_mem_get::<2>(MEM_SITE);
-            self.site = if stamp == info.round + 1 {
-                chosen.max(0) as usize % n
-            } else {
-                let pick = (info.seed_lo.unsigned_abs() as usize + info.round.max(0) as usize) % n;
-                let _ = team_mem_set(MEM_SITE, [info.round + 1, pick as i32]);
-                pick
-            };
-            slot
+        self.agree_pending = info.my_side == SIDE_ATTACK;
+        let (site, rank) = if self.agree_pending {
+            // Team memory is zeroed at round start and read-only until the action phase, so every attacker
+            // picks here, all of them the same way; `agree_site` shares the pick once memory is writable.
+            ((info.seed_lo.unsigned_abs() as usize + info.round.max(0) as usize) % n, slot)
         } else {
-            self.site = slot % n;
-            slot / n
+            (slot % n, slot / n)
         };
-        self.take_post(self.site, rank);
-        // Do the path search to the site now, so the per-tick `path_len` in `attack` is a lookup.
-        let _ = self.nav.path_len(me.pos(), self.centre(self.site));
+        self.head_for(me, site, rank);
+    }
+
+    /// Make `site` this unit's, with the post of `rank` there, and do the path search to it now, so the
+    /// per-tick `path_len` in `attack` is a lookup.
+    fn head_for(&mut self, me: &UnitInfo, site: usize, rank: usize) {
+        self.site = site;
+        self.take_post(site, rank);
+        let _ = self.nav.path_len(me.pos(), self.centre(site));
+    }
+
+    /// On an attacker's first action tick, the first phase in which team memory is writable: the first
+    /// attacker to act this round writes its site, and the others go to the site written there.
+    fn agree_site(&mut self, me: &UnitInfo, info: &MatchInfo) {
+        self.agree_pending = false;
+        let [stamp, chosen] = team_mem_get::<2>(MEM_SITE);
+        if stamp != info.round + 1 {
+            let _ = team_mem_set(MEM_SITE, [info.round + 1, self.site as i32]);
+            return;
+        }
+        let site = chosen.max(0) as usize % self.sites.len();
+        if site != self.site {
+            self.head_for(me, site, info.unit_slot.max(0) as usize);
+        }
     }
 
     fn take_post(&mut self, site: usize, rank: usize) {
