@@ -97,7 +97,8 @@ fn until_landed(a: &AbilityRules, dist: i32) -> usize {
 fn shot_in_the_back(victim_hp: i32) -> (Match, (i32, i32)) {
     let mut m = setup("standard");
     place(&mut m, 0, c(2, 3), EAST);
-    place(&mut m, 2, c(16, 3), EAST);
+    // 9 tiles: inside the sidearm's 10-tile reach, and more than one tick of flight at 8 tiles a tick.
+    place(&mut m, 2, c(11, 3), EAST);
     m.world.units[2].hp = victim_hp;
     m.step();
     let aim = angle(m.world.units[0].pos, m.world.units[2].pos);
