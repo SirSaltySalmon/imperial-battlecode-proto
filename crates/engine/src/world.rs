@@ -144,6 +144,22 @@ pub struct World {
     /// Debug drawings of the current tick per team: (unit, kind, x0, y0, x1, y1, color). Not part of the
     /// state hash.
     pub debug: [Vec<crate::DebugDraw>; 2],
+    /// Bullets that ended during the tick just resolved, for drawing only. Not part of the state hash: nothing
+    /// reads it back, and it is rebuilt every tick.
+    pub trails: Vec<Trail>,
+}
+
+/// The path of a bullet in the tick it ended: from where it was at the start of that tick (its muzzle if it
+/// was fired in it) to where it stopped, at `vel` units per tick. A bullet that hits within one tick of
+/// flight is in no frame's `projectiles`; this is the only record of where it went.
+#[derive(Clone, Copy, Debug)]
+pub struct Trail {
+    pub owner: u32,
+    pub team: i32,
+    pub weapon: i32,
+    pub from: V2,
+    pub to: V2,
+    pub vel: V2,
 }
 
 impl World {
@@ -211,6 +227,7 @@ impl World {
             rounds: Vec::new(),
             winner: None,
             debug: Default::default(),
+            trails: Vec::new(),
         };
         economy::on_match_start(&mut w);
         w
@@ -394,6 +411,7 @@ impl World {
             return;
         }
         self.events.clear();
+        self.trails.clear();
         for sounds in self.team_sounds.iter_mut() {
             sounds.clear();
         }

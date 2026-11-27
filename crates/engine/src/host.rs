@@ -462,6 +462,7 @@ pub fn rules_json(r: &crate::Ruleset) -> String {
         "unit_radius": c.unit_radius, "fov_half": c.fov_half, "vision_range": c.vision_range,
         "sense_radius": c.sense_radius, "max_hp": c.max_hp, "plant_ticks": c.plant_ticks,
         "defuse_ticks": c.defuse_ticks, "fuse_ticks": c.fuse_ticks, "weapons": r.weapon_names,
+        "weapon_ranges": r.weapons.iter().map(|w| w.range).collect::<Vec<_>>(),
     })
     .to_string()
 }
@@ -489,6 +490,9 @@ pub fn frame_json(w: &World) -> String {
         "projectiles": w.projectiles.iter().map(|p| json!({
             "owner": p.owner, "team": p.team, "weapon": p.weapon, "kind": p.kind,
             "x": p.pos.0, "y": p.pos.1, "vx": p.vel.0, "vy": p.vel.1 })).collect::<Vec<_>>(),
+        "trails": w.trails.iter().map(|t| json!({
+            "owner": t.owner, "team": t.team, "weapon": t.weapon, "x0": t.from.0, "y0": t.from.1,
+            "x1": t.to.0, "y1": t.to.1, "vx": t.vel.0, "vy": t.vel.1 })).collect::<Vec<_>>(),
         "effects": w.effects.iter().map(|e| json!({
             "kind": e.info.kind, "team": e.info.team, "x": e.info.x, "y": e.info.y, "radius": e.info.radius,
             "ticks_left": e.info.ticks_left, "x2": e.info.x2, "y2": e.info.y2 })).collect::<Vec<_>>(),

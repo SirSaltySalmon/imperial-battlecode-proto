@@ -116,6 +116,19 @@ export interface ProjectileFrame {
   vy: number;
 }
 
+/** A bullet that ended during the tick into this frame: where it was when the tick began, and where it ended. */
+export interface TrailFrame {
+  owner: number;
+  team: number;
+  weapon: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  vx: number;
+  vy: number;
+}
+
 export interface EffectFrame {
   kind: number;
   team: number;
@@ -184,6 +197,8 @@ export interface Frame {
   charge: { state: number; x: number; y: number };
   units: UnitFrame[];
   projectiles: ProjectileFrame[];
+  /** Absent from frames of engines before trails. */
+  trails?: TrailFrame[];
   effects: EffectFrame[];
   drops: DropFrame[];
   events: EventFrame[];

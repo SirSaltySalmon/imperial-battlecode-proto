@@ -901,6 +901,7 @@ name = "ibc-combatviz"
 version = "0.2.0"
 dependencies = [
  "ibc-engine",
+ "ibc-engine-wasm",
  "serde",
  "serde_json",
 ]

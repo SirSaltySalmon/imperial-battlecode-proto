@@ -11,6 +11,7 @@ license = "MIT"
 [workspace.dependencies]
 ibc-abi = { path = "crates/abi" }
 ibc-engine = { path = "crates/engine" }
+ibc-engine-wasm = { path = "crates/engine-wasm" }
 ibc-replay = { path = "crates/replay" }
 ibc-runner = { path = "crates/runner" }
 serde = { version = "1", features = ["derive"] }

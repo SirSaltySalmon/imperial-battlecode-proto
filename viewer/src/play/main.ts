@@ -1,17 +1,21 @@
 // The play page of `ibc play`: draws the player's team's fogged view with the replay renderer and sends
-// keyboard and mouse input to the local server. Real-time mode polls the state on the server's clock; turn
-// mode advances one tick per Space.
+// keyboard and mouse input to the local server. The page follows the match with a long poll (each tick
+// arrives when it runs) and draws the motion between ticks smoothly. In active mode time passes while the
+// player acts; Space waits (a tick per press, more while held), P lets time run, Tab switches unit.
 
 import { toTiles, type Camera } from "../camera";
+import { drawBlast, drawHeadline, ENDING_TICKS, endingOf, type Ending } from "../ending";
+import { interpUnits } from "../interp";
 import { parseMap, type GameMap } from "../map";
 import { viewOf } from "../perspective";
 import { render } from "../render";
 import { applyTheme, type Palette } from "../theme";
-import { S_ALIVE, TILE, type Frame } from "../types";
+import { EVENT_DETONATE, EVENT_ROUND_END, S_ALIVE, TILE, type EventFrame, type Frame } from "../types";
 import { rulesFor, type ViewRules } from "../vision";
 import { api, type PlayUnit, type Setup, type State } from "./api";
 import { heldInput, heldKey, keyAction, NOTHING_HELD, sameHeld, toWorld, type Action, type Held, type InputMsg } from "./controls";
-import { buildMenus, updateHud } from "./hud";
+import { buildMenus, nextAlive, updateHud, updateSquad } from "./hud";
+import { blend, interpFrom, tickPeriod } from "./smooth";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("canvas");
@@ -23,6 +27,9 @@ let map: GameMap;
 let rules: ViewRules;
 let palette: Palette;
 let state: State | null = null;
+/** The frame of the tick before `state`'s, drawn moving towards it, and when `state`'s tick arrived. */
+let prev: Frame | null = null;
+let arrived = 0;
 let camera: Camera = { cx: 0, cy: 0, ppt: 28 };
 let width = 1;
 let height = 1;
@@ -39,6 +46,12 @@ let raf = 0;
 let stepping = false;
 /** Where enemies died, from the kill events (the server only gives the position in the tick of the kill). */
 const deaths = new Map<number, [number, number]>();
+/** Round end and detonation events of the round being played, and the round they belong to. */
+let roundEvents: EventFrame[] = [];
+let eventsRound = -1;
+/** How the match ended, once it has, and when the page first showed that. */
+let ending: Ending | null = null;
+let endedAt = 0;
 
 function invalidate(): void {
   if (!raf) raf = requestAnimationFrame(draw);
@@ -59,31 +72,73 @@ function displayed(frame: Frame): { frame: Frame; hidden: boolean[] } {
   return { frame: { ...frame, units }, hidden: units.map((u) => u.hidden === true) };
 }
 
+/** Unit id of the possessed unit, or null while watching. */
+function possessedId(): number | null {
+  return state?.possessed == null ? null : setup.first_unit + state.possessed;
+}
+
+/** The camera centred where the possessed unit is now (not where it is drawn): what aiming is relative to. */
+function aimCamera(): Camera {
+  const me = state?.view.me;
+  return me && me.state & S_ALIVE ? { ...camera, cx: me.x / TILE, cy: me.y / TILE } : camera;
+}
+
 function draw(): void {
   raf = 0;
   if (!state) return;
-  const { me } = state.view;
-  const { frame, hidden } = displayed(state.view.frame);
-  // Follow the unit while it is alive; before the first round (and after death) keep the last centre, or
-  // the middle of the map.
-  if (me.state & S_ALIVE) camera = { ...camera, cx: me.x / TILE, cy: me.y / TILE };
-  else if (camera.cx === 0 && camera.cy === 0) camera = { ...camera, cx: map.width / 2, cy: map.height / 2 };
-  const view = viewOf(frame, { kind: "team", team: setup.team }, map, rules);
-  view.unitVisible = view.unitVisible.map((v, i) => v && !hidden[i]);
+  const cur = displayed(state.view.frame);
+  const t = prev ? blend(performance.now() - arrived, tickPeriod(setup.tps)) : 1;
+  // Between ticks: the previous tick moving towards the latest. Once there, the latest as it is.
+  const from = prev && t < 1 ? displayed(interpFrom(prev, state.view.frame)) : null;
+  const shown = from ?? cur;
+  // The ending (headline, blast) grows in over its first ticks and then stays: the match is over.
+  const endingT = ending ? Math.min(1, (performance.now() - endedAt) / (ENDING_TICKS * tickPeriod(setup.tps))) : 0;
+  const id = possessedId();
+  const me = state.view.me;
+  if (id !== null && me && me.state & S_ALIVE) {
+    const pose = interpUnits([shown.frame.units[id]], from ? [cur.frame.units[id]] : null, t)[0];
+    camera = { ...camera, cx: pose.x / TILE, cy: pose.y / TILE };
+  } else if (camera.cx === 0 && camera.cy === 0) {
+    camera = { ...camera, cx: map.width / 2, cy: map.height / 2 };
+  }
+  const view = viewOf(shown.frame, { kind: "team", team: setup.team }, map, rules);
+  view.unitVisible = view.unitVisible.map((v, i) => v && !shown.hidden[i]);
   // The server blanks the charge when the team does not know where it is.
-  if (frame.charge.state < 0) view.chargeVisible = false;
+  if (shown.frame.charge.state < 0) view.chargeVisible = false;
   render(ctx, width, height, dpr, {
     map,
     rules,
-    frame,
-    next: null,
-    t: 0,
+    frame: shown.frame,
+    next: from ? cur.frame : null,
+    t: from ? t : 0,
     view,
     camera,
     palette,
     show: { vision: true, debug: false, sounds: true },
-    selected: setup.unit,
+    selected: id,
+    marks: ending?.blast ? (pen) => drawBlast(pen, ending!.blast!, rules.blast_radius, endingT) : undefined,
   });
+  if (ending) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawHeadline(ctx, width, height, ending, setup.bots, palette);
+  }
+  if (from || (ending && endingT < 1)) raf = requestAnimationFrame(draw);
+}
+
+/**
+ * Keep the round's ending events (they arrive in one tick's frame only) and work out the ending once the
+ * match is over. The page draws it itself; nothing of it goes to the server or the replay.
+ */
+function noteEnding(frame: Frame): void {
+  if (frame.round !== eventsRound) {
+    eventsRound = frame.round;
+    roundEvents = [];
+  }
+  roundEvents.push(...frame.events.filter((e) => e.kind === EVENT_ROUND_END || e.kind === EVENT_DETONATE));
+  if (!ending) {
+    ending = endingOf(frame, roundEvents);
+    if (ending) endedAt = performance.now();
+  }
 }
 
 function resize(): void {
@@ -97,15 +152,25 @@ function resize(): void {
 }
 
 function show(s: State): void {
+  // Answers can cross (a long poll and a step): never go back to an older tick.
+  if (state && s.tick < state.tick) return;
+  const newTick = state !== null && s.tick !== state.tick;
+  if (newTick) {
+    prev = state!.view.frame;
+    arrived = performance.now();
+  }
   state = s;
+  noteEnding(s.view.frame);
   for (const u of s.view.frame.units as PlayUnit[]) {
     if (u.alive) deaths.delete(u.id);
     else if (!u.hidden) deaths.set(u.id, [u.x, u.y]);
   }
   updateHud(setup, rules, s);
-  $("btn-run").textContent = s.running ? "Pause (Space)" : "Start (Space)";
-  // The camera follows the unit, so the world point under a still mouse moves: re-aim.
-  pushHeld();
+  updateSquad(setup, s, possess);
+  $("btn-run").textContent =
+    setup.mode === "active" ? (s.running ? "Stop time (P)" : "Let time run (P)") : s.running ? "Pause (Space)" : "Start (Space)";
+  // The unit moved, so the world point under a still mouse moved: re-aim.
+  if (newTick) pushHeld();
   invalidate();
 }
 
@@ -117,7 +182,7 @@ function report(e: unknown): void {
 /** The world point under the mouse, if the mouse is over the map. */
 function aim(): [number, number] | null {
   if (!mouse) return null;
-  const [tx, ty] = toTiles(camera, mouse.x, mouse.y, width, height);
+  const [tx, ty] = toTiles(aimCamera(), mouse.x, mouse.y, width, height);
   return toWorld(tx, ty);
 }
 
@@ -139,10 +204,11 @@ function pushHeld(): void {
 
 function sendAction(a: Action): void {
   enqueue(() => api.input({ actions: [a] }))
-    .then(() => (setup.mode === "turn" ? api.state().then(show) : undefined))
+    .then(() => (setup.mode === "realtime" ? undefined : api.state().then(show)))
     .catch(report);
 }
 
+/** One tick now (turn mode: the only way; active mode: Space). */
 async function step(): Promise<void> {
   if (stepping) return;
   stepping = true;
@@ -167,6 +233,22 @@ function toggleRunning(): void {
     .catch(report);
 }
 
+function possess(slot: number | null): void {
+  enqueue(() => api.possess(slot))
+    .then(show)
+    .catch(report);
+}
+
+function onSpace(e: KeyboardEvent): void {
+  e.preventDefault();
+  if (setup.mode === "turn") return void step();
+  if (e.repeat) return;
+  if (setup.mode === "realtime") return toggleRunning();
+  // Active mode: a press is one tick at once; held, time keeps passing at the clock's rate.
+  held = { ...held, wait: true };
+  void step();
+}
+
 function bindKeys(): void {
   window.addEventListener("keydown", (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -177,23 +259,23 @@ function bindKeys(): void {
       pushHeld();
       return;
     }
-    if (e.repeat && e.code !== "Space") return;
-    if (e.code === "Space") {
+    if (e.code === "Space") return onSpace(e);
+    if (e.repeat) return;
+    if (e.code === "KeyP" && setup.mode !== "turn") return toggleRunning();
+    if (e.code === "Tab") {
       e.preventDefault();
-      if (setup.mode === "turn") void step();
-      else if (!e.repeat) toggleRunning();
+      if (state) possess(nextAlive(setup, state));
       return;
     }
-    if (e.code === "KeyP" && setup.mode === "realtime") return toggleRunning();
-    const a = state ? keyAction(e.code, state.view.match.phase) : null;
+    const a = state?.view.me ? keyAction(e.code, state.view.match.phase) : null;
     if (a) {
       e.preventDefault();
       sendAction(a);
     }
   });
   window.addEventListener("keyup", (e) => {
-    const h = heldKey(e.code);
-    if (!h) return;
+    const h = e.code === "Space" ? "wait" : heldKey(e.code);
+    if (!h || !held[h]) return;
     held = { ...held, [h]: false };
     pushHeld();
   });
@@ -240,16 +322,19 @@ function bindMouse(): void {
   );
 }
 
-/** Real-time mode: fetch the state about twice per tick, until the match is over or the server is gone. */
-function poll(): void {
-  const period = Math.max(20, 500 / Math.max(1, setup.tps));
-  api
-    .state()
-    .then((s) => {
-      show(s);
-      if (!s.done) window.setTimeout(poll, period);
-    })
-    .catch(() => report(new Error("ibc play is not running any more: start it again to play")));
+/** Follow the match: each answer comes as soon as a newer tick has run, until the match is over. */
+async function follow(): Promise<void> {
+  for (;;) {
+    let s: State;
+    try {
+      s = await api.state(state?.tick);
+    } catch {
+      report(new Error("ibc play is not running any more: start it again to play"));
+      return;
+    }
+    show(s);
+    if (s.done) return;
+  }
 }
 
 function bindButtons(): void {
@@ -272,19 +357,22 @@ function bindButtons(): void {
 async function start(): Promise<void> {
   palette = applyTheme("dark");
   setup = await api.setup();
+  if (typeof setup.first_unit !== "number" || typeof setup.team_size !== "number") {
+    throw new Error("this ibc is older than its page: reinstall it (cargo install --path crates/cli) and restart");
+  }
   map = parseMap(setup.map_text);
   rules = rulesFor(setup.rules);
-  $("match-title").textContent = `${setup.bots[0]} vs ${setup.bots[1]} · ${map.name} · you are unit ${setup.unit} (team ${"AB"[setup.team]}, ${setup.mode})`;
-  $("btn-step").hidden = setup.mode !== "turn";
-  $("btn-run").hidden = setup.mode !== "realtime";
+  $("match-title").textContent = `${setup.bots[0]} vs ${setup.bots[1]} · ${map.name} · team ${"AB"[setup.team]} (${setup.mode})`;
+  $("btn-step").hidden = setup.mode === "realtime";
+  $("btn-step").textContent = setup.mode === "active" ? "Wait (Space)" : "Step (Space)";
+  $("btn-run").hidden = setup.mode === "turn";
   buildMenus(setup, sendAction);
   bindKeys();
   bindMouse();
   bindButtons();
   new ResizeObserver(resize).observe(stage);
   resize();
-  if (setup.mode === "realtime") poll();
-  else show(await api.state());
+  void follow();
 }
 
 // A handle for scripted checks (end-to-end tests drive the page through it).
@@ -293,6 +381,7 @@ Object.assign(window, {
     state: () => state,
     step,
     send: sendAction,
+    possess,
   },
 });
 

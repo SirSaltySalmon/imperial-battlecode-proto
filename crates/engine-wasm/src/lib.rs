@@ -21,7 +21,7 @@
 
 use std::cell::RefCell;
 
-mod view;
+pub mod view;
 
 #[derive(Default)]
 struct Loaded {
@@ -60,7 +60,12 @@ pub fn load(bytes: &[u8]) -> Result<Replay, String> {
     let m = replay.simulate(|m| frames.push(view::frame(&m.world, m.frame_json())))?;
     let header = serde_json::to_string(&replay.header).map_err(|e| e.to_string())?;
     let records = ibc_replay::records_json(&replay, false);
-    Ok(Replay { frames, header, records, rules: view::rules(&m.world.rules) })
+    Ok(Replay {
+        frames,
+        header,
+        records,
+        rules: view::rules(&m.world.rules),
+    })
 }
 
 /// Parse map text exactly as a match would (`Map::parse`) and summarise what the engine makes of it: size,
@@ -161,12 +166,22 @@ pub extern "C" fn ibc_frame_count() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn ibc_frame_ptr(i: u32) -> *const u8 {
-    STATE.with(|s| s.borrow().frames.get(i as usize).map_or(std::ptr::null(), |f| f.as_ptr()))
+    STATE.with(|s| {
+        s.borrow()
+            .frames
+            .get(i as usize)
+            .map_or(std::ptr::null(), |f| f.as_ptr())
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn ibc_frame_len(i: u32) -> u32 {
-    STATE.with(|s| s.borrow().frames.get(i as usize).map_or(0, |f| f.len() as u32))
+    STATE.with(|s| {
+        s.borrow()
+            .frames
+            .get(i as usize)
+            .map_or(0, |f| f.len() as u32)
+    })
 }
 
 #[no_mangle]

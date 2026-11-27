@@ -19,6 +19,8 @@ export interface ViewRules {
   fuse_ticks: number;
   /** Weapon names by weapon id. */
   weapons: string[];
+  /** How far each weapon's bullets fly, by weapon id. Empty for a build that predates it. */
+  weapon_ranges: number[];
 }
 
 const RULES_DEFAULT: ViewRules = {
@@ -31,6 +33,7 @@ const RULES_DEFAULT: ViewRules = {
   defuse_ticks: 21,
   fuse_ticks: 80,
   weapons: ["pistol", "rifle", "smg", "shotgun", "marksman", "lmg"],
+  weapon_ranges: [],
 };
 
 /** The rules to draw with: what the engine reports, over the fallback for anything it does not. */

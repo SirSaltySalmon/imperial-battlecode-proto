@@ -16,12 +16,25 @@ import {
   S_WINDUP,
   TILE,
   type UnitFrame,
+  type Vec2,
 } from "./types";
-import { toRadians, weaponName } from "./vision";
+import { toRadians, weaponName, type ViewRules } from "./vision";
+import { segmentWall, type GameMap } from "./map";
 
 const K = 1 / TILE;
-/** Length of the aim line shown during a wind-up, in tiles. */
+/** Length of the wind-up aim line, in tiles, when the rules do not say how far the weapon reaches. */
 const AIM_LINE = 5;
+
+/**
+ * How far a shot aimed at `aim` (radians) from `from` can go: the weapon's range, or less if a wall is in the
+ * way (`wall`). Lengths in fixed units, like positions.
+ */
+export function aimReach(map: GameMap, rules: ViewRules, weapon: number, from: Vec2, aim: number): { len: number; wall: boolean } {
+  const range = rules.weapon_ranges[weapon] ?? AIM_LINE * TILE;
+  const to: Vec2 = [from[0] + Math.cos(aim) * range, from[1] + Math.sin(aim) * range];
+  const hit = segmentWall(map, from[0], from[1], to[0], to[1]);
+  return hit ? { len: Math.hypot(hit[0] - from[0], hit[1] - from[1]), wall: true } : { len: range, wall: false };
+}
 
 /** "A1".."A5", "B1".."B5": team letter and slot within the team. */
 export function unitLabel(u: Pick<UnitFrame, "id" | "team">, teamSize: number): string {
@@ -65,14 +78,24 @@ function drawAlive(pen: Pen, u: UnitFrame, pose: Pose): void {
 
   if (u.state & S_WINDUP) {
     const aim = toRadians(u.aim);
+    const reach = aimReach(pen.scene.map, rules, u.weapon, [pose.x, pose.y], aim);
+    const [cx, cy] = [Math.cos(aim), Math.sin(aim)];
+    const [ex, ey] = [x + cx * reach.len * K, y + cy * reach.len * K];
     ctx.strokeStyle = alpha(pal.warn, 0.85);
     ctx.lineWidth = 1.5 * px;
     ctx.setLineDash([5 * px, 4 * px]);
     ctx.beginPath();
-    ctx.moveTo(x + Math.cos(aim) * r, y + Math.sin(aim) * r);
-    ctx.lineTo(x + Math.cos(aim) * AIM_LINE, y + Math.sin(aim) * AIM_LINE);
+    ctx.moveTo(x + cx * r, y + cy * r);
+    ctx.lineTo(ex, ey);
     ctx.stroke();
     ctx.setLineDash([]);
+    if (!reach.wall) {
+      // The end of the weapon's reach, square to the line.
+      ctx.beginPath();
+      ctx.moveTo(ex - cy * r, ey + cx * r);
+      ctx.lineTo(ex + cy * r, ey - cx * r);
+      ctx.stroke();
+    }
   }
   if (pen.scene.selected === u.id) {
     ctx.beginPath();
