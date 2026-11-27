@@ -5,9 +5,18 @@ followed literally, by a person or by an AI agent. The tool is `ibc-bench` (`cra
 holds short wrappers. Commands are run from the repo root.
 
 ```
-cargo build --release -p ibc-bench                 # once; tools/bench.sh does it for you
-export IBC_BIN=target/release/ibc                  # only for the wasm backend (cargo build --release -p ibc-cli)
+cargo build --release -p ibc-bench -p ibc-cli      # tools/bench.sh does this for you, every time
+export IBC_BIN=target/release/ibc                  # the runner the wasm backend plays through
 ```
+
+Every game is played the way a real match is: the bots' wasm builds, under the fuel budget, through `ibc
+run-batch`. A built-in name such as `rusher` means `bots/rusher` built to wasm. Rebuild `ibc` together
+with `ibc-bench` (the script does): when their rules differ, every report says so and the run is void.
+
+`--backend native` is the exception, for quick iteration and debugging only. It links the built-in bots as
+Rust and runs them with **unlimited fuel** (a native build cannot count wasm instructions), so a bot that
+overruns its budget plays better there than it does for real. It is faster (see "What metering costs" at
+the end) and shows no fuel. Every report it writes says `UNMETERED`; such numbers never go in a PR.
 
 ## The rules that do not bend
 
@@ -72,8 +81,9 @@ Then the supporting lines:
 - **slot effect**: the score in the team A slot (attacks first) versus the team B slot. A large gap means
   side bias, which is a balance question, not a bot question.
 - **per map**: a bot that gains on one map and loses on another has not improved, it has specialised.
-- **WARNING** lines are part of the result. In particular "ran out of fuel" means the wasm bot was cut
-  short in some turns and the native numbers for it are optimistic.
+- **WARNING** lines are part of the result. In particular "ran out of fuel" means the bot was cut short
+  in some turns: its results depend on the budget, and its unmetered native numbers are optimistic.
+  "UNMETERED" means the run used `--backend native`: re-run it without that flag before reporting it.
 
 ### Step 2: check it against the whole pool
 
@@ -89,8 +99,9 @@ it stronger overall. Overlapping intervals mean the order is not established.
 
 ### Step 3: read the losses
 
-`report.md` of `ab` lists the games your bot lost. For a wasm game the replay path is in the table; for
-a native game re-create it:
+`report.md` of `ab` lists the games your bot lost, with the path of each replay (`--discard-replays`
+drops them). After a `--backend native` run, or to look at a built-in bot without fuel limits, re-create
+the game natively (unmetered: it matches the wasm game only if no bot ran out of fuel in it):
 
 ```
 ibc-bench record rusher holder --map maps/crossfire.ibcmap --seed 3 --out out/record/loss.ibcr
@@ -118,7 +129,7 @@ every report prints.
 ```
 tools/balance.sh run before                 # = ibc-bench balance --out out/balance/before
 # edit ONE value in rules/*.toml
-tools/balance.sh run after                  # cargo rebuilds ibc-bench with the new rules
+tools/balance.sh run after                  # cargo rebuilds ibc-bench and ibc with the new rules
 tools/balance.sh compare before after
 ```
 
@@ -140,7 +151,7 @@ What to look at:
 | `econ.*`, credits-by-round table | the loser can still buy something | snowball: winners rich, losers on sidearms |
 | `draw_rate`, `tiebreak_rate` | low | high tie-break rate: matches are decided by the tie-break rule |
 | `degenerate.*`, "always times out", "nobody ever shoots" | zero | any entry: a bot or a rule is broken |
-| `fuel.*` (wasm backend) | `out_of_fuel_turn_rate` near 0 | bots hitting the budget: results depend on the budget |
+| `fuel.*` | `out_of_fuel_turn_rate` near 0 | bots hitting the budget: results depend on the budget |
 
 `--compare` prints three groups: **MOVED beyond the noise** (the difference exceeds both intervals
 combined: these are the effects of your change), "changed, but no interval" (cannot be judged), and a
@@ -154,8 +165,9 @@ the summary block of both runs, and the league table before and after (`ibc-benc
 a balance report describes the game *as the current bots play it*. A lopsided number can be the bots'
 fault; check the pairing table and a replay before blaming a rule.
 
-To use competitors' real bots or to see fuel, add `--backend wasm --bots bots/a,bots/b,...` (rebuild `ibc`
-first: if its ruleset differs from ibc-bench's, the report carries a warning and the run is not valid).
+To use competitors' real bots, add `--bots bots/a,bots/b,...` (bot directories or `.wasm` files). After a
+rules change rebuild `ibc` as well as `ibc-bench` (`tools/balance.sh` does both): if the runner's ruleset
+differs from ibc-bench's, the report carries a warning and the run is not valid.
 
 ## Common traps
 
@@ -170,11 +182,32 @@ first: if its ruleset differs from ibc-bench's, the report carries a warning and
   whether the result is real.
 - **Counting seeds as evidence.** Check `distinct`. Reference bots barely use the seed, so most seeds
   repeat; only maps, opponents and sides add information there.
-- **Native versus wasm.** The native backend does not meter fuel. A bot that runs out of fuel behaves
-  differently as wasm; when the two backends disagree for the same (map, seed, slots), look at
-  `out_of_fuel_turns` first. Final decisions about real bots belong on the wasm backend.
+- **Unmetered numbers.** `--backend native` and `ibc-sim` do not meter fuel. A bot that runs out of fuel
+  plays differently as wasm; when the two disagree for the same (map, seed, slots), look at
+  `out_of_fuel_turns` first. Iterate natively if you like, but every number you report comes from the
+  default wasm backend.
 - **Stopping when it looks good.** Without `--sprt`, decide the seed count before running and do not
   stop early because the number is pleasing. `--sprt` exists precisely to make early stopping honest.
 - **Comparing across rulesets or runner builds.** Check the ruleset hash at the top of both reports.
 - **Tuning the game to the bots.** Do not "fix" a 60 % attacker rate that comes from one bot never
   defending a site. Fix or replace the bot, then measure again.
+
+## What metering costs
+
+Wall time on a 20-thread Windows desktop (`--jobs 20`, the default), 2026-11-27, while other builds and
+leagues shared the machine, so read these as ratios, not benchmarks:
+
+| Run | native (unmetered) | wasm (metered) |
+|---|---:|---:|
+| `league --seeds 3`, whole pool, 14 maps (3,024 games) | 6 to 12 s | 51 to 58 s with `.wasm` files, 69 to 75 s naming the bots |
+| `balance --seeds 3` (2,688 games, per-tick details) | 7 to 15 s | 78 to 88 s |
+| first `ibc build` of the nine reference bots | | 159 s, once |
+
+Metered matches cost five to eight times as much as native ones. Naming a built-in bot runs `ibc build
+bots/<name>` on every run (about 3.5 s per bot when nothing changed, all bots at once, longer while other
+cargo commands hold cargo's locks); pass the `.wasm` files (`bots/<name>/.ibc/bot.wasm`) to skip that in
+a loop. The wasm
+backend runs one `ibc run-batch --jsonl --jobs N`: on this machine one process with 20 threads played
+35.7 matches a second, against 31.9 for four processes of five threads and 14.8 for twenty processes of
+one (each process compiles every module), so the in-process slowdown noted in `docs/TODO.md` did not show
+here. `balance` re-simulates every replay for its details on the same N threads.

@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// A participant. A bare reference-bot name (`rusher`) can run natively; a path (bot directory or
-/// `.wasm` file) runs through `ibc run-batch`.
+/// A participant. A bare reference-bot name (`rusher`) plays as `<bots_dir>/rusher` built to wasm, or, on the
+/// unmetered native backend, linked as Rust; a path (bot directory or `.wasm` file) only plays as wasm.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bot {
     /// Unique display name inside a pool.
@@ -380,9 +380,22 @@ impl GameResult {
     }
 }
 
-/// One warning per bot that ran out of fuel on the wasm backend. Fuel is not modelled natively, so such a
-/// bot plays differently (worse) as wasm than its native build does: the two backends then disagree.
+/// What the results say about fuel: a note when games ran unmetered on the native backend, and one warning
+/// per bot that ran out of fuel on the wasm backend. Fuel is not modelled natively, so such a bot plays
+/// differently (worse) as wasm than its native build does: the two backends then disagree.
 pub fn fuel_warnings(results: &[GameResult]) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let native = results
+        .iter()
+        .filter(|r| r.ok() && r.backend == "native")
+        .count();
+    if native > 0 {
+        warnings.push(format!(
+            "UNMETERED: {native} game(s) ran on the native backend, where bots have unlimited fuel. A bot that \
+             overruns its budget plays better here than in a real match; report results from the wasm backend \
+             (the default)"
+        ));
+    }
     let mut per_bot: std::collections::BTreeMap<&str, (u64, u64, u64)> = Default::default();
     for r in results.iter().filter(|r| r.ok()) {
         let Some(fuel) = r.fuel else { continue };
@@ -393,15 +406,17 @@ pub fn fuel_warnings(results: &[GameResult]) -> Vec<String> {
             e.2 += (f.out_of_fuel_turns > 0) as u64;
         }
     }
-    per_bot
-        .into_iter()
-        .filter(|(_, (out, _, _))| *out > 0)
-        .map(|(bot, (out, turns, games))| {
-            format!(
-                "`{bot}` ran out of fuel in {out} of {turns} turns ({games} game sides): those turns were cut short, so its wasm results can differ from the native backend, which does not meter fuel"
-            )
-        })
-        .collect()
+    warnings.extend(
+        per_bot
+            .into_iter()
+            .filter(|(_, (out, _, _))| *out > 0)
+            .map(|(bot, (out, turns, games))| {
+                format!(
+                    "`{bot}` ran out of fuel in {out} of {turns} turns ({games} game sides): those turns were cut short, so its wasm results can differ from the native backend, which does not meter fuel"
+                )
+            }),
+    );
+    warnings
 }
 
 pub fn write_games_jsonl(path: &Path, results: &[GameResult]) -> Result<(), String> {

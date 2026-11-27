@@ -1,7 +1,7 @@
 //! Markdown and one-screen text rendering of a balance report.
 
 use crate::balance::{BalanceReport, BANDS};
-use crate::report::{est_num, est_pct, md_table, pct};
+use crate::report::{backend_label, est_num, est_pct, md_table, pct};
 use crate::stats::Est;
 
 /// True for metrics that are fractions and read best as percentages.
@@ -29,9 +29,9 @@ fn metric_rows(r: &BalanceReport, prefix: &str) -> Vec<Vec<String>> {
 
 pub fn render_markdown(r: &BalanceReport) -> String {
     let mut s = format!(
-        "# Balance report\n\n- ruleset `{}`, backend `{}`\n- bots: {}\n- maps: {}; {} seeds; {} games ({} distinct, {} failed), {} rounds\n\n",
+        "# Balance report\n\n- ruleset `{}`, backend: {}\n- bots: {}\n- maps: {}; {} seeds; {} games ({} distinct, {} failed), {} rounds\n\n",
         r.ruleset_hash,
-        r.backend,
+        backend_label(&r.backend),
         r.bots.join(", "),
         r.maps.join(", "),
         r.seeds,
@@ -198,9 +198,9 @@ pub fn render_markdown(r: &BalanceReport) -> String {
 /// The one-screen summary printed on stdout.
 pub fn render_summary(r: &BalanceReport) -> String {
     let mut s = format!(
-        "balance: ruleset {} | {} | {} games ({} distinct, {} failed), {} rounds | bots: {} | maps: {}\n",
+        "balance: ruleset {} | backend {} | {} games ({} distinct, {} failed), {} rounds | bots: {} | maps: {}\n",
         r.ruleset_hash,
-        r.backend,
+        backend_label(&r.backend),
         r.games,
         r.distinct_games,
         r.failed,

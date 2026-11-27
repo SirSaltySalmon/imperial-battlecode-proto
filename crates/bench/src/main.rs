@@ -2,7 +2,7 @@
 
 use ibc_bench::backend::{default_jobs, record_native, BackendKind, RunOpts};
 use ibc_bench::model::{load_maps, write_games_jsonl, Bot, GameResult, MapEntry};
-use ibc_bench::report::{stamp, to_json, write_file};
+use ibc_bench::report::{backend_label, stamp, to_json, write_file};
 use ibc_bench::stats::Sprt;
 use ibc_bench::{ab, balance, compare, dump, league, noise};
 use std::collections::BTreeMap;
@@ -15,13 +15,15 @@ const USAGE: &str = "usage:
   ibc-bench balance         [--bots a,b,c] [--seeds K] [--no-mirrors] [--from games.jsonl] [common]
   ibc-bench balance --compare OLD/report.json NEW/report.json
   ibc-bench noise <A> <B>   [--seeds K] [common]
-  ibc-bench record <A> <B> --map <file.ibcmap> [--seed N] [--out replay.ibcr]     (built-in bots, native)
+  ibc-bench record <A> <B> --map <file.ibcmap> [--seed N] [--out replay.ibcr]     (built-in bots, native: unmetered)
   ibc-bench dump <replay.ibcr> [--out DIR]
   ibc-bench why <replay.ibcr> --round R --unit U [--all-ticks]
 
-A bot is a built-in name (see `ibc-sim`), a bot directory or a .wasm file.
+A bot is a built-in name (see `ibc-sim`; plays as bots/<name> built to wasm), a bot directory or a .wasm file.
 common: --maps <dir|file> (default maps)   --seed-list 3,7,9 (instead of --seeds: seeds 1..K)
-        --backend auto|native|wasm (auto: native when both bots are built in)
+        --backend wasm|native   wasm (default): fuel metered, as in a real match; report these results.
+                                native: built-in bots linked as Rust, UNMETERED (unlimited fuel); fast,
+                                for iteration and debugging only
         --jobs N   --out DIR (default out/<command>/<utc stamp>)   --max-ticks N
         --ibc <path to ibc> (or $IBC_BIN)   --bots-dir DIR (default bots)   --discard-replays
 exit code: 0 ok, 1 error, 2 finished but some games failed";
@@ -150,7 +152,9 @@ impl Args {
 
     fn run_opts(&self, command: &str) -> Result<RunOpts, String> {
         let mut opts = RunOpts::new(self.out_dir(command));
-        opts.backend = BackendKind::parse(self.get("backend").unwrap_or("auto"))?;
+        if let Some(name) = self.get("backend") {
+            opts.backend = BackendKind::parse(name)?;
+        }
         opts.jobs = self.num("jobs", default_jobs())?.max(1);
         opts.ibc = self.get("ibc").map(PathBuf::from);
         opts.keep_replays = !self.has("discard-replays");
@@ -377,12 +381,13 @@ fn cmd_record(args: &Args) -> Result<u8, String> {
     std::fs::write(&out, replay.encode()).map_err(|e| format!("{}: {e}", out.display()))?;
     let r = &replay.header.result;
     println!(
-        "winner={:?} score={}-{} ticks={} replay={}",
+        "winner={:?} score={}-{} ticks={} replay={} (backend {})",
         r.winner,
         r.score[0],
         r.score[1],
         r.ticks,
-        out.display()
+        out.display(),
+        backend_label("native")
     );
     Ok(0)
 }

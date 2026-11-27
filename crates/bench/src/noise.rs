@@ -3,7 +3,7 @@
 
 use crate::ab::{analyse, AbReport};
 use crate::model::GameResult;
-use crate::report::{md_table, pct};
+use crate::report::{backend_label, md_table, pct};
 use crate::stats::{elo_to_score, mean_var, normal_quantile, Z95};
 use serde::{Deserialize, Serialize};
 
@@ -133,6 +133,11 @@ pub fn render(r: &NoiseReport, markdown: bool) -> String {
     } else {
         format!("noise: {} vs {}\n", r.a, r.b)
     };
+    s.push_str(&format!(
+        "backend {}, ruleset {}\n",
+        backend_label(&r.ab.backend),
+        r.ab.ruleset_hash
+    ));
     s.push_str(&format!(
         "{} games in {} pairs ({} distinct); score of {} = {}; sd of one game {:.3}, sd of one pair {:.3}\n\n",
         r.games,

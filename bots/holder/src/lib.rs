@@ -6,6 +6,10 @@
 //! When the charge is planted everyone converges on it and defuses.
 //! Attack: the team agrees on a site through team memory, walks there silently (running only when the
 //! clock demands it), plants, then holds posts around the charge facing the defenders' approach.
+//!
+//! Fuel: the expensive questions (where does the enemy come into view of a site, how far is it) are asked
+//! one per buy tick, as the last thing in the turn, and their answers are kept for the match. Until its
+//! post is known a unit stands on its site; nothing in the action phase runs an unbounded search.
 use ibc::tactics::{approach_point, hold_spot, shop, Gunner};
 use ibc::*;
 
@@ -21,6 +25,8 @@ const FINISH_CHANNEL_TICKS: i32 = 2;
 const REACH_PCT: i32 = 70;
 /// `MatchInfo::charge_state` values.
 const CHARGE_DROPPED: i32 = 1;
+/// A distance field to a site's plant point is grown in this many survey steps.
+const FIELD_STEPS: u8 = 3;
 
 // Team memory layout (little-endian i32s).
 /// [tick + 1, x, y] of the last enemy any teammate saw.
@@ -38,7 +44,23 @@ pub struct Holder {
     plan_for: (i32, i32),
     /// Index of the site this unit defends or attacks.
     site: usize,
+    /// This unit's place among the teammates at its site (picks which post it takes).
+    rank: usize,
     /// Where this unit stands, and the point it watches from there.
+    post: (i32, i32),
+    watch: (i32, i32),
+    /// Per site, the post and watch point worked out so far for the side in `posts_side`.
+    posts: Vec<Option<Post>>,
+    posts_side: i32,
+    /// Distance fields to the sites' plant points, kept apart from the navigator's so walking never evicts them.
+    far: Pathfinder,
+    /// Per site: how many of the steps that build its distance field in `far` are done.
+    fielded: Vec<u8>,
+}
+
+/// Where a unit stands at a site, and the point it watches from there.
+#[derive(Clone, Copy)]
+struct Post {
     post: (i32, i32),
     watch: (i32, i32),
 }
@@ -46,16 +68,22 @@ pub struct Holder {
 impl Bot for Holder {
     fn new() -> Self {
         let core = core_rules();
+        let sites: Vec<SiteInfo> = sites().collect();
         Holder {
             core,
             map: map_info(),
             nav: Navigator::new(),
             gun: Gunner::new(),
-            sites: sites().collect(),
+            fielded: vec![0; sites.len()],
+            sites,
             plan_for: (-1, -1),
             site: 0,
+            rank: 0,
             post: (0, 0),
             watch: (0, 0),
+            posts: Vec::new(),
+            posts_side: -1,
+            far: Pathfinder::new(),
         }
     }
 
@@ -69,11 +97,13 @@ impl Bot for Holder {
             return; // sides and spawns are not set yet
         }
         if self.plan_for != (info.round, info.my_side) {
-            self.plan(&me, &info); // lands on the first buy tick, where the fuel budget is larger
+            self.plan(&info);
         }
         match info.phase {
             PHASE_BUY => {
                 shop(&me);
+                // Last in the turn: if it runs out of fuel, nothing after it is lost.
+                self.survey(&info);
             }
             PHASE_ACTION | PHASE_PLANTED => self.fight(&me, &info),
             _ => {}
@@ -87,13 +117,18 @@ impl Holder {
         self.sites[site].plant_point()
     }
 
-    /// Once per round: choose a site, a post near it and the point to watch.
-    fn plan(&mut self, me: &UnitInfo, info: &MatchInfo) {
+    /// Once per round, cheap: choose a site and this unit's rank there, and take the post known for it.
+    fn plan(&mut self, info: &MatchInfo) {
         self.plan_for = (info.round, info.my_side);
         self.map = map_info(); // spawns swap with the sides
         let n = self.sites.len();
+        if self.posts_side != info.my_side {
+            // The enemy comes from the other spawn now: every post is stale.
+            self.posts_side = info.my_side;
+            self.posts = vec![None; n];
+        }
         let slot = info.unit_slot.max(0) as usize;
-        let rank = if info.my_side == SIDE_ATTACK {
+        self.rank = if info.my_side == SIDE_ATTACK {
             // The first attacker to run this round picks the site; the rest read it.
             let [stamp, chosen] = team_mem_get::<2>(MEM_SITE);
             self.site = if stamp == info.round + 1 {
@@ -108,15 +143,78 @@ impl Holder {
             self.site = slot % n;
             slot / n
         };
-        self.take_post(self.site, rank);
-        // Do the path search to the site now, so the per-tick `path_len` in `attack` is a lookup.
-        let _ = self.nav.path_len(me.pos(), self.plant_point(self.site));
+        self.stand();
     }
 
-    fn take_post(&mut self, site: usize, rank: usize) {
+    /// Take the post worked out for the current site. Until it is known, stand on the site.
+    fn stand(&mut self) {
+        let point = self.plant_point(self.site);
+        let p = self.posts[self.site].unwrap_or(Post { post: point, watch: point });
+        (self.post, self.watch) = (p.post, p.watch);
+    }
+
+    /// The expensive part, one step per call: a post for a site that has none yet (the site this unit
+    /// plays first), then a distance field to a site's plant point. Each answer is kept, so after the first
+    /// rounds of each side this does nothing.
+    fn survey(&mut self, info: &MatchInfo) {
+        // A step can outlast its tick on a large map. Never start one on the last buy tick, so the
+        // overrun costs a buy tick (the shopping is already done) and not the first step of the round.
+        if info.phase_ticks_left < 2 {
+            return;
+        }
+        let n = self.sites.len();
+        let own_first = (0..n).map(|k| (self.site + k) % n);
+        if let Some(i) = own_first.clone().find(|&i| self.posts[i].is_none()) {
+            self.posts[i] = Some(self.scout(i));
+            self.stand();
+        } else if let Some(i) = own_first.clone().find(|&i| self.fielded[i] < FIELD_STEPS) {
+            // Grow the field over the whole map, so every later question is a lookup. The field grows
+            // outwards from the site, so asking for the nearest points first splits the work evenly.
+            let point = self.plant_point(i);
+            let mut points = self.far_points();
+            points.sort_by_key(|&p| dist2(p, point));
+            let share = points.len() / FIELD_STEPS as usize;
+            let from = self.fielded[i] as usize * share;
+            for &p in &points[from..from + share] {
+                let _ = self.far.path_len(&self.nav.grid, p, point);
+            }
+            self.fielded[i] += 1;
+        }
+    }
+
+    /// Near `site`, a spot with a long line onto the point where the enemy comes into view.
+    fn scout(&mut self, site: usize) -> Post {
         let anchor = self.plant_point(site);
-        self.watch = approach_point(&mut self.nav, anchor, (self.map.enemy_spawn_x, self.map.enemy_spawn_y));
-        self.post = hold_spot(&self.nav, anchor, self.watch, POST_RADIUS_TILES, rank);
+        let watch = approach_point(&mut self.nav, anchor, (self.map.enemy_spawn_x, self.map.enemy_spawn_y));
+        Post { post: hold_spot(&self.nav, anchor, watch, POST_RADIUS_TILES, self.rank), watch }
+    }
+
+    /// Both spawns and the standable tile nearest each map corner (six points): a distance field that
+    /// reaches all of these covers the map.
+    fn far_points(&self) -> Vec<(i32, i32)> {
+        let grid = &self.nav.grid;
+        let (w, h) = (grid.width, grid.height);
+        let spawns = [(self.map.spawn_x, self.map.spawn_y), (self.map.enemy_spawn_x, self.map.enemy_spawn_y)];
+        // Walk outwards from the corner along diagonals until a tile can be stood on (a few steps: the
+        // border is wall).
+        let corner = |right: bool, bottom: bool| {
+            let at = |d: i32, k: i32| (if right { w - 1 - k } else { k }, if bottom { h - 1 - (d - k) } else { d - k });
+            let mut diagonals = (0..w + h).flat_map(|d| (0..=d).map(move |k| at(d, k)));
+            let open = diagonals.find(|&(tx, ty)| tx >= 0 && ty >= 0 && tx < w && ty < h && !grid.is_blocked(tx, ty));
+            open.map_or(spawns[0], |(tx, ty)| tile_centre(tx, ty))
+        };
+        vec![spawns[0], spawns[1], corner(false, false), corner(true, false), corner(false, true), corner(true, true)]
+    }
+
+    /// Path length from me to the plant point of `site`: exact once its field is built, else a guess from the
+    /// straight line.
+    fn far_len(&mut self, me: &UnitInfo, site: usize) -> i32 {
+        let point = self.plant_point(site);
+        let straight = dist(me.pos(), point);
+        if self.fielded[site] < FIELD_STEPS {
+            return straight * 3 / 2;
+        }
+        self.far.path_len(&self.nav.grid, me.pos(), point).unwrap_or(straight)
     }
 
     fn fight(&mut self, me: &UnitInfo, info: &MatchInfo) {
@@ -172,7 +270,7 @@ impl Holder {
             self.post
         };
         // Walk (silent) while there is time to walk there and plant; otherwise run.
-        let walk_ticks = self.nav.path_len(me.pos(), anchor).unwrap_or(0) / self.core.walk_speed.max(1);
+        let walk_ticks = self.far_len(me, self.site) / self.core.walk_speed.max(1);
         let hurry = info.phase == PHASE_ACTION
             && walk_ticks + self.core.plant_ticks + RUN_MARGIN_TICKS > info.phase_ticks_left;
         let speed = if hurry { self.core.run_speed } else { self.core.walk_speed };
@@ -192,12 +290,11 @@ impl Holder {
             return false;
         }
         // Spare defenders (not the first at their site) rotate to the site nearest a fresh sighting.
-        let rank = info.unit_slot.max(0) as usize / self.sites.len();
-        if let (Some(seen), true) = (sighting, rank > 0) {
+        if let (Some(seen), true) = (sighting, self.rank > 0) {
             let hot = (0..self.sites.len()).min_by_key(|&i| dist2(self.plant_point(i), seen)).unwrap_or(self.site);
             if hot != self.site {
                 self.site = hot;
-                self.take_post(hot, rank);
+                self.stand();
             }
         }
         self.travel(me, self.post, sighting, self.core.run_speed, false);

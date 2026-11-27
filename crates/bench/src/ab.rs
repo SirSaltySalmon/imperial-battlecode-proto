@@ -3,7 +3,7 @@
 
 use crate::backend::{run_games, RunOpts};
 use crate::model::{paired_schedule, Bot, GameResult, MapEntry};
-use crate::report::{est_num, est_pct, md_table, p_value, pct};
+use crate::report::{backend_label, est_num, est_pct, md_table, p_value, pct};
 use crate::stats::{
     mean_var, score_to_elo, sign_test_p, t95, wilson, Est, Sprt, SprtDecision, Z95,
 };
@@ -453,8 +453,8 @@ pub fn render_markdown(r: &AbReport) -> String {
         s.push_str(&format!("> WARNING: {w}\n\n"));
     }
     s.push_str(&format!(
-        "- backend `{}`, ruleset `{}`, maps: {}, seeds: {} ({} games, {} failed)\n",
-        r.backend,
+        "- backend: {}; ruleset `{}`, maps: {}, seeds: {} ({} games, {} failed)\n",
+        backend_label(&r.backend),
         r.ruleset_hash,
         r.maps.join(", "),
         r.seeds.len(),
@@ -574,6 +574,11 @@ pub fn render_summary(r: &AbReport) -> String {
         r.games,
         est_pct(&r.score)
     );
+    s.push_str(&format!(
+        "backend {}, ruleset {}\n",
+        backend_label(&r.backend),
+        r.ruleset_hash
+    ));
     s.push_str(&format!(
         "paired: {} distinct pairs ({} played), {}/{}/{} better/level/worse, sign p = {}, score {}, Elo {}\n",
         r.pairs.distinct,
