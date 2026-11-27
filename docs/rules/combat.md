@@ -188,8 +188,8 @@ Values, straight from `rules/weapons.toml`:
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
-| `range` | 20480 | 30720 | 16384 | 9216 | 40960 | 28672 |
-| `falloff_start` | 8192 | 16384 | 6144 | 3072 | 40960 | 14336 |
+| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |
+| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 |
 | `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |
@@ -206,7 +206,7 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 <!-- generated:derived -->
 | weapon | startup (steady / walked / ran) | ticks per braced shot | damage per pull (close / at range) | full fan width | top speed | range (tiles) | bullet (tiles/tick) | ticks to empty + reload |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 20.0 | 8.0 | 24 + 3 |
+| pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 10.0 | 8.0 | 24 + 3 |
 | rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
 | smg | 1 / 1 / 1 | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
@@ -216,7 +216,9 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 
 Roles:
 
-- **pistol**: the free sidearm. Exact single shots and a short startup even after running; falls off quickly.
+- **pistol**: the free sidearm. Exact single shots and a short startup even after running, but short reach:
+  it is spent at 10 tiles and loses damage from 4. Four hits kill out to about 5 tiles, eight at the edge of
+  its reach, so a team on pistols has to close the distance.
 - **smg**: cheap run-and-gun. Running barely unsteadies it, so it starts as fast off a run as standing, and
   it carries at full speed; short reach, and its two-pellet fan opens fast under sustained fire.
 - **shotgun**: seven pellets in a wide fan. One pull kills an unarmoured unit inside about three tiles and
@@ -241,7 +243,7 @@ Target with 100 health and no armour:
 <!-- generated:ttk -->
 | weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|
-| pistol | 8 | 9 | 11 | 12 | 18 | 19 |
+| pistol | 8 | 9 | 17 | 18 | no kill | no kill |
 | rifle | 6 | 9 | 6 | 9 | 11 | 14 |
 | smg | 6 | 6 | 9 | 9 | no kill | no kill |
 | shotgun | 6 | 8 | no kill | no kill | no kill | no kill |
@@ -254,7 +256,7 @@ Target with 100 health and the heaviest armour in the shop:
 <!-- generated:ttk-armor -->
 | weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|
-| pistol | 12 | 13 | 15 | 16 | 26 | 27 |
+| pistol | 12 | 13 | 23 | 24 | no kill | no kill |
 | rifle | 10 | 13 | 10 | 13 | 17 | 20 |
 | smg | 10 | 10 | 15 | 15 | no kill | no kill |
 | shotgun | 10 | 12 | no kill | no kill | no kill | no kill |
