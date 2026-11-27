@@ -188,8 +188,8 @@ Values, straight from `rules/weapons.toml`:
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
-| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |
-| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 |
+| `range` | 10240 | 30720 | 16384 | 9216 | 30720 | 28672 |
+| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 30720 | 14336 |
 | `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |
@@ -210,7 +210,7 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 | rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
 | smg | 1 / 1 / 1 | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
-| marksman | 2 / 6 / 6 | 5 | 75 / 75 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
+| marksman | 2 / 6 / 6 | 5 | 75 / 75 | 0 | 560 | 30.0 | 20.0 | 23 + 5 |
 | lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
 <!-- /generated:derived -->
 
@@ -225,8 +225,9 @@ Roles:
   the fan is hard to sidestep; nearly harmless past six tiles. Slow pump, small magazine.
 - **rifle**: the all-rounder. A tight three-bullet burst that kills in two pulls while all three land and
   still reaches across the map, if you stand still and pace your fire.
-- **marksman**: one fast bullet, no falloff, two hits kill anything. Slow to cycle, and a two-tick startup
-  that the target can see, which grows the most of any weapon after moving.
+- **marksman**: one fast bullet, no falloff, two hits kill anything, out to 30 tiles: six past its own sight,
+  so its longest shots need a teammate's spot. Slow to cycle, and a two-tick startup that the target can see,
+  which grows the most of any weapon after moving.
 - **lmg**: heavy and slow. Five bullets a pull, a magazine that lasts sixty ticks and no recoil build-up, for
   holding a lane; slow to carry, very slow to start after moving, and above all slow to reload.
 
