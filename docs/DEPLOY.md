@@ -73,7 +73,9 @@ Every flag has an `IBC_*` variable (`ibc-coordinator --help`). The ones a deploy
 | `IBC_DATA` | data directory: `coordinator.sqlite` and `blobs/` |
 | `IBC_LISTEN` | `127.0.0.1:8080` by default; `0.0.0.0:8080` in the container |
 | `IBC_REGISTRATION_TOKEN`, `IBC_TRUSTED_REGISTRATION_TOKEN` | what workers register with; the trusted one gives final results and runs spot verification |
-| `IBC_RANKED_INTERVAL_SECS` | seconds between ranked rounds; 0 (default) = off, rounds only by `POST /v1/admin/ranked-batch` |
+| `IBC_RANKED_INTERVAL_SECS` | seconds between ranked rounds, default 600; 0 = off, rounds only by `POST /v1/admin/ranked-batch` |
+| `IBC_RANKED_BACKLOG_SECS` | between rounds, queue more ranked series while the workers have less than this much work queued, default 120; 0 = interval rounds only |
+| `IBC_RANKED_CAP_SERIES`, `IBC_RANKED_CAP_OVERFLOW`, `IBC_RANKED_CAP_WINDOW_SECS` | a team starts at most 5 ranked series per 900 s, and is drawn as an opponent at most 5 past that; together the most any one team costs an idle fleet |
 | `IBC_RANKED_GAMES` | games per ranked series, default 3. Any count is fair: every game swaps attack and defence at half-time, and the A/B slot alternates game by game from a coin flip on the series id |
 | `IBC_DISTRIBUTION` | `distribution.json` served at `GET /v1/distribution` (below) |
 | `IBC_WEB_DIR`, `IBC_VIEWER_DIR` | built web front end (served at `/`) and replay viewer (at `/viewer/`); default `web/` and `viewer/` (or their `dist/`) beside the binary, then under the working directory |

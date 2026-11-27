@@ -116,6 +116,9 @@ Radiant. Display only; matchmaking ignores it.
 
 **Ranked.** A series the platform schedules itself between live submissions, which changes ratings.
 
+**Series cap.** The most ranked series a team starts per cap window (5 per 15 minutes). A team at its cap can
+still be drawn as an opponent, a few series past it, when everyone near its rating is capped too.
+
 **Scrim** (unranked series). A series a team requests against another team, from a daily quota. It does not
 change ratings. It uses the opponent's live submission, or exactly the submission they fielded in an earlier
 series against you.

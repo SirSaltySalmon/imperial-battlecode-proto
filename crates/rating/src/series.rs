@@ -82,10 +82,12 @@ pub fn game_seed(series_id: u64, game_index: u32) -> u64 {
 /// Plan the games of a series.
 ///
 /// `map_usage[m]` is how many ranked games map `m` of the pool has hosted so far (all zeros is fine);
-/// its length is the pool size. Maps are taken least-used first with ties broken at random from
-/// `series_id`, so usage stays level across the pool over time, and no map repeats within a series
-/// unless `games_per_series` exceeds the pool (then the same order is cycled). The caller adds the
-/// chosen maps to its usage counts.
+/// its length is the pool size. `pair_usage[m]` is how many games these two teams played on map `m`
+/// lately (missing entries count as 0), so a rematch is played in a setting the pair has not just seen.
+/// Maps are taken least played by the pair first, then least used, with ties broken at random from
+/// `series_id`. With no pair history, usage stays level across the pool over time. No map repeats within
+/// a series unless `games_per_series` exceeds the pool (then the same order is cycled). The caller adds
+/// the chosen maps to its usage counts.
 ///
 /// One game is already side-balanced (the engine swaps attack and defence at half-time). The A/B slot
 /// still alternates game by game, starting from a coin flip on `series_id`, to cancel any residual
@@ -96,13 +98,17 @@ pub fn plan_series(
     series_id: u64,
     pairing: Pairing,
     map_usage: &[u64],
+    pair_usage: &[u64],
     games_per_series: u32,
 ) -> SeriesPlan {
     let mut rng = Rng::new(mix64(series_id ^ 0x5E71_E5A1_B0A7_C0DE));
-    let mut order: Vec<(u64, u64, u32)> = map_usage
+    let mut order: Vec<(u64, u64, u64, u32)> = map_usage
         .iter()
         .zip(0u32..)
-        .map(|(&used, m)| (used, rng.next_u64(), m))
+        .map(|(&used, m)| {
+            let pair = pair_usage.get(m as usize).copied().unwrap_or(0);
+            (pair, used, rng.next_u64(), m)
+        })
         .collect();
     order.sort_unstable();
     let a_first = rng.next_u64() & 1 == 0;
@@ -121,7 +127,7 @@ pub fn plan_series(
             };
             PlannedGame {
                 index,
-                map: order[index as usize % order.len()].2,
+                map: order[index as usize % order.len()].3,
                 seed: game_seed(series_id, index),
                 slot_a,
                 slot_b,
@@ -148,8 +154,8 @@ mod tests {
     #[test]
     fn maps_do_not_repeat_and_slots_alternate() {
         for series_id in 0..200 {
-            let plan = plan_series(series_id, PAIR, &[0; 7], 5);
-            assert_eq!(plan, plan_series(series_id, PAIR, &[0; 7], 5));
+            let plan = plan_series(series_id, PAIR, &[0; 7], &[], 5);
+            assert_eq!(plan, plan_series(series_id, PAIR, &[0; 7], &[], 5));
             let mut maps: Vec<u32> = plan.games.iter().map(|g| g.map).collect();
             maps.sort_unstable();
             maps.dedup();
@@ -171,7 +177,7 @@ mod tests {
         let mut usage = [0u64; 5];
         let mut a_first = 0;
         for series_id in 0..1000 {
-            let plan = plan_series(series_id, PAIR, &usage, 3);
+            let plan = plan_series(series_id, PAIR, &usage, &[], 3);
             a_first += u32::from(plan.games[0].slot_a == 10);
             for g in &plan.games {
                 usage[g.map as usize] += 1;
@@ -183,17 +189,28 @@ mod tests {
     }
 
     #[test]
+    fn a_rematch_avoids_the_maps_the_pair_just_played() {
+        // Maps 0..3 are the least used overall, but the pair played them last time.
+        let usage = [0, 0, 0, 9, 9, 9, 9];
+        let pair = [1, 1, 1];
+        for series_id in 0..100 {
+            let plan = plan_series(series_id, PAIR, &usage, &pair, 3);
+            assert!(plan.games.iter().all(|g| g.map >= 3), "{plan:?}");
+        }
+    }
+
+    #[test]
     fn small_pools_cycle_and_empty_pools_plan_nothing() {
-        let plan = plan_series(3, PAIR, &[0, 0], 5);
+        let plan = plan_series(3, PAIR, &[0, 0], &[], 5);
         let maps: Vec<u32> = plan.games.iter().map(|g| g.map).collect();
         assert_eq!(maps, [maps[0], maps[1], maps[0], maps[1], maps[0]]);
         assert_ne!(maps[0], maps[1]);
-        assert!(plan_series(3, PAIR, &[], 5).games.is_empty());
+        assert!(plan_series(3, PAIR, &[], &[], 5).games.is_empty());
     }
 
     #[test]
     fn results_are_seen_from_team_a() {
-        let plan = plan_series(42, PAIR, &[0; 3], 2);
+        let plan = plan_series(42, PAIR, &[0; 3], &[], 2);
         for g in &plan.games {
             let (a_slot, b_slot) = if g.slot_a == 10 {
                 (Winner::SlotA, Winner::SlotB)

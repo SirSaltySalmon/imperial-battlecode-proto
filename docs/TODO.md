@@ -182,7 +182,8 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   429 with `Retry-After`, suspend/ban for teams and users. Was: Upload rate and size per team, total submissions kept per team, API rate limits.
 - [ ] **Cost prior in the budget governor.** `series_per_batch` falls back to 10 core-seconds per game when it
   has no measurement; measured cost is about 0.03. Unit 9 made it schedule at least one series per round until
-  games are timed, and devstack uses a 30 s interval; the prior itself is still 10.
+  games are timed, and the fill-up (which uses the same prior) keeps an idle fleet busy regardless; the prior
+  itself is still 10.
 - [ ] **Plagiarism and duplicate detection.** Identical wasm across teams is flagged (unit 11); near duplicates
   are not.
 - [ ] **Accounts:** emails are not verified, so register the `IBC_ADMIN_EMAILS` accounts before the site is
@@ -258,5 +259,8 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 ## 7. Decisions needed
 
 - Eligibility categories for the event (sign-in is email + password, decided).
-- Ladder cadence. Ranked series are now 3 games (sides alternate per game) every 600 s by default.
+- Ladder cadence. Ranked series are now 3 games (sides alternate per game), a round every 600 s plus fill-ups
+  whenever the workers have less than 120 s of work queued, at most 5 series per team per 15 minutes (up to
+  10 when drawn as an opponent). Rematches are allowed and weighted down, not capped per day. The cap and
+  backlog are first guesses: measure storage per day on a real ladder before the event.
 - Team shared memory size (64 bytes now). (Sightings and sounds are now shared automatically.)

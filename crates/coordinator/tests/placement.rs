@@ -43,8 +43,8 @@ async fn place_all(h: &Harness, w: &MockWorker) -> usize {
 
 #[tokio::test]
 async fn new_submissions_place_back_to_back_then_wait_for_rounds() {
-    let h = Harness::new(|_| {});
-    // Five teams: two teams meet at most twice a day, so a ladder of three could not place a bot twice.
+    // Every series here falls in one cap window; the cap has its own test in `ratings.rs`.
+    let h = Harness::new(|c| c.ranked_cap_series = 100);
     let names = ["alpha", "beta", "gamma", "delta", "epsilon"];
     let teams = h.league(&names).await;
     let w = MockWorker::register(&h, "w", true).await;

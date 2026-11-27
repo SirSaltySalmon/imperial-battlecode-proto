@@ -88,6 +88,11 @@ impl<'a> Ladder<'a> {
                     recent_games: recent.len() as u32 * GAMES_PER_SERIES,
                     last_played: self.series[i].last().map(|&(at, _)| at),
                     recent_opponents: recent,
+                    // Batches are ten minutes apart: the 15-minute cap window holds the last two.
+                    recent_series: self.series[i]
+                        .iter()
+                        .filter(|(at, _)| at + 2 > self.batch)
+                        .count() as u32,
                     live: true,
                 }
             })
@@ -101,7 +106,7 @@ impl<'a> Ladder<'a> {
         let batch_seed = mix64(self.seed ^ self.batch);
         let pairings = plan_batch(self.system, &states, self.batch, budget(), &cfg, batch_seed);
 
-        // (e) nobody plays themselves or twice in a batch; the budget and the daily cap hold.
+        // (e) nobody plays themselves or twice in a batch; the budget and the series cap hold.
         assert!(pairings.len() <= budget() as usize);
         let mut busy = [false; TEAMS];
         for p in &pairings {
@@ -113,12 +118,9 @@ impl<'a> Ladder<'a> {
                     self.batch
                 );
             }
-            let met = states[p.team_a as usize]
-                .recent_opponents
-                .iter()
-                .filter(|&&o| o == p.team_b)
-                .count();
-            assert!(met < cfg.max_series_per_opponent_per_day as usize);
+            for id in [p.team_a, p.team_b] {
+                assert!(states[id as usize].recent_series < cfg.series_cap + cfg.cap_overflow);
+            }
         }
 
         for p in &pairings {
@@ -147,7 +149,13 @@ impl<'a> Ladder<'a> {
     }
 
     fn play(&mut self, p: &Pairing) {
-        let plan = plan_series(self.next_series_id, *p, &self.map_usage, GAMES_PER_SERIES);
+        let plan = plan_series(
+            self.next_series_id,
+            *p,
+            &self.map_usage,
+            &[],
+            GAMES_PER_SERIES,
+        );
         self.next_series_id += 1;
         assert_eq!(plan.games.len(), GAMES_PER_SERIES as usize);
         let (a, b) = (p.team_a as usize, p.team_b as usize);

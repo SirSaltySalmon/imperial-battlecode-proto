@@ -51,8 +51,16 @@ One row per team with a live submission, computed from the stored ratings on eac
 
 A ranked series is `IBC_RANKED_GAMES` maps (default 3), each a full first-to-7 match, between both teams'
 live bots at the time it is queued. Each map swaps attack and defence at half-time, and the A/B slot
-alternates map by map from a coin flip on the series id, so an odd count is as fair as an even one. The scheduler runs every `IBC_RANKED_INTERVAL_SECS` (default 600; 0 turns
-it off; `POST admin/ranked-batch` runs a round by hand).
+alternates map by map from a coin flip on the series id, so an odd count is as fair as an even one. A rematch
+prefers the maps the two teams have not just played against each other.
+
+The scheduler runs a round every `IBC_RANKED_INTERVAL_SECS` (default 600; 0 turns it off;
+`POST admin/ranked-batch` runs a round by hand), and tops the queue up between rounds whenever the workers
+have less than `IBC_RANKED_BACKLOG_SECS` (default 120) of work queued, so ranked games keep coming while the
+fleet is idle. Opponents are near in rating, and ones met in the last 24 hours are less likely but never
+ruled out. A team starts at most `IBC_RANKED_CAP_SERIES` (5) ranked series per `IBC_RANKED_CAP_WINDOW_SECS`
+(900); when every team near its rating is at the cap, it may still play one of them, who then goes up to
+`IBC_RANKED_CAP_OVERFLOW` (5) past it. So a team plays at most 10 ranked series in any 15 minutes.
 
 When the series finishes, each map's Weng-Lin update is computed from the **pre-series** ratings and the
 mean shifts are summed and applied once (`ibc_rating::rate_series`). A drawn map counts a half, the order the

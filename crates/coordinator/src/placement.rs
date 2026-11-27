@@ -4,7 +4,7 @@
 
 use crate::error::ApiResult;
 use crate::{db, patch, util, App};
-use ibc_rating::{MatchmakingConfig, TeamState};
+use ibc_rating::TeamState;
 
 impl App {
     /// One pass of the placement task. Every placing team (`db::placement`) with no ranked series running,
@@ -25,7 +25,8 @@ impl App {
                 return Ok(Vec::new());
             }
             let started = db::placement::started_since(tx, now - 86_400_000)?;
-            let pool = db::league::matchmaking_pool(tx, self.rating.as_ref(), now)?;
+            let cap_since = now - self.cfg.ranked_cap_window_ms;
+            let pool = db::league::matchmaking_pool(tx, self.rating.as_ref(), now, cap_since)?;
             let excluded = patch::excluded_teams(self, tx, now)?;
             // The pool marks a team with a ranked series running as not live. An opponent may be busy: a
             // placement series does not wait for the other side's series to end.
@@ -47,7 +48,7 @@ impl App {
                     continue;
                 }
                 let seed = u64::from_str_radix(&util::random_hex(8), 16).expect("16 hex digits");
-                let cfg = MatchmakingConfig::default();
+                let cfg = self.cfg.matchmaking();
                 let Some(o) = ibc_rating::plan_placement(
                     self.rating.system(),
                     &states[i],

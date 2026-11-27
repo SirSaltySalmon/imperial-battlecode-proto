@@ -63,6 +63,20 @@ struct Args {
     /// Maps per ranked series, each a full match
     #[arg(long, env = "IBC_RANKED_GAMES", default_value_t = 3)]
     ranked_games: i64,
+    /// Between rounds, top the queue up with ranked series while it holds less than this many seconds
+    /// of work for the live workers; 0 = rounds on the interval only
+    #[arg(long, env = "IBC_RANKED_BACKLOG_SECS", default_value_t = 120)]
+    ranked_backlog_secs: u64,
+    /// Ranked series a team may start per cap window
+    #[arg(long, env = "IBC_RANKED_CAP_SERIES", default_value_t = 5)]
+    ranked_cap_series: u32,
+    /// Series past its cap a team may be drawn into as an opponent, when every team near the searching
+    /// team's rating is at its cap
+    #[arg(long, env = "IBC_RANKED_CAP_OVERFLOW", default_value_t = 5)]
+    ranked_cap_overflow: u32,
+    /// Length of the cap window, in seconds
+    #[arg(long, env = "IBC_RANKED_CAP_WINDOW_SECS", default_value_t = 900)]
+    ranked_cap_window_secs: u64,
     /// Placement series a new live submission plays back to back, before its tier is shown; 0 = off
     #[arg(long, env = "IBC_PLACEMENT_SERIES", default_value_t = 3)]
     placement_series: i64,
@@ -168,9 +182,14 @@ fn config(args: &Args) -> anyhow::Result<Config> {
     if !(1.0..=100.0).contains(&args.balance_sigma_factor) {
         anyhow::bail!("--balance-sigma-factor must be between 1 and 100");
     }
-    if args.invalid_grace_secs > MAX_WINDOW_SECS || args.patch_drain_secs > MAX_WINDOW_SECS {
+    if args.invalid_grace_secs > MAX_WINDOW_SECS
+        || args.patch_drain_secs > MAX_WINDOW_SECS
+        || args.ranked_backlog_secs > MAX_WINDOW_SECS
+        || args.ranked_cap_window_secs > MAX_WINDOW_SECS
+    {
         anyhow::bail!(
-            "--invalid-grace-secs and --patch-drain-secs must be at most {MAX_WINDOW_SECS} (a year)"
+            "--invalid-grace-secs, --patch-drain-secs, --ranked-backlog-secs and --ranked-cap-window-secs \
+             must be at most {MAX_WINDOW_SECS} (a year)"
         );
     }
     if args.lease_secs == 0
@@ -206,6 +225,10 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         ranked_interval_ms: args.ranked_interval_secs * 1000,
         ranked_series_budget: args.ranked_series_budget,
         ranked_games: args.ranked_games,
+        ranked_backlog_ms: (args.ranked_backlog_secs * 1000) as i64,
+        ranked_cap_series: i64::from(args.ranked_cap_series),
+        ranked_cap_overflow: i64::from(args.ranked_cap_overflow),
+        ranked_cap_window_ms: (args.ranked_cap_window_secs * 1000) as i64,
         placement_series: args.placement_series.max(0),
         placement_daily_series: args.placement_daily_series.max(0),
         tier_floors: args.tier_floors.unwrap_or(defaults.tier_floors),
