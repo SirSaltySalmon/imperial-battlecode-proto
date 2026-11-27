@@ -67,6 +67,9 @@ pub struct UnitData {
     log: Vec<u8>,
     log_limit: usize,
     log_truncated: bool,
+    /// Where `get` has the engine write a row before copying it to the guest, kept so that a `get` allocates
+    /// nothing. Empty between calls; its capacity is the longest row read so far.
+    row: Vec<u8>,
     rng: u64,
     pause: Pause,
     pub(crate) exit: Option<Exit>,
@@ -202,24 +205,32 @@ async fn h_count(mut caller: C<'_>, table: u32) -> wasmtime::Result<i32> {
 
 async fn h_get(mut caller: C<'_>, table: u32, index: u32, out: u32, cap: u32) -> wasmtime::Result<i32> {
     charge(&mut caller, ibc_abi::FUEL_GET).await?;
-    let mut row = Vec::new();
+    let mut row = std::mem::take(&mut caller.data_mut().row);
+    let r = copy_row(&mut caller, table, index, out, cap, &mut row);
+    row.clear();
+    caller.data_mut().row = row;
+    Ok(r)
+}
+
+/// `get` once paid for: the engine writes the row into `row`, then as much of it as fits goes to `out`.
+fn copy_row(caller: &mut C<'_>, table: u32, index: u32, out: u32, cap: u32, row: &mut Vec<u8>) -> i32 {
     let r = {
         let d = caller.data();
-        lock(&d.game).get(d.unit, table, index, &mut row)
+        lock(&d.game).get(d.unit, table, index, row)
     };
     if r < 0 {
-        return Ok(r);
+        return r;
     }
     // Records only grow at the end, so a bot built against a shorter record gets the prefix it knows.
     // A map row has no such prefix: it must fit.
     if row.len() > cap as usize && table == ibc_abi::T_MAP_ROW {
-        return Ok(-ibc_abi::ERR_BUFFER_TOO_SMALL);
+        return -ibc_abi::ERR_BUFFER_TOO_SMALL;
     }
     let n = row.len().min(cap as usize);
-    if !write_bytes(&mut caller, out, &row[..n]) {
-        return Ok(-ibc_abi::ERR_BAD_PTR);
+    if !write_bytes(caller, out, &row[..n]) {
+        return -ibc_abi::ERR_BAD_PTR;
     }
-    Ok(n as i32)
+    n as i32
 }
 
 async fn h_act(mut caller: C<'_>, kind: u32, a: i32, b: i32, c: i32) -> wasmtime::Result<i32> {
@@ -369,6 +380,7 @@ impl UnitVm {
             log: Vec::new(),
             log_limit,
             log_truncated: false,
+            row: Vec::new(),
             rng: seed ^ (unit as u64 + 1).wrapping_mul(0xd6e8feb86659fd93),
             pause: Pause::None,
             exit: None,

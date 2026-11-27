@@ -10,6 +10,11 @@ use crate::fixed::{self, V2};
 use crate::world::{World, CHARGE_CARRIED, CHARGE_DROPPED, CHARGE_PLANTED};
 use crate::Fnv;
 use ibc_abi::*;
+use std::borrow::Cow;
+use std::cell::OnceCell;
+
+/// The tables `World::perceived` filters, in the order of `TeamView::listed`.
+const PERCEIVED: [u32; 3] = [T_PROJECTILES, T_EFFECTS, T_DROPS];
 
 /// What one team perceives after a tick.
 #[derive(Clone, Debug, Default)]
@@ -18,6 +23,9 @@ pub struct TeamView {
     pub units: u64,
     /// The tick's events as this team receives them (see `World::fog_event`).
     pub events: Vec<EventInfo>,
+    /// The rows of each `PERCEIVED` table, kept from the first read of the tick (`World::perceived`). Not
+    /// state, so not hashed: a function of the state, dropped with the view at every step.
+    listed: [OnceCell<Vec<u32>>; 3],
 }
 
 impl TeamView {
@@ -48,14 +56,32 @@ impl World {
                 units |= 1 << j;
             }
         }
-        TeamView { units, events: self.events.iter().filter_map(|e| self.fog_event(team, e)).collect() }
+        let events = self.events.iter().filter_map(|e| self.fog_event(team, e)).collect();
+        TeamView { units, events, ..TeamView::default() }
     }
 
     /// Indices of the rows of `T_PROJECTILES`, `T_EFFECTS` or `T_DROPS` that `team` perceives, in list order.
     /// Computed when read rather than every tick: bullets are many and few bots read them.
-    pub fn perceived(&self, team: i32, table: u32) -> Vec<usize> {
+    ///
+    /// Only in the draft and buy phases do acts apply at once (`Host::act`; a buy-phase `A_FACE` turns the
+    /// unit), so there every read lists afresh. In the other phases acts are queued as intents or refused, so
+    /// nothing a bot reads changes until the next step: the first read of a tick lists the rows into the
+    /// team's view, and later reads, by any unit of the team, reuse them. A bot reading n rows pays for one
+    /// pass, not n. Code that edits `world` directly must do so before the tick's first read; debug builds
+    /// check it.
+    pub fn perceived(&self, team: i32, table: u32) -> Cow<'_, [u32]> {
+        let Some(slot) = PERCEIVED.iter().position(|&t| t == table) else { return Cow::Borrowed(&[]) };
+        if self.phase == PHASE_DRAFT || self.phase == PHASE_BUY {
+            return Cow::Owned(self.list_perceived(team, table));
+        }
+        let rows = self.views[team as usize].listed[slot].get_or_init(|| self.list_perceived(team, table));
+        debug_assert!(*rows == self.list_perceived(team, table), "`world` was edited after a read this tick");
+        Cow::Borrowed(rows)
+    }
+
+    fn list_perceived(&self, team: i32, table: u32) -> Vec<u32> {
         let attacking = self.side_of(team) == SIDE_ATTACK;
-        let pick = |n: usize, keep: &dyn Fn(usize) -> bool| (0..n).filter(|&j| keep(j)).collect();
+        let pick = |n: usize, keep: &dyn Fn(usize) -> bool| (0..n as u32).filter(|&j| keep(j as usize)).collect();
         match table {
             T_PROJECTILES => pick(self.projectiles.len(), &|j| {
                 let p = &self.projectiles[j];

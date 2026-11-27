@@ -166,6 +166,31 @@ fn host_calls_are_paid_from_the_same_budget() {
     }
 }
 
+/// On its first turn: a map row into a 1-byte buffer (refused), `T_SELF` written past the end of memory
+/// (refused), then `T_SELF` into a big enough buffer. Logs the three results, then ends turns forever.
+const READER: &str = r#"(module
+  (import "ibc" "end_turn" (func $end_turn))
+  (import "ibc" "get" (func $get (param i32 i32 i32 i32) (result i32)))
+  (import "ibc" "log" (func $log (param i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (func (export "_start")
+    (i32.store (i32.const 0) (call $get (i32.const 9) (i32.const 0) (i32.const 1024) (i32.const 1)))
+    (i32.store (i32.const 4) (call $get (i32.const 1) (i32.const 0) (i32.const 65532) (i32.const 512)))
+    (i32.store (i32.const 8) (call $get (i32.const 1) (i32.const 0) (i32.const 1024) (i32.const 512)))
+    (drop (call $log (i32.const 0) (i32.const 12)))
+    (loop $l (call $end_turn) (br $l))))"#;
+
+#[test]
+fn a_refused_get_leaves_nothing_behind_for_the_next() {
+    let out = run(bot("reader", READER), bot("idle", IDLE));
+    let row = std::mem::size_of::<ibc_abi::UnitInfo>() as i32;
+    let expected = [-ibc_abi::ERR_BUFFER_TOO_SMALL, -ibc_abi::ERR_BAD_PTR, row];
+    for (id, _) in out.units.iter().enumerate().filter(|(_, u)| u.team == 0) {
+        let got: Vec<i32> = out.logs[id][..12].chunks(4).map(|c| i32::from_le_bytes(c.try_into().unwrap())).collect();
+        assert_eq!(got, expected, "unit {id}");
+    }
+}
+
 #[test]
 fn fuel_multiplier_scales_the_budget() {
     let mut a = bot("spinner", SPINNER);
