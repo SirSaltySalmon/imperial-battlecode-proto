@@ -15,8 +15,8 @@ with `ibc-bench` (the script does): when their rules differ, every report says s
 
 `--backend native` is the exception, for quick iteration and debugging only. It links the built-in bots as
 Rust and runs them with **unlimited fuel** (a native build cannot count wasm instructions), so a bot that
-overruns its budget plays better there than it does for real. It is faster and shows no fuel. Every report
-it writes says `UNMETERED`; such numbers never go in a PR.
+overruns its budget plays better there than it does for real. It is faster (see "What metering costs" at
+the end) and shows no fuel. Every report it writes says `UNMETERED`; such numbers never go in a PR.
 
 ## The rules that do not bend
 
@@ -190,3 +190,23 @@ differs from ibc-bench's, the report carries a warning and the run is not valid.
 - **Comparing across rulesets or runner builds.** Check the ruleset hash at the top of both reports.
 - **Tuning the game to the bots.** Do not "fix" a 60 % attacker rate that comes from one bot never
   defending a site. Fix or replace the bot, then measure again.
+
+## What metering costs
+
+Wall time on a 20-thread Windows desktop (`--jobs 20`, the default), 2026-11-27, while other builds and
+leagues shared the machine, so read these as ratios, not benchmarks:
+
+| Run | native (unmetered) | wasm (metered) |
+|---|---:|---:|
+| `league --seeds 3`, whole pool, 14 maps (3,024 games) | 6 to 12 s | 51 to 58 s with `.wasm` files, 69 to 75 s naming the bots |
+| `balance --seeds 3` (2,688 games, per-tick details) | 7 to 15 s | 78 to 88 s |
+| first `ibc build` of the nine reference bots | | 159 s, once |
+
+Metered matches cost five to eight times as much as native ones. Naming a built-in bot runs `ibc build
+bots/<name>` on every run (about 3.5 s per bot when nothing changed, all bots at once, longer while other
+cargo commands hold cargo's locks); pass the `.wasm` files (`bots/<name>/.ibc/bot.wasm`) to skip that in
+a loop. The wasm
+backend runs one `ibc run-batch --jsonl --jobs N`: on this machine one process with 20 threads played
+35.7 matches a second, against 31.9 for four processes of five threads and 14.8 for twenty processes of
+one (each process compiles every module), so the in-process slowdown noted in `docs/TODO.md` did not show
+here. `balance` re-simulates every replay for its details on the same N threads.
