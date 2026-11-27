@@ -25,7 +25,7 @@
       ],
       "ticks": 592,
       "final_state_hash": "58facedd899908c4",
-      "replay_sha256": "709f57cbb075375898fff23bf30ced29b0ba885e240acc2e8115154c4377a8c3"
+      "replay_sha256": "686d96ecdb72e8a1f5ff637759eda948e177c70168ca4cb13d3735065b7fcd35"
     },
     {
       "name": "tunnels-holder-rusher-s2",
@@ -41,7 +41,7 @@
       ],
       "ticks": 418,
       "final_state_hash": "72bef8f11d08da9f",
-      "replay_sha256": "5c8a4184008dd878b3b120cd5d6d457f57c9cb4c5868403c050fb2aeb0abc08d"
+      "replay_sha256": "66afc3a61442ea778a5c44adbada5d06da8f462c79bd354e1cd84235be2b9755"
     },
     {
       "name": "crossfire-idle-rusher-s5",

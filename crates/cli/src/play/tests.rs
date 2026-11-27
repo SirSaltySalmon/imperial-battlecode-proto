@@ -129,6 +129,10 @@ fn a_scripted_turn_based_session_replays() {
     assert_ne!(s["view"]["me"]["x"].as_i64().unwrap(), x0, "the unit moved: {}", s["view"]["me"]);
     let units = s["view"]["frame"]["units"].as_array().unwrap();
     assert!(units.iter().filter(|u| u["team"] == json!(0)).all(|u| u["credits"] == json!(0)), "enemy credits hidden");
+    // A pull is refused on a tick the unit moves, and a refused act is not in the replay: fire standing still.
+    let s = p.json("POST", "/step", &format!(r#"{{"move":[0,0],"aim":[{},{}],"fire":true}}"#, mx + 5000, my));
+    let fire = s["last_acts"].as_array().unwrap().iter().find(|a| a["act"] == json!("fire")).cloned();
+    assert_eq!(fire.map(|a| a["result"].clone()), Some(json!("ok")), "{s}");
 
     let out = p.quit();
     assert!(!out.replay.header.result.finished);

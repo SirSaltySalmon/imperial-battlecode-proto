@@ -1,7 +1,8 @@
 # Replays (`.ibcr`, format 2)
 
 A replay holds everything needed to re-simulate a match without the bots: the map, the rules, the seed and
-every accepted input per tick, with the state hashes after every step. Next to that it carries what each
+the inputs of every tick (each accepted action, and what each team's accepted memory writes left), with the
+state hashes after every step. Next to that it carries what each
 team's bots produced that is not a simulation input: logs, fuel per turn and debug drawings. That part is
 private to the team, and a replay can be redacted so it only has one team's private data, or none.
 
@@ -22,12 +23,27 @@ Code: `crates/replay` (format, verification, redaction), `crates/runner` (record
 Every action stays public, so behaviour can be watched and imitated; what is protected is intent (memory and
 logs). Workers see both modules, so this assumes trusted workers.
 
+## Inputs
+
+A tick's inputs are what re-simulation needs to reach the state the bots left, and no more. A refused `act`
+or `mem_write` changed nothing, so it is not stored.
+
+- `Act`: every action `act` accepted, in order. A unit gets at most 64 accepted actions a tick
+  (`ibc_engine::MAX_ACTS`, docs/ABI.md).
+- `MemWrite`: for each team and scope it wrote, one write of the bytes as the team's writes left them, from the
+  lowest to the highest byte any of them touched, under the unit that wrote last. Memory never feeds the
+  simulation, so how the bytes got there does not matter. That is at most one scope's size per team and tick
+  (64, 1,024 or 256 bytes), however many calls the bots made. `ibc replay records` lists these, not the calls.
+
+A tick's actions come first, then its memory writes; neither depends on the other. A fault splits a tick: what
+came before it is stored before the `Fault` event, so such a tick can hold two writes per team and scope.
+
 ## Split state hash
 
 The per-tick hash is three numbers (`ibc_engine::StateHashes`):
 
 - `world`: every state field that affects simulation, except team memory;
-- `memory[0]`, `memory[1]`: one team's team memory and draft memory.
+- `memory[0]`, `memory[1]`: one team's team, draft and buy memory.
 
 Memory is read by bots and never by the simulation, so a replay without one team's memory writes still
 re-simulates to the same world. Verification checks the world hash on every tick and the memory hash of

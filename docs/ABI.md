@@ -61,6 +61,8 @@ clock and random source, empty args and environment. There is no filesystem, net
   Sounds are separate from events: a shot heard through a wall is a `T_SOUNDS` row, not a damage event.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
   resolves with everyone else's when the tick is stepped. One move, one facing and one primary action per tick.
+  A unit gets at most 64 accepted actions a tick (`MAX_ACTS` in `crates/engine`); later calls return
+  `ERR_NOT_ALLOWED` and change nothing.
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;
   balance patches change them without changing the ABI.
 - **Reserved fields.** A field whose meaning is retired keeps its slot, is renamed `_reservedN` and always reads 0,

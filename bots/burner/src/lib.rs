@@ -237,10 +237,11 @@ impl Kernel for Reads {
     }
 }
 
-/// The largest `mem_read` the host takes (1 MiB), refused by the engine: `FUEL_MEM` = 20 whatever the length.
+/// A 1 MiB `mem_read`, refused by the engine: `FUEL_MEM` = 20 whatever the length.
 pub struct MemRead(Vec<u8>);
 
-/// Largest `mem_read` / `mem_write` length the runner passes on (`MAX_MEM_IO` in `crates/runner/src/vm.rs`).
+/// Length of the `MemRead` and `MemWrite` requests: 1 MiB, the most the runner passed on before it stopped
+/// allocating a buffer of the requested length.
 const MAX_MEM_IO: usize = 1 << 20;
 
 impl Kernel for MemRead {
@@ -255,8 +256,9 @@ impl Kernel for MemRead {
     }
 }
 
-/// One refused 1 MiB `mem_write` per turn, then `Alu` for the rest. Kept to one call per turn on purpose:
-/// the engine records every `mem_write` as a replay input, refused or not, so a loop of them exhausts memory.
+/// One refused 1 MiB `mem_write` per turn, then `Alu` for the rest. Kept to one call per turn so that it can
+/// still be compared with engines that recorded every `mem_write`, refused or not, where a loop of them
+/// exhausts memory.
 pub struct MemWrite(Vec<u8>, Alu);
 
 impl Kernel for MemWrite {
