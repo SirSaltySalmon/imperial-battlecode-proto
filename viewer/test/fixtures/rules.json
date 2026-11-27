@@ -25,7 +25,8 @@
     {"id":7,"kind":1,"name":"smg","price":1500,"value":2},
     {"id":8,"kind":1,"name":"shotgun","price":1800,"value":3},
     {"id":9,"kind":1,"name":"marksman","price":3200,"value":4},
-    {"id":10,"kind":1,"name":"lmg","price":2300,"value":5}
+    {"id":10,"kind":1,"name":"lmg","price":2300,"value":5},
+    {"id":11,"kind":1,"name":"hunter","price":1200,"value":6}
   ],
   "kit_rules": [
     {"abilities":[-1,-1],"hp":100,"id":0,"name":"standard","speed_pct":100},
@@ -47,7 +48,8 @@
     {"bullet_speed":9216,"cooldown":0,"damage":17,"falloff_min_pct":40,"falloff_start":6144,"id":2,"kill_reward":400,"magazine":15,"move_pct":100,"move_spread":150,"name":"smg","pellets":2,"price":1500,"range":16384,"recoil_per_shot":2,"recoil_recovery":1,"recoil_spread":100,"reload_ticks":3,"slot":0,"spread":200,"windup":1},
     {"bullet_speed":8192,"cooldown":2,"damage":15,"falloff_min_pct":25,"falloff_start":3072,"id":3,"kill_reward":500,"magazine":5,"move_pct":95,"move_spread":300,"name":"shotgun","pellets":7,"price":1800,"range":9216,"recoil_per_shot":4,"recoil_recovery":2,"recoil_spread":60,"reload_ticks":5,"slot":0,"spread":260,"windup":1},
     {"bullet_speed":20480,"cooldown":2,"damage":75,"falloff_min_pct":100,"falloff_start":40960,"id":4,"kill_reward":100,"magazine":5,"move_pct":80,"move_spread":2400,"name":"marksman","pellets":1,"price":3200,"range":40960,"recoil_per_shot":4,"recoil_recovery":1,"recoil_spread":300,"reload_ticks":5,"slot":0,"spread":0,"windup":2},
-    {"bullet_speed":12288,"cooldown":0,"damage":16,"falloff_min_pct":60,"falloff_start":14336,"id":5,"kill_reward":150,"magazine":20,"move_pct":70,"move_spread":2000,"name":"lmg","pellets":5,"price":2300,"range":28672,"recoil_per_shot":2,"recoil_recovery":1,"recoil_spread":60,"reload_ticks":7,"slot":0,"spread":300,"windup":2}
+    {"bullet_speed":12288,"cooldown":0,"damage":16,"falloff_min_pct":60,"falloff_start":14336,"id":5,"kill_reward":150,"magazine":20,"move_pct":70,"move_spread":2000,"name":"lmg","pellets":5,"price":2300,"range":28672,"recoil_per_shot":2,"recoil_recovery":1,"recoil_spread":60,"reload_ticks":7,"slot":0,"spread":300,"windup":2},
+    {"bullet_speed":20480,"cooldown":5,"damage":75,"falloff_min_pct":100,"falloff_start":24576,"id":6,"kill_reward":400,"magazine":5,"move_pct":80,"move_spread":2400,"name":"hunter","pellets":1,"price":1200,"range":24576,"recoil_per_shot":4,"recoil_recovery":1,"recoil_spread":300,"reload_ticks":5,"slot":0,"spread":0,"windup":2}
   ],
-  "weapons": ["pistol","rifle","smg","shotgun","marksman","lmg"]
+  "weapons": ["pistol","rifle","smg","shotgun","marksman","lmg","hunter"]
 }

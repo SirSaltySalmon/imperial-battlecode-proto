@@ -214,6 +214,7 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
 | marksman | 2 / 6 / 6 | 5 | 74 / 63 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
 | lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
+| hunter | 2 / 6 / 6 | 6 | 75 / 75 | 0 | 560 | 24.0 | 20.0 | 27 + 5 |
 <!-- /generated:derived -->
 
 Roles:
@@ -237,6 +238,9 @@ Roles:
 - **lmg**: fast once braced. Five bullets a pull and, once it is firing, a pull every tick from a twenty-pull
   magazine, for holding a lane against a group; the fan opens as it keeps firing. Slow to carry, very slow to
   start after moving, and above all slow to reload.
+- **hunter**: the eco long gun. The marksman's bullet, damage, startup tell and handling for little money, so
+  a saving team can still hold a long angle; but it cycles slower than anything else and reaches only its
+  own 24 tiles of sight. A miss costs a long wait, and anyone who closes the distance beats it.
 
 ## Time to kill
 

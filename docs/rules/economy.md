@@ -42,6 +42,11 @@ positions in the `[[item]]` list and are append-only.
 | 4 | `pistol` | weapon | 0 | the default sidearm (only useful to trade back to it) |
 | 5 | `ability_charge_0` | ability charge | 0 + ability price | one charge of the ability in kit slot 0 |
 | 6 | `ability_charge_1` | ability charge | 0 + ability price | one charge of the ability in kit slot 1 |
+| 7 | `smg` | weapon | 1500 | primary weapon, full magazine |
+| 8 | `shotgun` | weapon | 1800 | primary weapon, full magazine |
+| 9 | `marksman` | weapon | 3200 | primary weapon, full magazine |
+| 10 | `lmg` | weapon | 2300 | primary weapon, full magazine |
+| 11 | `hunter` | weapon | 1200 | primary weapon, full magazine |
 
 Checks run in this order, and a refused purchase costs nothing:
 

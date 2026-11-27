@@ -101,3 +101,9 @@ name = "lmg"
 kind = 1
 price = 2300
 value = 5
+
+[[item]]
+name = "hunter"
+kind = 1
+price = 1200
+value = 6

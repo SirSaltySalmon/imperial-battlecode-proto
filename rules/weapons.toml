@@ -170,3 +170,30 @@ unsteady_gain = 12
 unsteady_decay = 2
 unsteady_max = 16
 startup_per_point = 25
+
+# Eco long gun: the marksman's bullet, damage and startup tell for little money, so a saving team can still hold
+# a long angle. A miss costs a long wait, and it reaches only its own 24 tiles of sight.
+[[weapon]]
+name = "hunter"
+slot = 0
+price = 1200
+damage = 74
+pellets = 1
+spread = 0
+recoil_spread = 300
+recoil_per_shot = 4
+recoil_recovery = 1
+windup = 2
+cooldown = 5
+magazine = 5
+reload_ticks = 5
+bullet_speed = 20480
+range = 24576
+falloff_start = 24576
+falloff_min_pct = 100
+move_pct = 80
+kill_reward = 400
+unsteady_gain = 12
+unsteady_decay = 2
+unsteady_max = 16
+startup_per_point = 25
