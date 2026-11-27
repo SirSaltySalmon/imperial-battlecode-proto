@@ -10,6 +10,8 @@ the end of a record. Never renumber, reorder or change the meaning of an existin
 
 A bot is a `wasm32-wasip1` command module. One instance runs per unit and lives for the whole match. `_start`
 loops forever; each iteration reads the world, queues intents and calls `end_turn`. Memory and stack persist.
+Call depth is limited to `stack_limit` stack units (`docs/RULES.md`, "Compute and memory"); the runner counts
+it in a global it adds to the module, so the export name `__ibc_stack_height` is reserved.
 
 Imports come from module `ibc`:
 

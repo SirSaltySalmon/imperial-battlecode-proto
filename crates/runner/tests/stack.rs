@@ -2,8 +2,11 @@
 //!
 //! Each test bot logs one byte per level and recurses until it traps, so the length of its log is the
 //! depth it reached. Wasmtime by itself traps when the native stack runs out, and a frame's native size is
-//! decided by Cranelift for the CPU it compiles for, so that depth is not a function of the module.
+//! decided by Cranelift for the CPU it compiles for, so that depth is not a function of the module. The
+//! runner counts the stack in stack units instead (`src/stack.rs`).
 
+use ibc_engine::Ruleset;
+use ibc_runner::{run_match, BotSpec, MatchConfig, MatchOutput, MAX_STACK_UNITS};
 use wasmtime::{Caller, Config, Engine, Linker, Module, Store, Trap};
 
 /// What each level of the recursion keeps in its frame across the recursive call.
@@ -108,7 +111,6 @@ const FRAMES: [Frame; 6] =
 #[test]
 fn native_fault_depth_depends_on_frame_layout_and_stack_size() {
     eprintln!("frame          units  depth@256K  depth@512K  bytes/frame  bytes/unit");
-    let mut per_unit = Vec::new();
     for frame in FRAMES {
         let small = native_depth(frame, 256 << 10);
         let large = native_depth(frame, 512 << 10);
@@ -122,10 +124,98 @@ fn native_fault_depth_depends_on_frame_layout_and_stack_size() {
         // Twice the native stack, twice the depth (to within the frames below the first call).
         let ratio = large as f64 / small as f64;
         assert!((1.95..=2.05).contains(&ratio), "{frame:?}: {small} -> {large}");
-        per_unit.push((frame, unit));
     }
     let depth = |f| native_depth(f, 512 << 10);
     assert!(depth(Frame::Thin) > depth(Frame::I64(16)) && depth(Frame::I64(16)) > depth(Frame::I64(64)));
     // Same logical frame, different native frame: v128 slots are twice as wide as i64 slots.
     assert!(depth(Frame::V128(64)) < depth(Frame::I64(64)), "v128 frames are larger natively");
+}
+
+/// `_start` only calls `$f`: no params, locals or operands, so 2 units.
+const START_UNITS: u32 = 2;
+
+fn run_recurser(frame: Frame, stack_limit: i32) -> MatchOutput {
+    let mut rules = Ruleset::builtin();
+    rules.stack_limit = stack_limit;
+    let idle = r#"(module
+      (import "ibc" "end_turn" (func $end_turn))
+      (memory (export "memory") 1)
+      (func (export "_start") (loop $l (call $end_turn) (br $l))))"#;
+    let bot =
+        |name: &str, wat: &str| BotSpec { name: name.into(), wasm: wat::parse_str(wat).unwrap(), fuel_multiplier: 1.0 };
+    run_match(MatchConfig {
+        rules,
+        map_text: include_str!("../../../maps/crossfire.ibcmap").into(),
+        seed: 1,
+        bots: [bot("recurser", &recurser(frame)), bot("idle", idle)],
+        log_limit: 8 << 20,
+        max_ticks: Some(10),
+        frames: false,
+    })
+    .unwrap()
+}
+
+/// For each unit of team A, which must all have faulted: how many levels it logged, and the rest of its log.
+fn levels(out: &MatchOutput) -> Vec<(u32, String)> {
+    let team_a = out.units.iter().enumerate().filter(|(_, u)| u.team == 0);
+    team_a
+        .map(|(id, u)| {
+            assert!(u.faulted, "unit {id} did not fault");
+            let n = out.logs[id].iter().take_while(|&&b| b == b'\n').count();
+            (n as u32, String::from_utf8_lossy(&out.logs[id][n..]).into_owned())
+        })
+        .collect()
+}
+
+/// The fix: the runner counts the stack in the module, so the depth is the limit divided by the frame's
+/// stack units, whatever Cranelift makes of the frame.
+#[test]
+fn the_depth_is_the_limit_over_the_frame_cost() {
+    let limit = Ruleset::builtin().stack_limit;
+    for frame in FRAMES {
+        let out = run_recurser(frame, limit);
+        let expected = (limit as u32 - START_UNITS) / frame.units();
+        for (depth, rest) in levels(&out) {
+            assert_eq!(depth, expected, "{frame:?}");
+            assert!(
+                rest.contains(&format!("stack limit exceeded (deeper than stack_limit = {limit} units)")),
+                "{rest}"
+            );
+        }
+        // The fault is a replay input like any other.
+        ibc_replay::verify(&out.replay).unwrap();
+    }
+}
+
+/// The margin: at the largest limit the runner accepts, the deterministic limit still comes first, also for
+/// frames whose native slots are widest (v128).
+#[test]
+fn the_limit_comes_before_the_native_stack() {
+    for frame in FRAMES {
+        let out = run_recurser(frame, MAX_STACK_UNITS as i32);
+        let expected = (MAX_STACK_UNITS - START_UNITS) / frame.units();
+        for (depth, rest) in levels(&out) {
+            assert_eq!(depth, expected, "{frame:?}: {rest}");
+            assert!(rest.contains("stack limit exceeded"), "{frame:?}: {rest}");
+        }
+    }
+}
+
+#[test]
+fn a_limit_above_what_the_runner_supports_is_refused() {
+    let mut rules = Ruleset::builtin();
+    rules.stack_limit = MAX_STACK_UNITS as i32 + 1;
+    let wasm = wat::parse_str(recurser(Frame::Thin)).unwrap();
+    let bot = || BotSpec { name: "recurser".into(), wasm: wasm.clone(), fuel_multiplier: 1.0 };
+    let cfg = MatchConfig {
+        rules,
+        map_text: include_str!("../../../maps/crossfire.ibcmap").into(),
+        seed: 1,
+        bots: [bot(), bot()],
+        log_limit: 1024,
+        max_ticks: Some(1),
+        frames: false,
+    };
+    let err = run_match(cfg).err().expect("refused").to_string();
+    assert!(err.contains("stack_limit"), "{err}");
 }

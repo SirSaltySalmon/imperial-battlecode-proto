@@ -15,6 +15,9 @@ serde_json = { workspace = true }
 # Pinned exactly: the wasmtime version is part of the patch identity (fuel accounting is version specific).
 # Keep WASMTIME_VERSION in src/lib.rs in sync.
 wasmtime = { version = "=51.0.0", default-features = false, features = ["cranelift", "runtime", "async", "std"] }
+# The stack limiter (src/stack.rs) reads and writes modules with the versions Wasmtime 51 itself uses.
+wasmparser = "0.263"
+wasm-encoder = "0.263"
 
 [dev-dependencies]
 wat = "1"

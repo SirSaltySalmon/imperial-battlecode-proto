@@ -173,6 +173,10 @@ attackers.
 call (`FUEL_*`). Each unit gets `fuel_per_tick` per tick, times `fuel_first_tick_mult` on the draft tick and
 `fuel_buy_mult` in the buy phase. Unused fuel is lost; a bot that runs out is paused and resumes next tick.
 
+**Stack limit.** `stack_limit`, the deepest call stack a bot may build, in **stack units**: each call that has
+not returned costs its function's parameters + locals + largest operand stack height + 2. Going deeper traps
+(a fault). Counted in the module by the runner, so it is the same on every CPU (`docs/RULES.md`).
+
 **Fog.** The host lists only what the caller may perceive: `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS`, `T_DROPS`.
 Teammates are always known. Vision and heard sounds are shared by the whole team. Events follow fog too: a team sees
 an event only where it can see, except kills, plant, defuse, detonation and round end, which both teams always
@@ -354,6 +358,15 @@ kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
   the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
   `memory.copy` and `memory.fill` cost fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
+- Recursion depth is limited deterministically, the same on every CPU. Each call that has not returned costs
+  stack units: its function's parameters, plus its locals, plus the most values its operand stack ever holds,
+  plus 2. A call that would take the total over `stack_limit` (65,536) traps, and the unit faults with "stack
+  limit exceeded". A tail call (`return_call`) replaces its caller's frame, and calls into the host (`ibc.*`,
+  WASI) cost nothing. What a compiler keeps in linear memory (the C and Rust shadow stack, large local arrays)
+  is not counted here; it is bounded by the memory cap. 65,536 units is 16,383 levels of a function that holds
+  two values and nothing else, about the depth the native stack allowed before on x64. The counting costs
+  fuel: 9 when a function of the bot is entered and 2 when a call to one returns (4 before a tail call),
+  about 1 to 2% of what the reference bots use.
 - Memory is shared by the team and readable in every phase; each scope is writable in one phase only. Units run
   in an order that alternates teams and rotates each tick; a teammate that runs later in the same tick sees
   your write.
@@ -1041,6 +1054,8 @@ the end of a record. Never renumber, reorder or change the meaning of an existin
 
 A bot is a `wasm32-wasip1` command module. One instance runs per unit and lives for the whole match. `_start`
 loops forever; each iteration reads the world, queues intents and calls `end_turn`. Memory and stack persist.
+Call depth is limited to `stack_limit` stack units (`docs/RULES.md`, "Compute and memory"); the runner counts
+it in a global it adds to the module, so the export name `__ibc_stack_height` is reserved.
 
 Imports come from module `ibc`:
 
@@ -1135,7 +1150,7 @@ still loads and reads the prefix of each record it knows; what changed is what s
 
 # Ruleset reference
 
-Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `adc2c2f190ee624e`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -1176,6 +1191,7 @@ Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults an
 | `blast_radius` | 12288 | On detonation every living unit within this distance of the charge dies, through walls. |
 | `buy_mem_bytes` | 256 |  |
 | `round_end_ticks` | 2 | Pause after a round is decided. Not part of `T_RULES_CORE`. |
+| `stack_limit` | 65536 | Deepest call stack a bot may build, in stack units (params + locals + largest operand stack + 2 per call). Going deeper traps. Enforced by the runner. Not part of `T_RULES_CORE`. |
 
 Notes from `rules/core.toml`:
 
@@ -1183,6 +1199,10 @@ Notes from `rules/core.toml`:
 Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full turn, times are ticks.
 
 Buy-phase team memory (MEM_BUY), cleared every round.
+
+Deepest call stack a bot may build, in stack units. Each active call costs its function's parameters, locals
+and largest operand stack height, plus 2. A call that would go deeper traps and the unit faults. Counted in
+the module, not on the native stack, so the depth is the same on every CPU.
 
 On detonation every living unit within this distance of the charge dies, both teams, through walls.
 ```

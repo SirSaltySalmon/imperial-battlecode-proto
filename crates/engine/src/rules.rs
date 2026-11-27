@@ -47,6 +47,9 @@ impl RulesSource {
 pub struct Ruleset {
     pub core: CoreRules,
     pub round_end_ticks: i32,
+    /// Deepest call stack a bot may build, in stack units (see `rules/core.toml`). Enforced by the runner,
+    /// which counts it in the module so that it is the same on every CPU; not part of `T_RULES_CORE`.
+    pub stack_limit: i32,
     pub weapons: Vec<WeaponRules>,
     pub weapon_names: Vec<String>,
     pub abilities: Vec<AbilityRules>,
@@ -234,6 +237,7 @@ impl Ruleset {
         Ok(Ruleset {
             core,
             round_end_ticks: gi(&c, "round_end_ticks", 2).max(1),
+            stack_limit: gi(&c, "stack_limit", 65536).clamp(1, 1 << 30),
             weapons,
             weapon_names,
             abilities,
@@ -253,6 +257,7 @@ impl Ruleset {
         let mut h = crate::Fnv::new();
         h.bytes(ibc_abi::bytes_of(&self.core));
         h.i32(self.round_end_ticks);
+        h.i32(self.stack_limit);
         for w in &self.weapons {
             h.bytes(ibc_abi::bytes_of(w));
         }

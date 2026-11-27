@@ -134,6 +134,15 @@ kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
   the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
   `memory.copy` and `memory.fill` cost fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
+- Recursion depth is limited deterministically, the same on every CPU. Each call that has not returned costs
+  stack units: its function's parameters, plus its locals, plus the most values its operand stack ever holds,
+  plus 2. A call that would take the total over `stack_limit` (65,536) traps, and the unit faults with "stack
+  limit exceeded". A tail call (`return_call`) replaces its caller's frame, and calls into the host (`ibc.*`,
+  WASI) cost nothing. What a compiler keeps in linear memory (the C and Rust shadow stack, large local arrays)
+  is not counted here; it is bounded by the memory cap. 65,536 units is 16,383 levels of a function that holds
+  two values and nothing else, about the depth the native stack allowed before on x64. The counting costs
+  fuel: 9 when a function of the bot is entered and 2 when a call to one returns (4 before a tail call),
+  about 1 to 2% of what the reference bots use.
 - Memory is shared by the team and readable in every phase; each scope is writable in one phase only. Units run
   in an order that alternates teams and rotates each tick; a teammate that runs later in the same tick sees
   your write.

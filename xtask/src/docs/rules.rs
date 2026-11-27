@@ -155,6 +155,13 @@ fn core(i: &Inputs) -> Result<String> {
         i.ruleset.round_end_ticks.to_string(),
         "Pause after a round is decided. Not part of `T_RULES_CORE`.".to_string(),
     ]);
+    rows.push(vec![
+        code("stack_limit"),
+        i.ruleset.stack_limit.to_string(),
+        "Deepest call stack a bot may build, in stack units (params + locals + largest operand stack + 2 per \
+         call). Going deeper traps. Enforced by the runner. Not part of `T_RULES_CORE`."
+            .to_string(),
+    ]);
     Ok(md::table(&["Key", "Value", "Meaning"], &rows))
 }
 

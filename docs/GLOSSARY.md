@@ -152,6 +152,10 @@ attackers.
 call (`FUEL_*`). Each unit gets `fuel_per_tick` per tick, times `fuel_first_tick_mult` on the draft tick and
 `fuel_buy_mult` in the buy phase. Unused fuel is lost; a bot that runs out is paused and resumes next tick.
 
+**Stack limit.** `stack_limit`, the deepest call stack a bot may build, in **stack units**: each call that has
+not returned costs its function's parameters + locals + largest operand stack height + 2. Going deeper traps
+(a fault). Counted in the module by the runner, so it is the same on every CPU (`docs/RULES.md`).
+
 **Fog.** The host lists only what the caller may perceive: `T_ENEMIES`, `T_PROJECTILES`, `T_EFFECTS`, `T_DROPS`.
 Teammates are always known. Vision and heard sounds are shared by the whole team. Events follow fog too: a team sees
 an event only where it can see, except kills, plant, defuse, detonation and round end, which both teams always

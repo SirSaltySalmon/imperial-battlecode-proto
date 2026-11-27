@@ -984,6 +984,8 @@ dependencies = [
  "ibc-replay",
  "serde",
  "serde_json",
+ "wasm-encoder",
+ "wasmparser",
  "wasmtime",
  "wat",
 ]

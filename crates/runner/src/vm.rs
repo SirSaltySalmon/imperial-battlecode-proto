@@ -25,7 +25,7 @@ use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
-use wasmtime::{Caller, Engine, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder, Trap};
+use wasmtime::{Caller, Engine, Global, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, Val};
 
 /// Fuel put into every store once, after instantiation. Never runs out in practice (9e18).
 pub(crate) const INITIAL_FUEL: u64 = u64::MAX / 2;
@@ -68,6 +68,9 @@ pub struct UnitData {
     pub(crate) exit: Option<Exit>,
     /// Odometer reading at which this turn's budget is used up.
     floor: u64,
+    /// The stack height global added by `stack::instrument`, and the limit it counts against.
+    stack_height: Option<Global>,
+    stack_limit: u32,
 }
 
 impl UnitData {
@@ -333,6 +336,8 @@ pub(crate) struct UnitVm {
 }
 
 impl UnitVm {
+    /// `module` must have been instrumented by `stack::instrument` with `stack_limit`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         engine: &Engine,
         linker: &Linker<UnitData>,
@@ -342,6 +347,7 @@ impl UnitVm {
         seed: u64,
         log_limit: usize,
         memory_limit: usize,
+        stack_limit: u32,
     ) -> Result<UnitVm, String> {
         let limits = StoreLimitsBuilder::new()
             .memory_size(memory_limit)
@@ -362,6 +368,8 @@ impl UnitVm {
             pause: Pause::None,
             exit: None,
             floor: INITIAL_FUEL,
+            stack_height: None,
+            stack_limit,
         };
         let mut store = Box::new(Store::new(engine, data));
         store.limiter(|d| &mut d.limits);
@@ -380,6 +388,7 @@ impl UnitVm {
             .get_typed_func::<(), ()>(&mut *store, "_start")
             .map_err(|e| format!("no usable `_start` export: {}", root(&e)))?;
         store.data_mut().memory = instance.get_memory(&mut *store, "memory");
+        store.data_mut().stack_height = instance.get_global(&mut *store, crate::stack::HEIGHT_EXPORT);
         store.set_fuel(INITIAL_FUEL).map_err(|e| e.to_string())?;
 
         let store = NonNull::from(Box::leak(store));
@@ -428,16 +437,17 @@ impl UnitVm {
 
         let store = self.store_mut();
         let used = start.saturating_sub(store.get_fuel().expect("fuel is enabled"));
+        let exit = store.data().exit;
         let end = match polled {
             Poll::Pending => match store.data().pause {
                 Pause::EndTurn => TurnEnd::Yielded,
                 Pause::HostOutOfFuel | Pause::None => TurnEnd::OutOfFuel,
             },
             Poll::Ready(Ok(())) => TurnEnd::Fault("`_start` returned".into()),
-            Poll::Ready(Err(e)) => TurnEnd::Fault(match store.data().exit {
+            Poll::Ready(Err(e)) => TurnEnd::Fault(match exit {
                 Some(Exit::ProcExit(code)) => format!("exit({code})"),
                 None => match e.downcast_ref::<Trap>() {
-                    Some(t) => format!("trap: {t}"),
+                    Some(t) => trap_reason(store, *t),
                     None => format!("error: {}", root(&e)),
                 },
             }),
@@ -483,4 +493,17 @@ impl Drop for UnitVm {
 
 fn root(e: &wasmtime::Error) -> String {
     e.root_cause().to_string()
+}
+
+/// Why a bot trapped, in a player's words. The stack limiter traps with `unreachable` after raising the
+/// height past the limit, and a frame that passed the check never leaves it there, so that pair is the
+/// limiter's trap and nothing else.
+fn trap_reason(store: &mut Store<UnitData>, trap: Trap) -> String {
+    let (height, limit) = (store.data().stack_height, store.data().stack_limit);
+    match height.map(|g| g.get(&mut *store)) {
+        Some(Val::I32(h)) if trap == Trap::UnreachableCodeReached && h as u32 > limit => {
+            format!("trap: stack limit exceeded (deeper than stack_limit = {limit} units)")
+        }
+        _ => format!("trap: {trap}"),
+    }
 }

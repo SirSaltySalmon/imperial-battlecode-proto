@@ -2,7 +2,7 @@
 
 # Ruleset reference
 
-Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `adc2c2f190ee624e`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -43,6 +43,7 @@ Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults an
 | `blast_radius` | 12288 | On detonation every living unit within this distance of the charge dies, through walls. |
 | `buy_mem_bytes` | 256 |  |
 | `round_end_ticks` | 2 | Pause after a round is decided. Not part of `T_RULES_CORE`. |
+| `stack_limit` | 65536 | Deepest call stack a bot may build, in stack units (params + locals + largest operand stack + 2 per call). Going deeper traps. Enforced by the runner. Not part of `T_RULES_CORE`. |
 
 Notes from `rules/core.toml`:
 
@@ -50,6 +51,10 @@ Notes from `rules/core.toml`:
 Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full turn, times are ticks.
 
 Buy-phase team memory (MEM_BUY), cleared every round.
+
+Deepest call stack a bot may build, in stack units. Each active call costs its function's parameters, locals
+and largest operand stack height, plus 2. A call that would go deeper traps and the unit faults. Counted in
+the module, not on the native stack, so the depth is the same on every CPU.
 
 On detonation every living unit within this distance of the charge dies, both teams, through walls.
 ```
