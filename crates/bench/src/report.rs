@@ -16,6 +16,18 @@ pub fn md_table(headers: &[&str], rows: &[Vec<String>]) -> String {
     s
 }
 
+/// How every report names the backend it ran on (`"wasm"`, `"native"`, or a `+` join of them). The native
+/// backend cannot meter fuel, and a reader must see that wherever its numbers appear.
+pub fn backend_label(backend: &str) -> String {
+    if backend.is_empty() {
+        "none (no games)".into()
+    } else if backend.split('+').any(|b| b == "native") {
+        format!("{backend}, UNMETERED (unlimited fuel)")
+    } else {
+        format!("{backend}, fuel metered")
+    }
+}
+
 /// A p-value that never prints as a misleading "0.0000".
 pub fn p_value(p: f64) -> String {
     if p < 0.0001 {

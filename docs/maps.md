@@ -207,9 +207,10 @@ outside a band on purpose; say so in its row of the gallery.
 3. Look at the render with `--overlay routes,chokes`, then `advantage` and `sightlines`: every site has at
    least two approaches, the fastest attack route crosses or passes near the defenders' push, and the long
    lines are where you meant them.
-4. `cargo run -p ibc-sim --release -- league --maps maps --seeds 2` ends with `LEAGUE OK`; run the league on
-   the new map alone with `--bots rusher,holder --seeds 10` and report the attacker round win rate with its
-   sample size. With the simple reference bots 25 to 75% is acceptable.
+4. `cargo run -p ibc-sim --release -- league --maps maps --seeds 2` ends with `LEAGUE OK` (a native smoke
+   test); then `tools/bench.sh balance --maps maps/<name>.ibcmap --bots rusher,holder --no-mirrors --seeds 10`
+   (fuel metered) and report the attacker round win rate with its interval and sample size. With the simple
+   reference bots 25 to 75% is acceptable.
 5. `cargo test -p ibc-sim --release` and `cargo test -p ibc-maptool --release` (the pool test fails if a
    map leaves a band).
 6. Name and layout are original. The file name equals `name:`.

@@ -102,8 +102,8 @@ lint clean-up commit, add `--strict` to the CI step.
 1. **Scope.** One patch, one purpose. Decide the version from the table above and bump `version` in the
    root `Cargo.toml` (and the Wasmtime pin, constant and lockfile together, if that is the change).
 2. **Measure** (balance and mechanics patches). League table before and after on the whole reference pool,
-   both sides, several seeds: `cargo run -p ibc-sim --release -- league --maps maps --seeds 20`. Put both
-   tables in the PR.
+   both sides, several seeds, fuel metered: `tools/bench.sh league --seeds 20` (`ibc-sim league` is
+   unmetered: a quick look, not a result). Put both tables in the PR.
 3. **Goldens re-recorded and reviewed.** `cargo xtask golden record`; the diff is in the PR and a second
    person has read it. `ci.yml` is green on the merge commit.
 4. **Cross-platform determinism green.** Run `determinism.yml` by hand on the release commit and wait for

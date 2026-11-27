@@ -3,6 +3,7 @@
 //! talk about the metrics listed as moved.
 
 use crate::balance::{format_metric, is_fraction, BalanceReport};
+use crate::report::backend_label;
 use crate::stats::Est;
 use serde::Serialize;
 
@@ -29,6 +30,8 @@ pub struct Change {
 pub struct Comparison {
     pub old_ruleset: String,
     pub new_ruleset: String,
+    pub old_backend: String,
+    pub new_backend: String,
     /// Differences in what was run (bots, maps, seeds, backend). Non-empty means the runs are not like for like.
     pub setup_differences: Vec<String>,
     pub changes: Vec<Change>,
@@ -97,6 +100,8 @@ pub fn compare(old: &BalanceReport, new: &BalanceReport) -> Comparison {
     Comparison {
         old_ruleset: old.ruleset_hash.clone(),
         new_ruleset: new.ruleset_hash.clone(),
+        old_backend: old.backend.clone(),
+        new_backend: new.backend.clone(),
         setup_differences: setup,
         changes,
         within_noise,
@@ -113,6 +118,12 @@ pub fn render(c: &Comparison) -> String {
     } else {
         format!("ruleset {} -> {}\n", c.old_ruleset, c.new_ruleset)
     };
+    if c.old_backend == c.new_backend {
+        s.push_str(&format!("backend {}\n", backend_label(&c.new_backend)));
+    } else {
+        let (old, new) = (backend_label(&c.old_backend), backend_label(&c.new_backend));
+        s.push_str(&format!("backend {old} -> {new}\n"));
+    }
     for d in &c.setup_differences {
         s.push_str(&format!("WARNING: the runs are not like for like: {d}\n"));
     }

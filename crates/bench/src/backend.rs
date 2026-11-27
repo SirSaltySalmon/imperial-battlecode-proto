@@ -1,7 +1,10 @@
 //! Playing a schedule of games. Two backends behind `run_games`:
 //!
-//! * **native**: the built-in reference bots linked as Rust through `ibc-sim`, on worker threads;
-//! * **wasm**: a child `ibc run-batch --jsonl` process (docs/JOBS.md), the path competitors' bots take.
+//! * **wasm** (the default): child `ibc run-batch --jsonl` processes (docs/JOBS.md), the path every real
+//!   match takes. Fuel is metered, so a bot that overruns its budget is cut short as it would be online;
+//! * **native**: the built-in reference bots linked as Rust through `ibc-sim`, on worker threads. Fuel is
+//!   NOT metered (a native build cannot count wasm instructions): every bot has unlimited fuel. Fast, for
+//!   iteration and debugging; results from it are not the game as played.
 //!
 //! Both drive the same engine with the same inputs, so for the same (map, seed, slots) they must agree
 //! on the final state hash as long as the wasm bots stay inside their fuel budget.
@@ -19,26 +22,26 @@ use std::sync::Mutex;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendKind {
-    /// Native when both bots of a game are built in, wasm otherwise.
-    Auto,
-    Native,
+    /// Wasm modules under the fuel budget, as in a real match. The default.
     Wasm,
+    /// Built-in bots linked as Rust: unmetered, unlimited fuel. Opt-in only.
+    Native,
 }
 
 impl BackendKind {
     pub fn parse(s: &str) -> Result<BackendKind, String> {
         match s {
-            "auto" => Ok(BackendKind::Auto),
-            "native" => Ok(BackendKind::Native),
             "wasm" => Ok(BackendKind::Wasm),
-            other => Err(format!("unknown backend `{other}` (auto, native, wasm)")),
+            "native" => Ok(BackendKind::Native),
+            other => Err(format!(
+                "unknown backend `{other}` (wasm: fuel metered, the default; native: unmetered)"
+            )),
         }
     }
     pub fn name(self) -> &'static str {
         match self {
-            BackendKind::Auto => "auto",
-            BackendKind::Native => "native",
             BackendKind::Wasm => "wasm",
+            BackendKind::Native => "native",
         }
     }
 }
@@ -62,7 +65,7 @@ pub struct RunOpts {
 impl RunOpts {
     pub fn new(out_dir: PathBuf) -> RunOpts {
         RunOpts {
-            backend: BackendKind::Auto,
+            backend: BackendKind::Wasm,
             jobs: default_jobs(),
             detail: false,
             ibc: None,
@@ -85,14 +88,6 @@ pub struct Run {
     pub warnings: Vec<String>,
 }
 
-fn uses_native(kind: BackendKind, a: &Bot, b: &Bot) -> bool {
-    match kind {
-        BackendKind::Native => true,
-        BackendKind::Wasm => false,
-        BackendKind::Auto => a.native.is_some() && b.native.is_some(),
-    }
-}
-
 /// Play every game of the schedule. Games that cannot be played come back with `error` set.
 pub fn run_games(
     bots: &[Bot],
@@ -100,34 +95,30 @@ pub fn run_games(
     games: &[Game],
     opts: &RunOpts,
 ) -> Result<Run, String> {
-    let mut native = Vec::new();
-    let mut wasm = Vec::new();
-    for (pos, g) in games.iter().enumerate() {
-        let (a, b) = (&bots[g.a], &bots[g.b]);
-        if uses_native(opts.backend, a, b) {
-            for bot in [a, b] {
-                if bot.native.is_none() {
+    let mut slots: Vec<Option<GameResult>> = vec![None; games.len()];
+    let mut warnings = Vec::new();
+    let played = match opts.backend {
+        BackendKind::Native => {
+            for g in games {
+                if let Some(bot) = [&bots[g.a], &bots[g.b]]
+                    .into_iter()
+                    .find(|b| b.native.is_none())
+                {
                     return Err(format!(
-                        "`{}` is not a built-in bot, so it cannot run on the native backend (built in: {}); use --backend wasm",
+                        "`{}` is not a built-in bot, so it cannot run on the native backend (built in: {}); \
+                         drop --backend native",
                         bot.label,
                         ibc_sim::BOTS.join(", ")
                     ));
                 }
             }
-            native.push(pos);
-        } else {
-            wasm.push(pos);
+            run_native(bots, maps, games, opts)
         }
-    }
-    let mut slots: Vec<Option<GameResult>> = vec![None; games.len()];
-    let mut warnings = Vec::new();
-    for (pos, r) in run_native(bots, maps, games, &native, opts) {
+        BackendKind::Wasm if games.is_empty() => Vec::new(),
+        BackendKind::Wasm => run_wasm(bots, maps, games, opts, &mut warnings)?,
+    };
+    for (pos, r) in played {
         slots[pos] = Some(r);
-    }
-    if !wasm.is_empty() {
-        for (pos, r) in run_wasm(bots, maps, games, &wasm, opts, &mut warnings)? {
-            slots[pos] = Some(r);
-        }
     }
     let results = slots
         .into_iter()
@@ -192,17 +183,16 @@ fn run_native(
     bots: &[Bot],
     maps: &[MapEntry],
     games: &[Game],
-    which: &[usize],
     opts: &RunOpts,
 ) -> Vec<(usize, GameResult)> {
     let next = AtomicUsize::new(0);
-    let done = Mutex::new(Vec::with_capacity(which.len()));
+    let done = Mutex::new(Vec::with_capacity(games.len()));
     std::thread::scope(|scope| {
-        for _ in 0..opts.jobs.clamp(1, which.len().max(1)) {
+        for _ in 0..opts.jobs.clamp(1, games.len().max(1)) {
             scope.spawn(|| loop {
-                let i = next.fetch_add(1, Ordering::Relaxed);
-                let Some(&pos) = which.get(i) else { break };
-                let r = native_game(bots, maps, &games[pos], opts);
+                let pos = next.fetch_add(1, Ordering::Relaxed);
+                let Some(game) = games.get(pos) else { break };
+                let r = native_game(bots, maps, game, opts);
                 done.lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .push((pos, r));
@@ -427,15 +417,14 @@ fn run_wasm(
     bots: &[Bot],
     maps: &[MapEntry],
     games: &[Game],
-    which: &[usize],
     opts: &RunOpts,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<(usize, GameResult)>, String> {
     let ibc = find_ibc(opts.ibc.as_deref());
     warnings.extend(patch_warning(&ibc)?);
     let mut wasm_of: BTreeMap<usize, PathBuf> = BTreeMap::new();
-    for &pos in which {
-        for i in [games[pos].a, games[pos].b] {
+    for g in games {
+        for i in [g.a, g.b] {
             if !wasm_of.contains_key(&i) {
                 wasm_of.insert(i, resolve_wasm(&ibc, &bots[i])?);
             }
@@ -444,8 +433,7 @@ fn run_wasm(
     let games_dir = opts.out_dir.join("games");
     let mut lines = String::new();
     let mut out: BTreeMap<usize, GameResult> = BTreeMap::new();
-    for &pos in which {
-        let g = &games[pos];
+    for (pos, g) in games.iter().enumerate() {
         let (a, b, map) = (&bots[g.a], &bots[g.b], &maps[g.map]);
         let job = json!({
             "id": pos, "bot_a": wasm_of[&g.a], "bot_b": wasm_of[&g.b], "map": map.path, "seed": g.seed,

@@ -4,7 +4,8 @@
 #   ... edit rules/*.toml ...
 #   tools/balance.sh run after
 #   tools/balance.sh compare before after  # lists the metrics that moved beyond their intervals
-# Extra flags after the label go to `ibc-bench balance` (e.g. --seeds 10 --backend wasm).
+# Extra flags after the label go to `ibc-bench balance` (e.g. --seeds 10). Games are fuel metered (wasm);
+# both ibc-bench and the ibc runner are rebuilt each run, so the new rules reach both.
 set -euo pipefail
 bench="$(dirname "$0")/bench.sh"
 case "${1:-}" in
