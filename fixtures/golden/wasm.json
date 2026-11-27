@@ -1,7 +1,7 @@
 {
   "patch": {
     "engine": "0.2.0",
-    "ruleset_hash": "76bad4d5dc0354b6",
+    "ruleset_hash": "2f2da44b3ccf5b19",
     "wasmtime": "51.0.0",
     "abi": 1
   },
@@ -18,14 +18,14 @@
       "a": "rusher",
       "b": "holder",
       "finished": true,
-      "winner": 1,
+      "winner": 0,
       "score": [
-        6,
-        8
+        7,
+        1
       ],
-      "ticks": 939,
-      "final_state_hash": "d5507c594468e994",
-      "replay_sha256": "93e000cb464d3c0b64e0fbd339c33d2f99a3ecc6b3fa801f842dc65fc1390f7d"
+      "ticks": 659,
+      "final_state_hash": "21799cd6e3a7fdf9",
+      "replay_sha256": "d11a12a5fd47f37aeff509aca0cc570520a5836f3ae7860330f9677b59268f5a"
     },
     {
       "name": "tunnels-holder-rusher-s2",
@@ -36,12 +36,12 @@
       "finished": true,
       "winner": 1,
       "score": [
-        9,
-        9
+        5,
+        7
       ],
-      "ticks": 1174,
-      "final_state_hash": "18ec6c4340a29471",
-      "replay_sha256": "d0b9eb14e89b8a3098ccea1ddfe81a1caeca1a6c776e1f56d85eafcdb0840016"
+      "ticks": 655,
+      "final_state_hash": "dcf55517161c6efb",
+      "replay_sha256": "0df331587b5bbd4d144fdb0a59ad356368014a83d5d443eba10afb523f8d5173"
     },
     {
       "name": "crossfire-idle-rusher-s5",
@@ -55,9 +55,9 @@
         0,
         7
       ],
-      "ticks": 463,
-      "final_state_hash": "04b7154a6b5e695c",
-      "replay_sha256": "84c07baff71ae79c5868c8196189bbf24a94deab6680f683c1fe584131d499fe"
+      "ticks": 450,
+      "final_state_hash": "3c35e454e10d2d38",
+      "replay_sha256": "21e2c9804edd8088e469301e8ff3dbdf48594d04d91b6f995f09b5dc82d7f77f"
     }
   ]
 }

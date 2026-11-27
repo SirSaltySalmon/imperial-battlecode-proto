@@ -7,8 +7,9 @@
 # unsteady_max. Movement adds no spread. Formulas, a table of these values and measured time-to-kill figures are
 # in docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
 
-# Free sidearm everyone carries: exact single shots and a short startup even off a run, but it reaches only ten
-# tiles and loses damage from four.
+# Free sidearm everyone carries: exact single shots and a short startup even off a run. It reaches fifteen tiles
+# and loses damage only from twelve, so four hits kill (five through light armour, six through heavy) out to
+# about twelve and a half tiles. A bought gun earns its price by killing faster where it is meant to fight.
 [[weapon]]
 name = "pistol"
 slot = 1
@@ -24,9 +25,9 @@ cooldown = 1
 magazine = 12
 reload_ticks = 3
 bullet_speed = 8192
-range = 10240
-falloff_start = 4096
-falloff_min_pct = 50
+range = 15360
+falloff_start = 12288
+falloff_min_pct = 85
 move_pct = 100
 kill_reward = 300
 unsteady_gain = 4

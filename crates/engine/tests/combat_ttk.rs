@@ -346,3 +346,39 @@ fn time_to_kill_gives_each_weapon_its_role() {
         );
     }
 }
+
+/// Hits of `damage` that kill a fresh 100-health unit wearing `armor`.
+fn hits_to_kill(damage: i32, armor: i32) -> i32 {
+    let mut m = start(&arena(12, 5, 1), 1);
+    m.world.units[1].hp = 100;
+    m.world.units[1].armor = armor;
+    let mut hits = 0;
+    while m.world.units[1].alive {
+        m.world.damage(1, damage, Some(0), 0);
+        hits += 1;
+    }
+    hits
+}
+
+#[test]
+fn the_sidearm_kills_in_four_five_and_six_hits_across_most_of_its_reach() {
+    let r = Ruleset::builtin();
+    let pistol = r.weapons[weapon_id(&r, "pistol") as usize];
+    let mut armour: Vec<i32> = r
+        .items
+        .iter()
+        .filter(|i| i.kind == ITEM_KIND_ARMOR)
+        .map(|i| i.value)
+        .collect();
+    armour.sort();
+    armour.insert(0, 0);
+    // No armour, light, heavy: 4, 5, 6 hits out to 12.5 tiles of flight, where falloff starts to cost a hit.
+    for travelled in (0..=12 * TILE + TILE / 2).step_by(128) {
+        let d = damage_at(&pistol, travelled);
+        let hits: Vec<i32> = armour.iter().map(|&a| hits_to_kill(d, a)).collect();
+        assert_eq!(hits, [4, 5, 6], "{d} damage after {travelled} units");
+    }
+    // It reaches fifteen tiles and still kills at the edge.
+    assert_eq!(pistol.range, 15 * TILE);
+    assert!(ttk(pistol.id, 15, false, 0).is_some());
+}

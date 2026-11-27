@@ -2,7 +2,7 @@
 
 # Ruleset reference
 
-Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `2f2da44b3ccf5b19`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -80,9 +80,9 @@ On detonation every living unit within this distance of the charge dies, both te
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |  |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |  |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | Units per tick. |
-| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |  |
-| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
-| `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |  |
+| `range` | 15360 | 30720 | 16384 | 9216 | 40960 | 28672 |  |
+| `falloff_start` | 12288 | 16384 | 6144 | 3072 | 40960 | 14336 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
+| `falloff_min_pct` | 85 | 70 | 40 | 25 | 100 | 60 |  |
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | Percent of max run speed while holding this weapon. |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |  |
 | `slot` | 1 | 0 | 0 | 0 | 0 | 0 |  |
@@ -104,8 +104,9 @@ unsteady_max. Movement adds no spread. Formulas, a table of these values and mea
 in docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
 
 (above [[weapon]] "pistol")
-Free sidearm everyone carries: exact single shots and a short startup even off a run, but it reaches only ten
-tiles and loses damage from four.
+Free sidearm everyone carries: exact single shots and a short startup even off a run. It reaches fifteen tiles
+and loses damage only from twelve, so four hits kill (five through light armour, six through heavy) out to
+about twelve and a half tiles. A bought gun earns its price by killing faster where it is meant to fight.
 
 (above [[weapon]] "rifle")
 All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
