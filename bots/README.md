@@ -37,8 +37,8 @@ What the squad bots do that the first three do not:
   The logic survives a change to `rules/weapons.toml`.
 - **Stay inside the fuel budget.** The expensive questions (where does the enemy come into view of a site,
   how far is it) are asked one per buy tick, last in the turn, and kept for the match. Measured with the
-  wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` still
-  overruns its first buy tick (it plans the whole round at once).
+  wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` does the
+  same (measured below).
 
 ## Measured
 
@@ -141,6 +141,16 @@ On all fourteen maps (2,688 games, 29,616 rounds) attackers win 56.1% [54.8, 57.
 Fuel on the new maps, wasm runner: 6 matches of the squad bots on `bazaar`, `delta`, `fulcrum` and `steppe`
 gave one out-of-fuel turn in total, on `steppe`, the largest map, where one planning step uses the whole buy
 tick. A forward defender used to start a path search for every sound it heard; it now keeps one place to go.
+
+Fuel, wasm runner, 2026-11-27, ruleset `5795cbc069627a93`: `holder` used to plan the whole round in its first
+buy tick and to recompute a post mid-round when it rotated. In a league of the whole pool on all fourteen
+maps, both slots, seeds 1 to 3 (672 game sides) it ran out of fuel in 4,947 turns over 560 sides (seed 1:
+883 of them in the buy phase, 756 in the action phase). It now spends one buy tick per question (its own
+post, the other posts, then distances) and keeps the answers: same league, no out-of-fuel turn. Largest
+single turn (seed 1): 353,027 of the 400,000 a buy tick allows (`steppe`), 98,397 of 100,000 in the action
+phase, where one `Pathfinder::next_waypoint` call towards a new goal alone costs up to about 95,000. Same
+league, Elo before and after: metered -157 [-210, -117] and -136 [-181, -96]; native (unmetered) -140
+[-189, -98] and -134 [-180, -97], 28.7% and 29.2% of 672 matches won: inside the noise.
 
 Fuel, wasm runner (measured before the timing change): 40 matches (every pair of the five squad bots on `agora`, `longwatch`, `tunnels` and
 `warrens`, seed 11) had no out-of-fuel turn and no fault; the largest single turn was 297,188 of the
