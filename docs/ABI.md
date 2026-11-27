@@ -88,6 +88,11 @@ still loads and reads the prefix of each record it knows; what changed is what s
   `kind` = ability id + 1 and `weapon` = -1. Devices hit nobody; they land at a wall, a barrier or their range.
 - `EFFECT_TRAP` (9), `EFFECT_SONAR` (10), `EFFECT_CONCUSSION` (11); abilities 8-10 and kits 7-9 in the
   ruleset. Every ability has one charge.
+- `SiteInfo.plant_x`, `plant_y` (after engine 0.2.0): the plant point, the centre of one tile of the site. It
+  is the site tile whose centre is nearest the bounding-box centre; ties go to the first in row-major order
+  (lowest `ty`, then lowest `tx`). A unit there is on the site, which the box centre need not be: sites may be
+  any shape (L-shaped, hollow). On a filled rectangle with odd sides it equals `centre_x`, `centre_y`. A bot
+  that reads only the first 28 bytes of the record sees no change.
 
 ## For engine and SDK authors
 

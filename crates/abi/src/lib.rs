@@ -361,8 +361,14 @@ pub struct SiteInfo {
     pub min_ty: i32,
     pub max_tx: i32,
     pub max_ty: i32,
+    /// Centre of the bounding box. Not necessarily on the site (an L-shaped or hollow site): walk to
+    /// `plant_x`, `plant_y` to plant.
     pub centre_x: i32,
     pub centre_y: i32,
+    /// The plant point: the centre of the site tile whose centre is nearest the box centre, ties to the first
+    /// in row-major order (lowest `ty`, then lowest `tx`). A unit standing here is on the site.
+    pub plant_x: i32,
+    pub plant_y: i32,
 }
 
 #[repr(C)]

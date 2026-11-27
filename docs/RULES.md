@@ -107,6 +107,10 @@ the earlier one.
 - `A_PLANT` works for the carrier standing on a site and takes `plant_ticks`. `A_DEFUSE` works for a defender
   within `interact_reach` of the planted charge and takes `defuse_ticks` (`defuse_kit_ticks` with a kit).
   Moving, firing or `A_CANCEL` interrupts either channel.
+- "Standing on a site" means the unit's centre is on a tile of that site; a site can have any shape. Bots see
+  each site as a bounding box (`SiteInfo`), whose centre need not be on the site, and a **plant point**
+  (`SiteInfo.plant_x`, `plant_y`): the centre of the site tile nearest the box centre, ties going to the first
+  tile in row-major order (top row first, then leftmost). A carrier standing on the plant point is on the site.
 - **Detonation blast.** When the fuse runs out, every living unit within `blast_radius` (12 tiles) of the charge
   dies, attackers and defenders alike. It is a plain distance: walls do not shield anyone. The attackers win
   the round even if the blast kills them. Blast deaths are ordinary deaths (weapons drop, the loadout is lost)

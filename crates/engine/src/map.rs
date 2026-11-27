@@ -23,6 +23,43 @@ fn centre(tx: i32, ty: i32) -> V2 {
     (tx * TILE + TILE / 2, ty * TILE + TILE / 2)
 }
 
+/// What bots read about site `id` (0-based), whose tiles span the box `b` = (min_tx, min_ty, max_tx, max_ty),
+/// max exclusive.
+fn site_info(id: i32, b: (i32, i32, i32, i32), site_of: &[u8], width: i32) -> SiteInfo {
+    let plant = plant_point(id, b, site_of, width);
+    SiteInfo {
+        id,
+        min_tx: b.0,
+        min_ty: b.1,
+        max_tx: b.2,
+        max_ty: b.3,
+        centre_x: (b.0 + b.2) * TILE / 2,
+        centre_y: (b.1 + b.3) * TILE / 2,
+        plant_x: plant.0,
+        plant_y: plant.1,
+    }
+}
+
+/// The plant point of site `id`: the centre of its tile whose centre is nearest the box centre, so a unit
+/// standing on it is on the site whatever the site's shape. Distances are compared in half tiles, which is
+/// exact; ties go to the first tile in row-major order.
+fn plant_point(id: i32, b: (i32, i32, i32, i32), site_of: &[u8], width: i32) -> V2 {
+    let mut best = (i64::MAX, (b.0, b.1));
+    for ty in b.1..b.3 {
+        for tx in b.0..b.2 {
+            if site_of[(ty * width + tx) as usize] as i32 != id + 1 {
+                continue;
+            }
+            let dx = (2 * tx + 1 - b.0 - b.2) as i64;
+            let dy = (2 * ty + 1 - b.1 - b.3) as i64;
+            if dx * dx + dy * dy < best.0 {
+                best = (dx * dx + dy * dy, (tx, ty));
+            }
+        }
+    }
+    centre(best.1 .0, best.1 .1)
+}
+
 impl Map {
     pub fn parse(text: &str) -> Result<Map, String> {
         let mut name = String::from("unnamed");
@@ -81,16 +118,8 @@ impl Map {
         }
         let mut sites = Vec::new();
         for b in boxes.iter() {
-            match b {
-                Some(b) => sites.push(SiteInfo {
-                    id: sites.len() as i32,
-                    min_tx: b.0,
-                    min_ty: b.1,
-                    max_tx: b.2,
-                    max_ty: b.3,
-                    centre_x: (b.0 + b.2) * TILE / 2,
-                    centre_y: (b.1 + b.3) * TILE / 2,
-                }),
+            match *b {
+                Some(b) => sites.push(site_info(sites.len() as i32, b, &site_of, width)),
                 None => break,
             }
         }
@@ -229,5 +258,19 @@ mod tests {
         assert_eq!(m.site_at(c(5, 2)), Some(0));
         assert!(m.circle_blocked((TILE + 100, TILE + 512), 300));
         assert!(!m.circle_blocked(c(1, 1), 300));
+    }
+
+    #[test]
+    fn plant_point_of_a_rectangle() {
+        // 3x3: the box centre is the middle tile's centre, and that is the plant point.
+        let m = Map::parse("name: r\n---\n#######\n#a111d#\n#.111.#\n#.111.#\n#######\n").unwrap();
+        let s = m.sites[0];
+        assert_eq!((s.plant_x, s.plant_y), (s.centre_x, s.centre_y));
+        assert_eq!((s.plant_x, s.plant_y), centre(3, 2));
+        // 3x2: the box centre lies on the edge between rows 1 and 2; the tie goes to the upper row.
+        let m = Map::parse("name: r\n---\n#######\n#a111d#\n#.111.#\n#######\n").unwrap();
+        let s = m.sites[0];
+        assert_eq!((s.centre_x, s.centre_y), (3 * TILE + TILE / 2, 2 * TILE));
+        assert_eq!((s.plant_x, s.plant_y), centre(3, 1));
     }
 }
