@@ -296,12 +296,12 @@ async fn the_fill_up_tops_the_queue_up_to_the_backlog() {
             .unwrap()
     };
     assert_eq!(fill(&h), 0, "no workers: nothing to fill");
-    // One 4-core worker, nothing measured (10 s a game): 120 s of work is 48 games, 24 series.
+    // One 4-core worker, nothing measured (the 2 s prior): 120 s of work is 240 games, 120 series.
     let _w = MockWorker::register(&h, "w", true).await;
-    assert_eq!(fill(&h), 24);
+    assert_eq!(fill(&h), 120);
     let created = h.app.ranked_fill_round(2).unwrap();
     assert_eq!(created.len(), 2, "five teams: two pairs, one sits out");
-    assert_eq!(fill(&h), 22, "the four queued games leave less room");
+    assert_eq!(fill(&h), 118, "the four queued games leave less room");
 
     let off = Harness::new(|c| c.ranked_backlog_ms = 0);
     off.league(&["a", "b"]).await;
