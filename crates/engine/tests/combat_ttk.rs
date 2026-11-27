@@ -345,13 +345,15 @@ fn time_to_kill_gives_each_weapon_its_role() {
             "rifle vs {o} at 10 tiles"
         );
     }
-    // At 15 tiles the rifle meets the marksman: only the marksman kills faster there.
-    for o in ["pistol", "smg", "shotgun", "lmg"] {
+    // At 15 tiles the rifle meets the marksman: only the marksman kills faster there. The 15-tile pistol may
+    // tie it at the very edge of its reach, never beat it.
+    for o in ["smg", "shotgun", "lmg"] {
         assert!(
             t("rifle", 15, false).unwrap() < t(o, 15, false).unwrap_or(CAP),
             "rifle vs {o} at 15 tiles"
         );
     }
+    assert!(t("rifle", 15, false).unwrap() <= t("pistol", 15, false).unwrap_or(CAP));
     assert!(t("marksman", 15, false).unwrap() < t("rifle", 15, false).unwrap());
 
     // LMG: fast once braced. The fastest kill on heavy armour at 5 tiles and close to the rifle at 10, but the
@@ -397,15 +399,21 @@ fn time_to_kill_gives_each_weapon_its_role() {
     assert!(hunter.price < r.weapons[id("smg") as usize].price);
 
     // The free sidearm is the slowest standing kill at 5 tiles: every purchase is an upgrade somewhere. The
-    // hunter's upgrade is reach, not close range (it loses to anything that closes): it beats the pistol
-    // from 10 tiles out instead.
+    // hunter's upgrade is reach, not close range (it loses to anything that closes): it is never slower than
+    // the 15-tile pistol from 10 tiles out, and beats it from 15.
     for o in others("pistol").into_iter().filter(|o| o != "hunter") {
         assert!(
             t(&o, 5, false).unwrap() <= t("pistol", 5, false).unwrap(),
             "{o} vs pistol at 5 tiles"
         );
     }
-    assert!(t("hunter", 10, false).unwrap() < t("pistol", 10, false).unwrap_or(CAP));
+    assert!(t("hunter", 10, false).unwrap() <= t("pistol", 10, false).unwrap_or(CAP));
+    for d in [15, 20] {
+        assert!(
+            t("hunter", d, false).unwrap() < t("pistol", d, false).unwrap_or(CAP),
+            "hunter vs pistol at {d}"
+        );
+    }
 }
 
 /// Hits of `damage` that kill a fresh 100-health unit wearing `armor`.

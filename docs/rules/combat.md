@@ -174,31 +174,31 @@ damage to kill and heavy (50) means 150.
 Values, straight from `rules/weapons.toml`:
 
 <!-- generated:weapons -->
-| field | pistol | rifle | smg | shotgun | marksman | lmg |
-|---|---:|---:|---:|---:|---:|---:|
-| `id` | 0 | 1 | 2 | 3 | 4 | 5 |
-| `slot` | sidearm | primary | primary | primary | primary | primary |
-| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |
-| `damage` | 26 | 22 | 17 | 15 | 74 | 16 |
-| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 |
-| `spread` | 0 | 250 | 200 | 260 | 0 | 300 |
-| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 |
-| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |
-| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |
-| `windup` | 1 | 1 | 1 | 1 | 2 | 2 |
-| `cooldown` | 1 | 1 | 0 | 3 | 4 | 0 |
-| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
-| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
-| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
-| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |
-| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 24576 | 14336 |
-| `falloff_min_pct` | 50 | 70 | 40 | 25 | 86 | 60 |
-| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 |
-| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |
-| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 |
-| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 |
-| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 |
-| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 |
+| field | pistol | rifle | smg | shotgun | marksman | lmg | hunter |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `id` | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+| `slot` | sidearm | primary | primary | primary | primary | primary | primary |
+| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 | 1200 |
+| `damage` | 26 | 22 | 12 | 15 | 74 | 13 | 74 |
+| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | 1 |
+| `spread` | 0 | 250 | 200 | 260 | 0 | 300 | 0 |
+| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 | 300 |
+| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 | 4 |
+| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 | 1 |
+| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | 2 |
+| `cooldown` | 1 | 1 | 0 | 3 | 4 | 0 | 5 |
+| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 | 5 |
+| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 | 5 |
+| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | 20480 |
+| `range` | 15360 | 30720 | 16384 | 9216 | 30720 | 28672 | 24576 |
+| `falloff_start` | 12288 | 16384 | 6144 | 3072 | 24576 | 14336 | 24576 |
+| `falloff_min_pct` | 85 | 70 | 40 | 25 | 86 | 60 | 100 |
+| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | 80 |
+| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 | 400 |
+| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 | 12 |
+| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
+| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 | 16 |
+| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 | 25 |
 <!-- /generated:weapons -->
 
 What they add up to (startup in ticks for a steady unit, one that has walked long enough to settle, and one
@@ -212,9 +212,9 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 | rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
 | smg | 1 / 1 / 1 | 1 | 24 / 8 | 200 | 700 | 16.0 | 9.0 | 16 + 3 |
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
-| marksman | 2 / 6 / 6 | 5 | 74 / 63 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
-| lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
-| hunter | 2 / 6 / 6 | 6 | 75 / 75 | 0 | 560 | 24.0 | 20.0 | 27 + 5 |
+| marksman | 2 / 6 / 6 | 5 | 74 / 63 | 0 | 560 | 30.0 | 20.0 | 23 + 5 |
+| lmg | 2 / 6 / 6 | 1 | 65 / 35 | 1200 | 490 | 28.0 | 12.0 | 22 + 7 |
+| hunter | 2 / 6 / 6 | 6 | 74 / 74 | 0 | 560 | 24.0 | 20.0 | 27 + 5 |
 <!-- /generated:derived -->
 
 Roles:
@@ -257,12 +257,13 @@ Target with 100 health and no armour:
 <!-- generated:ttk -->
 | weapon | 2 tiles standing | 2 tiles after running | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 15 tiles standing | 15 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| pistol | 8 | 9 | 8 | 9 | 17 | 18 | no kill | no kill | no kill | no kill |
+| pistol | 8 | 9 | 8 | 9 | 9 | 10 | 11 | 12 | no kill | no kill |
 | rifle | 4 | 7 | 6 | 9 | 6 | 9 | 11 | 14 | 11 | 14 |
-| smg | 6 | 6 | 6 | 6 | 9 | 9 | 19 | 19 | no kill | no kill |
+| smg | 6 | 6 | 6 | 6 | 14 | 14 | 28 | 28 | no kill | no kill |
 | shotgun | 2 | 4 | 6 | 8 | no kill | no kill | no kill | no kill | no kill | no kill |
 | marksman | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 |
-| lmg | 6 | 10 | 6 | 10 | 9 | 13 | 22 | 26 | 25 | 29 |
+| lmg | 4 | 8 | 4 | 8 | 8 | 12 | 12 | 16 | 13 | 17 |
+| hunter | 9 | 13 | 9 | 13 | 9 | 13 | 9 | 13 | 9 | 13 |
 <!-- /generated:ttk -->
 
 Target with 100 health and the lightest armour in the shop:
@@ -270,12 +271,13 @@ Target with 100 health and the lightest armour in the shop:
 <!-- generated:ttk-light -->
 | weapon | 2 tiles standing | 2 tiles after running | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 15 tiles standing | 15 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| pistol | 10 | 11 | 10 | 11 | 19 | 20 | no kill | no kill | no kill | no kill |
+| pistol | 10 | 11 | 10 | 11 | 11 | 12 | 13 | 14 | no kill | no kill |
 | rifle | 4 | 7 | 8 | 11 | 8 | 11 | 13 | 16 | 15 | 18 |
-| smg | 8 | 8 | 8 | 8 | 11 | 11 | 23 | 23 | no kill | no kill |
+| smg | 7 | 7 | 7 | 7 | 17 | 17 | 37 | 37 | no kill | no kill |
 | shotgun | 6 | 8 | 10 | 12 | no kill | no kill | no kill | no kill | no kill | no kill |
 | marksman | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 |
-| lmg | 6 | 10 | 6 | 10 | 9 | 13 | 28 | 32 | 31 | 35 |
+| lmg | 4 | 8 | 5 | 9 | 10 | 14 | 14 | 18 | 15 | 19 |
+| hunter | 9 | 13 | 9 | 13 | 9 | 13 | 9 | 13 | 9 | 13 |
 <!-- /generated:ttk-light -->
 
 Target with 100 health and the heaviest armour in the shop:
@@ -283,12 +285,13 @@ Target with 100 health and the heaviest armour in the shop:
 <!-- generated:ttk-armor -->
 | weapon | 2 tiles standing | 2 tiles after running | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 15 tiles standing | 15 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| pistol | 12 | 13 | 12 | 13 | 23 | 24 | no kill | no kill | no kill | no kill |
+| pistol | 12 | 13 | 12 | 13 | 13 | 14 | 15 | 16 | no kill | no kill |
 | rifle | 6 | 9 | 10 | 13 | 10 | 13 | 15 | 18 | 17 | 20 |
-| smg | 10 | 10 | 10 | 10 | 15 | 15 | 29 | 29 | no kill | no kill |
+| smg | 8 | 8 | 10 | 10 | 23 | 23 | 43 | 43 | no kill | no kill |
 | shotgun | 6 | 8 | 10 | 12 | no kill | no kill | no kill | no kill | no kill | no kill |
-| marksman | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 |
-| lmg | 6 | 10 | 6 | 10 | 12 | 16 | 31 | 35 | 37 | 41 |
+| marksman | 13 | 17 | 13 | 17 | 13 | 17 | 13 | 17 | 13 | 17 |
+| lmg | 5 | 9 | 6 | 10 | 12 | 16 | 16 | 20 | 17 | 21 |
+| hunter | 15 | 19 | 15 | 19 | 15 | 19 | 15 | 19 | 15 | 19 |
 <!-- /generated:ttk-armor -->
 
 These are duels against a target that stands still. A target that strafes at range dodges any single shot
