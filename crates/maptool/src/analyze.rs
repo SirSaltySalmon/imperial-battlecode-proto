@@ -56,8 +56,10 @@ pub struct SiteReport {
     /// Site number as written in the map file (1-based).
     pub site: i32,
     pub tiles: usize,
-    pub centre: V2,
-    /// World units and ticks from the fastest spawn tile to the site centre; -1 if unreachable.
+    /// The plant point (`SiteInfo.plant_x/plant_y`): where bots plant, and where every number below is
+    /// measured from. Unlike the bounding-box centre it is on the site whatever the site's shape.
+    pub plant: V2,
+    /// World units and ticks from the fastest spawn tile to the plant point; -1 if unreachable.
     pub attacker_dist: i64,
     pub attacker_ticks: i64,
     pub defender_dist: i64,
@@ -77,12 +79,12 @@ pub struct SiteReport {
     pub cover_wall_pct: i64,
     pub cover_low_pct: i64,
     pub cover_pct: i64,
-    /// Walkable tiles with a clear line to a charge planted on the centre.
+    /// Walkable tiles with a clear line to a charge planted on the plant point.
     pub postplant_visible_tiles: usize,
     pub postplant_visible_pct: i64,
     pub postplant_farthest: Option<(i32, i32)>,
     pub retakes: Vec<Retake>,
-    /// Shortest routes to the centre (world units), for rendering.
+    /// Shortest routes to the plant point (world units), for rendering.
     pub attacker_path: Vec<V2>,
     pub defender_path: Vec<V2>,
 }
@@ -157,8 +159,8 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
     ];
     let tile_dist = [vis.tile_dists(&fields[0]), vis.tile_dists(&fields[1])];
     let walkable = g.stand.iter().filter(|&&s| s).count();
-    let centres: Vec<V2> = map.sites.iter().map(|s| (s.centre_x, s.centre_y)).collect();
-    let site_fields: Vec<_> = centres.iter().map(|&c| vis.field(&[c])).collect();
+    let plants: Vec<V2> = map.sites.iter().map(|s| (s.plant_x, s.plant_y)).collect();
+    let site_fields: Vec<_> = plants.iter().map(|&c| vis.field(&[c])).collect();
 
     // Attacker spawn zone: the source side of every route cut.
     let starts: Vec<usize> = used_spawns(map, 0)
@@ -173,7 +175,7 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
 
     let mut sites = Vec::new();
     for (k, site) in map.sites.iter().enumerate() {
-        let c = centres[k];
+        let c = plants[k];
         let own: Vec<bool> = map.site_of.iter().map(|&s| s as usize == k + 1).collect();
         let site_tiles: Vec<usize> = (0..own.len()).filter(|&i| own[i]).collect();
         let timing = |side: usize| match vis.dist_to(&fields[side], c) {
@@ -234,7 +236,7 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
             holds.iter().map(|h| h.share_pct).sum::<i64>() / holds.len() as i64
         };
 
-        // Cover density in a disc around the centre (site tiles themselves excluded).
+        // Cover density in a disc around the plant point (site tiles themselves excluded).
         let radius = bands.cover_radius_tiles * TILE as i64;
         let (mut area, mut walls, mut lows) = (0usize, 0usize, 0usize);
         for ty in 0..map.height {
@@ -278,7 +280,7 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
         sites.push(SiteReport {
             site: site.id + 1,
             tiles: site_tiles.len(),
-            centre: c,
+            plant: c,
             attacker_dist: a_dist,
             attacker_ticks: a_ticks,
             defender_dist: d_dist,
@@ -305,9 +307,9 @@ pub fn analyze(map: &Map, rules: &Ruleset, bands: &Bands) -> Analysis {
     }
 
     let mut rotations = Vec::new();
-    for i in 0..centres.len() {
-        for j in i + 1..centres.len() {
-            if let Some(d) = vis.dist_to(&site_fields[i], centres[j]) {
+    for i in 0..plants.len() {
+        for j in i + 1..plants.len() {
+            if let Some(d) = vis.dist_to(&site_fields[i], plants[j]) {
                 rotations.push(Rotation {
                     from_site: i as i32 + 1,
                     to_site: j as i32 + 1,

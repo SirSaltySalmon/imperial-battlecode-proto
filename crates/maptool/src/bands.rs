@@ -10,9 +10,9 @@ pub type Band = [i64; 2];
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Bands {
-    /// Ticks for the fastest attacker to run from spawn to the site centre.
+    /// Ticks for the fastest attacker to run from spawn to the site's plant point.
     pub attacker_ticks: Band,
-    /// Ticks for the fastest defender to run from spawn to the site centre.
+    /// Ticks for the fastest defender to run from spawn to the site's plant point.
     pub defender_ticks: Band,
     /// Attacker ticks minus defender ticks: how long defenders hold the site before first contact.
     pub advantage_ticks: Band,
@@ -20,7 +20,7 @@ pub struct Bands {
     /// Above the band a unit cannot cross the map and come back within a round, and defenders
     /// pushing out are out of earshot of an attack that has already left.
     pub spawn_to_spawn_ticks: Band,
-    /// Ticks to run between two site centres.
+    /// Ticks to run between the plant points of two sites.
     pub rotation_ticks: Band,
     /// Distinct chokepoints between the attacker spawn zone and the site.
     pub routes: Band,
@@ -34,16 +34,16 @@ pub struct Bands {
     pub mean_hold_share_pct: Band,
     /// Walls plus low cover among the tiles around the site, percent.
     pub cover_pct: Band,
-    /// Walkable tiles that can see a charge planted at the site centre, percent of the map.
+    /// Walkable tiles that can see a charge planted at the site's plant point, percent of the map.
     pub postplant_visible_pct: Band,
     /// Fuse ticks left when a defender rotating from the nearest other site finishes defusing.
     pub retake_slack_ticks: Band,
 
-    /// Hold positions are looked for between these distances (tiles) from the site centre.
+    /// Hold positions are looked for between these distances (tiles) from the site's plant point.
     pub hold_radius_tiles: Band,
     /// A hold position must be reachable by a defender this many ticks before any attacker.
     pub hold_lead_ticks: i64,
-    /// Cover density is measured within this many tiles of the site centre.
+    /// Cover density is measured within this many tiles of the site's plant point.
     pub cover_radius_tiles: i64,
     /// Chokes are looked for beyond this share (percent) of the attackers' way to the site: the
     /// first part of the approach, and anything within `spawn_zone_steps` of a spawn, cannot be cut.

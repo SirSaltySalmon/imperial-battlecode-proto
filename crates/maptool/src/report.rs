@@ -206,8 +206,9 @@ pub fn markdown(a: &Analysis) -> String {
     }
     let _ = writeln!(
         o,
-        "\nHold positions: off-site tiles {}..{} tiles from the centre that a defender reaches at least {} ticks before any \
-         attacker and that see part of the site. Cover: blocked tiles within {} tiles of the centre. Bands: best hold {}%, \
+        "\nHold positions: off-site tiles {}..{} tiles from the plant point that a defender reaches at least {} ticks before \
+         any attacker and that see part of the site. Cover: blocked tiles within {} tiles of the plant point. Bands: best \
+         hold {}%, \
          mean hold {}%, cover {}%, charge visibility {}% of walkable tiles.\n",
         b.hold_radius_tiles[0], b.hold_radius_tiles[1], b.hold_lead_ticks, b.cover_radius_tiles,
         band(b.best_hold_share_pct), band(b.mean_hold_share_pct), band(b.cover_pct), band(b.postplant_visible_pct)

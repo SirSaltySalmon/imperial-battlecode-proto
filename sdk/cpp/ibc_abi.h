@@ -348,10 +348,14 @@ struct SiteInfo {
     int32_t min_ty;
     int32_t max_tx;
     int32_t max_ty;
+    /// Centre of the bounding box. Not necessarily on the site: walk to `plant_x`, `plant_y` to plant.
     int32_t centre_x;
     int32_t centre_y;
+    /// The plant point: centre of the site tile nearest the box centre (ties: lowest `ty`, then lowest `tx`).
+    int32_t plant_x;
+    int32_t plant_y;
 };
-static_assert(sizeof(SiteInfo) == 28);
+static_assert(sizeof(SiteInfo) == 36);
 
 struct DropInfo {
     int32_t kind;

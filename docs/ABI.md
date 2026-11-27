@@ -109,10 +109,15 @@ still loads and reads the prefix of each record it knows; what changed is what s
   `kind` = ability id + 1 and `weapon` = -1. Devices hit nobody; they land at a wall, a barrier or their range.
 - `EFFECT_TRAP` (9), `EFFECT_SONAR` (10), `EFFECT_CONCUSSION` (11); abilities 8-10 and kits 7-9 in the
   ruleset. Every ability has one charge.
-- What a hit tells: `EventInfo.dir`, `src_x`, `src_y` (the record grows from 24 to 36 bytes), `DIR_HIDDEN`
+- What a hit tells (after engine 0.2.0): `EventInfo.dir`, `src_x`, `src_y` (the record grows from 24 to 36 bytes), `DIR_HIDDEN`
   (-1), `EVENT_EFFECT` (7). The actor of `EVENT_DAMAGE` reads -1 for the victim's team, where it used to name
   the shooter. `T_EVENTS` is no longer identical for teammates: only an event's target reads where it came
   from (see Conventions).
+- `SiteInfo.plant_x`, `plant_y` (after engine 0.2.0): the plant point, the centre of one tile of the site. It
+  is the site tile whose centre is nearest the bounding-box centre; ties go to the first in row-major order
+  (lowest `ty`, then lowest `tx`). A unit there is on the site, which the box centre need not be: sites may be
+  any shape (L-shaped, hollow). On a filled rectangle with odd sides it equals `centre_x`, `centre_y`. A bot
+  that reads only the first 28 bytes of the record sees no change.
 
 ## For engine and SDK authors
 

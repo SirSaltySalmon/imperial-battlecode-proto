@@ -1,0 +1,16 @@
+name: site_hollow
+team_size: 3
+// A hollow site: a one-tile ring of site tiles round a 3x3 pillar. The bounding box is tiles (8,3)..(12,7)
+// and its centre, tile (10,5), is inside the pillar. The plant point is the centre of tile (10,3): four ring
+// tiles are two tiles from the box centre and (10,3) comes first in row-major order.
+---
+#################################
+#aaa..#.........................#
+#.....#.........................#
+#.....#.11111...................#
+#.......1###1...................#
+#.......1###1...................#
+#.......1###1...................#
+#.......11111...................#
+#.....#......................ddd#
+#################################

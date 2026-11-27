@@ -145,32 +145,39 @@ fn site_too_small() {
 }
 
 #[test]
-fn site_centre_not_on_the_site() {
-    // An L-shaped site: the bounding-box centre (tile 8,3) is plain floor.
-    let mut g = CLEAN;
-    g[2] = "#....#.111#";
-    g[3] = "#....#.1..#";
-    g[4] = "#......1..#";
-    expect_error(&g, "site-centre");
+fn sites_of_any_shape_are_clean() {
+    // Bots plant on `SiteInfo.plant_x/plant_y`, a site tile, so the bounding-box centre may be off the site.
+    let mut l_shaped = CLEAN;
+    l_shaped[2] = "#....#.111#";
+    l_shaped[3] = "#....#.1..#";
+    l_shaped[4] = "#......1..#"; // box centre: tile (8,3), plain floor
+    let mut round_cover = CLEAN;
+    round_cover[2] = "#....#.111#";
+    round_cover[3] = "#....#.1o1#"; // box centre: the low cover
+    round_cover[4] = "#......111#";
+    for g in [l_shaped, round_cover] {
+        let issues = run(&g);
+        assert!(issues.is_empty(), "{g:?}: {issues:?}");
+    }
 }
 
 #[test]
-fn site_centre_inside_cover() {
-    let mut g = CLEAN;
-    g[2] = "#....#.111#";
-    g[3] = "#....#.1o1#";
-    g[4] = "#......111#";
-    expect_error(&g, "site-centre");
-}
-
-#[test]
-fn even_sized_site_centre_must_be_surrounded_by_site_tiles() {
-    // 2x2 is fine (CLEAN); a 2x2 bounding box with one corner missing is not.
-    let mut g = CLEAN;
-    g[2] = "#....#.11.#";
-    g[3] = "#....#.1..#";
-    let issues = run(&g);
-    assert!(codes(&issues).contains(&"site-centre"), "{issues:?}");
+fn l_shaped_and_hollow_fixture_sites_are_clean() {
+    // The engine's plant-point fixtures, linted with the real ruleset: one L-shaped site whose box centre is
+    // floor, one ring of site tiles round a pillar that holds the box centre.
+    for (name, text) in [
+        (
+            "site_l",
+            include_str!("../../engine/tests/fixtures/site_l.ibcmap"),
+        ),
+        (
+            "site_hollow",
+            include_str!("../../engine/tests/fixtures/site_hollow.ibcmap"),
+        ),
+    ] {
+        let issues = lint(text, Some(name), &Ruleset::builtin());
+        assert!(issues.is_empty(), "{name}: {issues:?}");
+    }
 }
 
 #[test]

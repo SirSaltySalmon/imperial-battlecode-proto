@@ -92,7 +92,7 @@ pub struct Squad {
     /// Per site, the post and watch point worked out so far for the side in `posts_side`.
     posts: Vec<Option<plan::Post>>,
     posts_side: i32,
-    /// Distance fields to the site centres, kept apart from the navigator's so walking never evicts them.
+    /// Distance fields to the plant points, kept apart from the navigator's so walking never evicts them.
     far: Pathfinder,
     /// Per site: how many of the steps that build its distance field in `far` are done.
     fielded: Vec<u8>,
@@ -162,19 +162,20 @@ impl Squad {
         }
     }
 
-    fn centre(&self, site: usize) -> (i32, i32) {
-        (self.sites[site].centre_x, self.sites[site].centre_y)
+    /// Where this team plants on `site`, and the point its posts and distance field are built around.
+    fn plant_point(&self, site: usize) -> (i32, i32) {
+        self.sites[site].plant_point()
     }
 
-    /// Path length from me to the centre of `site`: exact once its field is built, else a guess from the
-    /// straight line.
+    /// Path length from me to the plant point of `site`: exact once its field is built, else a guess from
+    /// the straight line.
     fn far_len(&mut self, me: &UnitInfo, site: usize) -> i32 {
-        let centre = self.centre(site);
-        let straight = dist(me.pos(), centre);
+        let plant = self.plant_point(site);
+        let straight = dist(me.pos(), plant);
         if self.fielded[site] < plan::FIELD_STEPS {
             return straight * 3 / 2;
         }
-        self.far.path_len(&self.nav.grid, me.pos(), centre).unwrap_or(straight)
+        self.far.path_len(&self.nav.grid, me.pos(), plant).unwrap_or(straight)
     }
 
     /// The last enemy position a teammate reported, if it is recent.

@@ -80,7 +80,7 @@ class {{type}} {
         if (engage(me)) return;  // an enemy is in sight: stand and shoot
         const auto site = sites().at(0);
         if (!site) return;
-        const Point goal{site->centre_x, site->centre_y};
+        const Point goal = plant_point(*site);  // a site tile, unlike the box centre
         const Point charge{info.charge_x, info.charge_y};
         const bool attacking = info.my_side == SIDE_ATTACK;
         if (!attacking && info.phase == PHASE_PLANTED) {
