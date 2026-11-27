@@ -72,6 +72,12 @@ fn pairings(view: &Value) -> Vec<Value> {
         .collect()
 }
 
+/// The grand final and its bracket reset: the last two pairings of a double elimination bracket.
+fn finals(view: &Value) -> [Value; 2] {
+    let all = pairings(view);
+    [all[all.len() - 2].clone(), all[all.len() - 1].clone()]
+}
+
 #[tokio::test]
 async fn drafts_are_validated() {
     let h = Harness::new(|_| {});
@@ -316,6 +322,13 @@ async fn double_elimination_runs_to_a_champion() {
     assert_eq!(states, vec!["bye", "running", "bye", "bye"]);
     assert_eq!(first["pairings"][1]["seed_a"], 4);
     assert_eq!(first["pairings"][1]["seed_b"], 5);
+    // The bracket reset is drawn from the start and waits for the grand final.
+    let reset = started["rounds"].as_array().unwrap().last().unwrap();
+    assert_eq!(
+        (&reset["name"], &reset["stage"], &reset["round"]),
+        (&json!("Grand final reset"), &json!("final"), &json!(2))
+    );
+    assert_eq!(reset["pairings"][0]["state"], "waiting");
 
     let w = MockWorker::register(&h, "w", false).await;
     let games = run_out(&h, &w).await;
@@ -338,9 +351,19 @@ async fn double_elimination_runs_to_a_champion() {
         .into_iter()
         .filter(|p| p["state"] == "done")
         .collect();
-    // Without a bracket reset, 2n - 3 or 2n - 2 series, one game per map.
-    assert!(played.len() == 7 || played.len() == 8, "{}", played.len());
+    // The winners-bracket champion won the grand final, so no reset: every other team lost twice, 2n - 2
+    // series, one game per map.
+    assert_eq!(played.len(), 8);
     assert_eq!(games, played.len() * 3);
+    let [grand_final, reset] = finals(&view);
+    assert_eq!(grand_final["state"], "done");
+    assert_eq!(grand_final["winner"], champion);
+    assert_eq!(
+        grand_final["a"], champion,
+        "the winners-bracket champion sits in seat A"
+    );
+    assert_eq!(reset["state"], "empty");
+    assert!(reset["a"].is_null() && reset["b"].is_null() && reset["series_id"].is_null());
     for p in &played {
         assert_eq!(p["decided_by"], "maps");
         let maps = p["maps_won"].as_array().unwrap();
@@ -355,6 +378,91 @@ async fn double_elimination_runs_to_a_champion() {
     let list = h.ok("GET", "/v1/tournaments", None, Value::Null).await;
     assert_eq!(list["tournaments"][0]["id"], id.as_str());
     assert_eq!(list["tournaments"][0]["entrants"], 5);
+}
+
+#[tokio::test]
+async fn a_bracket_reset_decides_when_the_losers_bracket_champion_wins_the_grand_final() {
+    let h = Harness::new(|_| {});
+    setup(&h, &["alpha", "beta", "gamma", "delta", "eps"]).await;
+    let id = create(&h, "double", json!({"kind": "all"})).await;
+    act(&h, &id, "lock").await;
+    act(&h, &id, "start").await;
+    let w = MockWorker::register(&h, "w", false).await;
+    // The bot with the smaller hash wins every pairing except the grand final, which goes to seat B (the
+    // losers-bracket champion); the reset then goes back to the winners-bracket champion.
+    let pick = |round: &str, p: &Value| {
+        let sha = |side: &str| sha256_hex(&bot_wasm(p[side].as_str().unwrap()));
+        round != "Grand final" && sha("a_name") < sha("b_name")
+    };
+    let (mut games, mut saw_reset_running) = (0, false);
+    loop {
+        let n = play_batch(&h, &w, &id, pick).await;
+        if n == 0 {
+            break;
+        }
+        games += n;
+        let view = public_view(&h, &id).await;
+        let [grand_final, reset] = finals(&view);
+        if grand_final["state"] == "done" && reset["state"] != "done" {
+            // Both finalists have lost once: the reset is queued between the same two seats.
+            assert_eq!(view["status"], "running");
+            assert!(view["winner"].is_null());
+            assert_eq!(grand_final["winner"], grand_final["b"]);
+            assert_eq!(reset["state"], "running");
+            assert_eq!(
+                (&reset["a"], &reset["b"]),
+                (&grand_final["a"], &grand_final["b"])
+            );
+            assert!(reset["series_id"].is_string());
+            saw_reset_running = true;
+        }
+    }
+    assert!(saw_reset_running);
+    let view = public_view(&h, &id).await;
+    assert_eq!(view["status"], "finished", "{view}");
+    let [grand_final, reset] = finals(&view);
+    assert_eq!(reset["state"], "done");
+    // The reset's winner is champion, not the grand final's: first and second are the two finalists.
+    assert_eq!(reset["winner"], grand_final["a"]);
+    assert_eq!(view["winner"], reset["winner"]);
+    assert_ne!(view["winner"], grand_final["winner"]);
+    assert_eq!(reset["b"], grand_final["winner"]);
+    // One series more than without a reset: 2n - 1.
+    let played = pairings(&view)
+        .into_iter()
+        .filter(|p| p["state"] == "done")
+        .count();
+    assert_eq!(played, 9);
+    assert_eq!(games, played * 3);
+}
+
+#[tokio::test]
+async fn a_bracket_stored_without_a_reset_slot_gets_one_when_needed() {
+    let h = Harness::new(|_| {});
+    setup(&h, &["alpha", "beta", "gamma"]).await;
+    let id = create(&h, "double", json!({"kind": "all"})).await;
+    act(&h, &id, "lock").await;
+    let started = act(&h, &id, "start").await;
+    let slots = pairings(&started).len();
+    // A tournament started before the reset was part of the bracket has no row for it.
+    h.app
+        .db
+        .tx(|tx| {
+            Ok(tx.execute(
+                "DELETE FROM tournament_matches WHERE tournament_id = ?1 AND idx = ?2",
+                rusqlite::params![id, slots as i64 - 1],
+            )?)
+        })
+        .unwrap();
+    assert_eq!(pairings(&public_view(&h, &id).await).len(), slots - 1);
+    let w = MockWorker::register(&h, "w", false).await;
+    while play_batch(&h, &w, &id, |round, _| round != "Grand final").await > 0 {}
+    let view = public_view(&h, &id).await;
+    assert_eq!(view["status"], "finished");
+    let [grand_final, reset] = finals(&view);
+    assert_eq!(grand_final["winner"], grand_final["b"]);
+    assert_eq!(reset["state"], "done");
+    assert_eq!(view["winner"], reset["a"]);
 }
 
 /// Complete one leased job with a chosen outcome and score (by engine slot).
@@ -381,6 +489,55 @@ async fn complete_with(h: &Harness, w: &MockWorker, job: &Value, outcome: &str, 
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{out}");
+}
+
+/// Lease and play one batch of tournament `id`'s games, then close what finished; returns how many games.
+/// Every game of a pairing goes to its seat A if `a_wins(round name, pairing)`, else to its seat B.
+async fn play_batch(
+    h: &Harness,
+    w: &MockWorker,
+    id: &str,
+    a_wins: impl Fn(&str, &Value) -> bool,
+) -> usize {
+    let jobs = w.lease(h, 16, 0).await;
+    let view = public_view(h, id).await;
+    for job in &jobs {
+        let job_id = job["job_id"].as_str().unwrap();
+        let series: String = h
+            .app
+            .db
+            .tx(|tx| {
+                Ok(tx.query_row(
+                    "SELECT series_id FROM games WHERE job_id = ?1",
+                    [job_id],
+                    |r| r.get(0),
+                )?)
+            })
+            .unwrap();
+        let (round, p) = view["rounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|r| {
+                let name = r["name"].as_str().unwrap();
+                r["pairings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(move |p| (name, p))
+            })
+            .find(|(_, p)| p["series_id"] == series.as_str())
+            .unwrap();
+        let winner = if a_wins(round, p) { "a_name" } else { "b_name" };
+        let winner_sha = sha256_hex(&bot_wasm(p[winner].as_str().unwrap()));
+        if job["bot_a"]["sha256"] == winner_sha.as_str() {
+            complete_with(h, w, job, "a", [7, 3]).await;
+        } else {
+            complete_with(h, w, job, "b", [3, 7]).await;
+        }
+    }
+    h.app.sweep().unwrap();
+    jobs.len()
 }
 
 /// Run a two-team tournament where every map is a draw with the given score; returns its only pairing.

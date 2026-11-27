@@ -71,7 +71,9 @@ Workers are built for instances that vanish:
 
 - **Drain** = stop leasing, finish and report what is running, exit 0. Triggers: `SIGTERM`/Ctrl-C, or the
   `--drain-file` appearing. A second signal, or `--drain-timeout-secs` (default 90) running out, kills the
-  running matches and gives their jobs back with `release` (no attempt spent).
+  running matches and gives their jobs back with `release` (no attempt spent). A lease long poll that is
+  open when the drain begins is not cut short: an idle worker exits when it returns (at most `--poll-ms`,
+  25 s), and any job it brings back is released unstarted.
 - **Interruption notices**: `cloud-init.yaml` installs `ibc-interruption-watch`, which polls the metadata
   service (AWS `spot/instance-action`, GCP `instance/preempted`, Azure scheduled events) and touches
   `/run/ibc-worker/drain`. AWS gives 120 s, GCP and Azure about 30 s; a match takes tens of milliseconds, so

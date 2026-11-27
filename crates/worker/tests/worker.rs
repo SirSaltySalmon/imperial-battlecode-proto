@@ -492,6 +492,90 @@ fn drain_finishes_in_flight_work_and_leases_nothing_more() {
     );
 }
 
+/// A drain that begins during a long poll cannot cancel the poll; whatever it brings back has not started
+/// and is given back at once, so a machine about to disappear does not start matches it cannot finish.
+#[test]
+fn a_job_from_a_poll_open_when_the_drain_began_is_released_unstarted() {
+    let Some(f) = fixture() else { return };
+    let mut r = rig(f, "drainpoll");
+    r.cfg.once = false;
+    r.cfg.poll_wait_ms = 5_000;
+    let (cfg, shutdown) = (r.cfg.clone(), Arc::new(Shutdown::default()));
+    let handle = shutdown.clone();
+    let worker = std::thread::spawn(move || ibc_worker::run(cfg, handle));
+    r.mock
+        .wait_for("the first poll", Duration::from_secs(20), |st| st.polls > 0);
+    shutdown.request_drain();
+    r.push(f, "j1", 1);
+    assert_eq!(
+        worker.join().unwrap().unwrap(),
+        Stats {
+            completed: 0,
+            failed: 0,
+            released: 1,
+            dropped: 0
+        }
+    );
+    let st = r.mock.state();
+    assert_eq!(st.released, [("j1".to_string(), "worker shutting down".to_string())]);
+    assert_eq!(st.blob_gets, 0, "nothing was downloaded for it");
+}
+
+/// The real binary and real SIGTERMs, which `docker stop`, systemd and orchestrators relaying a spot reclaim
+/// send: the first drains (the job in hand finishes, nothing more is leased, exit 0), a second aborts (the
+/// job in hand is released). The tests around this one cover the drain logic through the drain file and
+/// in-process calls; this one covers the signal wiring, which only exists on Unix.
+#[cfg(unix)]
+#[test]
+fn sigterm_drains_the_worker_process_and_a_second_one_aborts() {
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
+    let Some(f) = fixture() else { return };
+    for (signals, completed, released) in [(1, 1, 0), (2, 0, 1)] {
+        let r = rig(f, &format!("sigterm{signals}"));
+        // Three blobs at 400 ms each: the first job stays in hand for over a second.
+        r.mock.state().blob_delay = Duration::from_millis(400);
+        for i in 0..3 {
+            r.push(f, &format!("j{i}"), i);
+        }
+        let mut child = Command::new(env!("CARGO_BIN_EXE_ibc-worker"))
+            .args(["--coordinator", &r.mock.url, "--registration-token", REG])
+            .args(["--concurrency", "1", "--poll-ms", "100"])
+            .arg("--runner")
+            .arg(&f.runner)
+            .arg("--cache")
+            .arg(&r.cfg.cache_dir)
+            .stdin(Stdio::null())
+            .spawn()
+            .expect("starting ibc-worker");
+        r.mock
+            .wait_for("the first lease", Duration::from_secs(20), |st| {
+                !st.leased.is_empty()
+            });
+        for _ in 0..signals {
+            let pid = child.id().to_string();
+            let kill = Command::new("kill").args(["-TERM", &pid]).status();
+            assert!(kill.expect("running kill").success());
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let status = loop {
+            if let Some(s) = child.try_wait().unwrap() {
+                break s;
+            }
+            assert!(Instant::now() < deadline, "the worker did not exit after SIGTERM");
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert!(status.success(), "{signals} SIGTERM(s): exit {status}");
+        let st = r.mock.state();
+        assert_eq!(
+            (st.completed.len(), st.released.len(), st.queue.len()),
+            (completed, released, 2),
+            "{signals} SIGTERM(s): the job in hand is finished (one) or released (two), the rest stay queued"
+        );
+    }
+}
+
 #[test]
 fn abort_releases_the_job_in_hand() {
     let Some(f) = fixture() else { return };
