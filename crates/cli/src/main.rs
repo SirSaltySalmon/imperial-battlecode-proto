@@ -60,7 +60,8 @@ enum Command {
         /// Stop after this many ticks
         #[arg(long)]
         max_ticks: Option<u32>,
-        /// Fuel multiplier of team A (default: the language default of the bot)
+        /// Fuel multiplier of team A, replacing its language's row of the ruleset (`[[language]]` in
+        /// rules/core.toml)
         #[arg(long)]
         fuel_mult_a: Option<f64>,
         /// Fuel multiplier of team B
@@ -238,8 +239,8 @@ fn run(cli: Cli) -> Result<()> {
             let (bot_b, map) = workspace::run_defaults(bot_b, map)?;
             let mut a = job::resolve_bot(&bot_a)?;
             let mut b = job::resolve_bot(&bot_b)?;
-            a.fuel_multiplier = fuel_mult_a.unwrap_or(a.fuel_multiplier);
-            b.fuel_multiplier = fuel_mult_b.unwrap_or(b.fuel_multiplier);
+            a.fuel_override = fuel_mult_a;
+            b.fuel_override = fuel_mult_b;
             let spec = job::JobSpec { bot_a: a, bot_b: b, map, seed, out_dir: out, max_ticks, frames };
             let r = job::execute(&spec)?;
             println!(

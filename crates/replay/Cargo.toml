@@ -11,3 +11,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 miniz_oxide = "0.8"
 sha2 = "0.10"
+# Reads what a module says about its language (`detect_languages`); no validation, no wasmtime.
+wasmparser = { version = "0.263", default-features = false, features = ["std"] }

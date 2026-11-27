@@ -44,7 +44,7 @@ One JSON line (`ibc_replay::Header`):
 
 | Field | |
 |---|---|
-| `engine_version`, `ruleset_hash`, `map_hash`, `map_text`, `seed`, `wasmtime_version`, `abi_version`, `bots`, `result` | as in format 1 |
+| `engine_version`, `ruleset_hash`, `map_hash`, `map_text`, `seed`, `wasmtime_version`, `abi_version`, `bots`, `result` | as in format 1. Each of `bots` is `name`, `sha256`, `fuel_multiplier` (applied), `language` and `memory_multiplier` (applied); the last two are absent in replays recorded before per-language rows and read as `""` and 1.0 |
 | `team_size` | units per team: unit ids `0..team_size` are team A, the next `team_size` team B. Lets anyone redact without the engine |
 | `redacted` | `[bool, bool]`: teams whose private data was removed |
 | `rules` | `{core, weapons, abilities, economy}`: the `rules/*.toml` texts the match was played under. Omitted if the recorder could not vouch for them (a ruleset changed in code after parsing) |
@@ -93,7 +93,7 @@ match can be counted without re-simulating it. Deterministic: no times, no paths
 | Field | |
 |---|---|
 | `outcome`, `winner`, `score`, `ticks` | `"a"`, `"b"`, `"draw"` or `"unfinished"`; 0, 1 or null; rounds won; ticks simulated |
-| `teams[i]` | team A, then team B: `name`, `wasm_sha256`, `fuel_multiplier`, `faults` (count) and `fuel` |
+| `teams[i]` | team A, then team B: `name`, `wasm_sha256`, `fuel_multiplier`, `language`, `memory_multiplier`, `faults` (count) and `fuel` |
 | `faults` | every bot crash: `{unit, team, tick, reason}` |
 | `seed`, `engine_version`, `wasmtime_version`, `abi_version`, `ruleset_hash`, `map_hash` | what was played |
 | `final_state_hash`, `replay_sha256` | `Match::state_hash()` after the last tick (it covers the seed); SHA-256 of `replay.ibcr` |

@@ -74,7 +74,7 @@ const MOVER: &str = r#"(module
       (br $l))))"#;
 
 fn bot(name: &str, wat: &str) -> BotSpec {
-    BotSpec { name: name.into(), wasm: wat::parse_str(wat).unwrap(), fuel_multiplier: 1.0 }
+    BotSpec::new(name, wat::parse_str(wat).unwrap())
 }
 
 fn run(a: BotSpec, b: BotSpec) -> MatchOutput {
@@ -169,7 +169,7 @@ fn host_calls_are_paid_from_the_same_budget() {
 #[test]
 fn fuel_multiplier_scales_the_budget() {
     let mut a = bot("spinner", SPINNER);
-    a.fuel_multiplier = 2.5;
+    a.fuel_override = Some(2.5);
     let fast = run(a, bot("idle", IDLE));
     let base = run(bot("spinner", SPINNER), bot("idle", IDLE));
     let (f, b) = (&fast.summary.teams[0].fuel, &base.summary.teams[0].fuel);

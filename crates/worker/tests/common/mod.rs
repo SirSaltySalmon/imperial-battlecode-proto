@@ -148,7 +148,7 @@ pub fn match_job(
 ) -> Value {
     json!({
         "job_id": job_id, "kind": "match", "patch": patch,
-        "bot_a": {"sha256": bot_a, "fuel_mult": 1.0}, "bot_b": {"sha256": bot_b, "fuel_mult": 1.0},
+        "bot_a": {"sha256": bot_a, "language": "rust"}, "bot_b": {"sha256": bot_b, "language": "rust"},
         "map": {"sha256": map}, "seed": seed,
     })
 }

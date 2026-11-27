@@ -171,6 +171,28 @@ fn core(i: &Inputs) -> Result<String> {
     Ok(md::table(&["Key", "Value", "Meaning"], &rows))
 }
 
+/// The `[[language]]` rows: what a bot of each language gets per unit.
+fn languages(i: &Inputs) -> String {
+    let r = i.ruleset;
+    let rows: Vec<Vec<String>> = r
+        .languages
+        .iter()
+        .map(|l| {
+            vec![
+                code(&l.name),
+                format!("x{}", l.fuel_milli as f64 / 1000.0),
+                format!("x{}", l.memory_milli as f64 / 1000.0),
+                l.memory_cap(r.memory_bytes).to_string(),
+            ]
+        })
+        .collect();
+    let mut out = md::table(&["Language", "Fuel", "Memory", "Memory cap (bytes)"], &rows);
+    out += "A language without a row gets the `default` row. The fuel multiplier scales every turn's budget \
+            (`fuel_per_tick` and its draft and buy multipliers); the memory multiplier scales `memory_bytes`, \
+            rounded down to whole 64 KiB pages.\n\n";
+    out
+}
+
 fn kits(i: &Inputs) -> Result<String> {
     let r = i.ruleset;
     per_entry(
@@ -318,6 +340,10 @@ pub fn render(i: &Inputs) -> Result<String> {
     out += "## Core\n\n";
     out += &core(i)?;
     out += &notes(core_toml.0, core_toml.1);
+    out += "## Languages
+
+";
+    out += &languages(i);
     out += "## Weapons\n\n";
     out += &transposed(
         i.abi.record("WeaponRules")?,

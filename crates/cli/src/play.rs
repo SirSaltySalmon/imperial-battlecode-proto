@@ -147,8 +147,7 @@ fn team_name(team: i32) -> &'static str {
 }
 
 fn bot_spec(b: &BotInput) -> Result<BotSpec> {
-    let wasm = std::fs::read(&b.wasm).with_context(|| format!("reading {}", b.wasm.display()))?;
-    Ok(BotSpec { name: b.name.clone(), wasm, fuel_multiplier: b.fuel_multiplier })
+    b.spec()
 }
 
 /// The match config and the session for a setup. Checks the seat against the map's team size.
@@ -165,7 +164,7 @@ pub fn prepare(s: Setup) -> Result<(MatchConfig, Arc<Session>)> {
     let first_view = state::view(&start, seat.unit);
     let human = match s.allies {
         Some(a) => BotSpec { name: format!("human+{}", a.name), ..a },
-        None => BotSpec { name: "human".into(), wasm: Vec::new(), fuel_multiplier: 1.0 },
+        None => BotSpec::new("human", Vec::new()),
     };
     let setup_json = setup_json(&rules, &s.map_text, s.mode, seat, [&human.name, &s.opponent.name], s.team);
     let bots = if s.team == 0 { [human, s.opponent] } else { [s.opponent, human] };

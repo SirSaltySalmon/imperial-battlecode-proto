@@ -22,7 +22,7 @@ const IDLE: &str = r#"(module
   (func (export "_start") (loop $l (call $end_turn) (br $l))))"#;
 
 fn idle(name: &str) -> BotSpec {
-    BotSpec { name: name.into(), wasm: wat::parse_str(IDLE).unwrap(), fuel_multiplier: 1.0 }
+    BotSpec::new(name, wat::parse_str(IDLE).unwrap())
 }
 
 struct Running {

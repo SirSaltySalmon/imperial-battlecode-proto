@@ -1,5 +1,6 @@
 //! The patch lifecycle: what a switch does to running series, the drain of the old patch, revalidation
-//! with a grace period, balance patches, and the fuel multiplier the server decides from the language.
+//! with a grace period, balance patches, and the language the server decides (its allowances are the
+//! ruleset's).
 
 mod common;
 
@@ -383,9 +384,27 @@ async fn only_a_balance_patch_widens_rating_uncertainty() {
     assert_eq!(rebuilt.rating.sigma, widened);
 }
 
+/// A module that declares `pages` of initial memory, with `sections` appended.
+fn bot_with_memory(pages: u64, sections: &str) -> Vec<u8> {
+    wat::parse_str(format!(
+        r#"(module (import "ibc" "end_turn" (func $end_turn)) (memory (export "memory") {pages})
+             (func (export "_start") (call $end_turn)) {sections})"#
+    ))
+    .unwrap()
+}
+
+/// The built-in ruleset plus a `python` row: three times the fuel, twice the memory.
+fn with_python(c: &mut ibc_coordinator::config::Config) {
+    c.rules.languages.push(ibc_engine::LanguageRules {
+        name: "python".into(),
+        fuel_milli: 3000,
+        memory_milli: 2000,
+    });
+}
+
 #[tokio::test]
-async fn the_server_decides_the_language_and_its_fuel_multiplier() {
-    let h = Harness::new(|c| c.languages = vec![("rust".into(), 1.0), ("python".into(), 3.0)]);
+async fn the_server_decides_the_language_and_the_ruleset_its_allowances() {
+    let h = Harness::new(with_python);
     let teams = h.league(&["alpha", "beta"]).await;
     let alpha = &teams[0].1;
 
@@ -395,7 +414,10 @@ async fn the_server_decides_the_language_and_its_fuel_multiplier() {
         (StatusCode::BAD_REQUEST, Some("unknown_language"))
     );
     assert!(
-        out["message"].as_str().unwrap().contains("rust, python"),
+        out["message"]
+            .as_str()
+            .unwrap()
+            .contains("cpp, rust, python"),
         "{out}"
     );
     let (status, _) = upload(&h, alpha, "?language=python&fuel_mult=10", bot_wasm("x")).await;
@@ -404,20 +426,37 @@ async fn the_server_decides_the_language_and_its_fuel_multiplier() {
     let (status, out) = upload(&h, alpha, "?language=python", bot_wasm("alpha-py")).await;
     assert_eq!(status, StatusCode::CREATED, "{out}");
     assert_eq!(
-        (out["language"].as_str(), out["fuel_mult"].as_f64()),
-        (Some("python"), Some(3.0))
+        (
+            out["language"].as_str(),
+            out["fuel_mult"].as_f64(),
+            out["memory_mult"].as_f64()
+        ),
+        (Some("python"), Some(3.0), Some(2.0))
     );
     ranked(&h, "alpha", "beta").await;
     let job = MockWorker::register(&h, "w", true)
         .await
         .lease_one(&h)
         .await;
-    let mut mults = [
-        job["bot_a"]["fuel_mult"].as_f64().unwrap(),
-        job["bot_b"]["fuel_mult"].as_f64().unwrap(),
-    ];
-    mults.sort_by(f64::total_cmp);
-    assert_eq!(mults, [1.0, 3.0], "{job}");
+    // Jobs carry the language; the runner applies the patch's row, so no multiplier is sent.
+    let langs = [&job["bot_a"], &job["bot_b"]].map(|b| b["language"].as_str().map(String::from));
+    assert!(langs.contains(&Some("python".into())), "{job}");
+    assert!(
+        job["bot_a"].get("fuel_mult").is_none() && job["bot_b"].get("fuel_mult").is_none(),
+        "{job}"
+    );
+
+    // Memory: twice the cap for Python, the plain cap for any other language.
+    let pages = ibc_engine::Ruleset::builtin().memory_bytes as u64 / 65_536;
+    let big = |tag: &str| bot_with_memory(2 * pages, &format!(r#"(@custom "tag" "{tag}")"#));
+    let (status, out) = upload(&h, alpha, "?language=python", big("py")).await;
+    assert_eq!(status, StatusCode::CREATED, "{out}");
+    let (status, out) = upload(&h, alpha, "?language=rust", big("rs")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{out}");
+    assert!(
+        out["message"].as_str().unwrap().contains("initial memory"),
+        "{out}"
+    );
 
     // A module built by rustc cannot be entered as Python; without a language it is entered as Rust.
     let rustc = bot_with(r#"(@producers (language "Rust" "") (processed-by "rustc" "1.89.0"))"#);
