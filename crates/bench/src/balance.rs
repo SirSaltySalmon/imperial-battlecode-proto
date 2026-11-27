@@ -4,9 +4,10 @@
 //! independent unit, rounds inside a match are not), widened when the seed list produced exact repeats.
 //! `report.json` keeps all of them in one flat `metrics` map so `--compare` can diff two runs.
 
+use crate::balance_weapons::{weapon_kill_metrics, PerWeapon};
 use crate::league::distinct_games;
 use crate::model::{GameResult, Kill};
-use crate::stats::{percentile, ratio_ci, Est};
+use crate::stats::{index_ci, percentile, ratio_ci, Est};
 use ibc_abi::{
     ROUND_WIN_DEFUSE, ROUND_WIN_DETONATION, ROUND_WIN_ELIMINATION, ROUND_WIN_TIMEOUT, TILE,
 };
@@ -14,7 +15,7 @@ use ibc_replay::hash_hex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const SCHEMA: &str = "ibc-bench/balance/1";
+pub const SCHEMA: &str = "ibc-bench/balance/2";
 
 /// Kill distance bands in tiles: label and exclusive upper bound.
 pub(crate) const BANDS: [(&str, f64); 5] = [
@@ -97,6 +98,9 @@ pub struct BalanceReport {
     pub loadouts: BTreeMap<String, BTreeMap<String, f64>>,
     pub attack_matrix: Vec<MatchupRow>,
     pub fuel: Vec<FuelRow>,
+    /// What the per-weapon metrics (`weapon.*`) cover. Absent from reports older than schema 2.
+    #[serde(default)]
+    pub per_weapon: PerWeapon,
     pub degenerate: Degenerate,
     pub warnings: Vec<String>,
 }
@@ -111,7 +115,7 @@ pub fn reason_name(reason: i32) -> String {
     }
 }
 
-fn weapon_name(names: &[String], id: i32) -> String {
+pub(crate) fn weapon_name(names: &[String], id: i32) -> String {
     match names.get(id.max(0) as usize) {
         Some(n) if id >= 0 && !n.is_empty() => n.clone(),
         _ if id < 0 => "other".into(),
@@ -119,7 +123,7 @@ fn weapon_name(names: &[String], id: i32) -> String {
     }
 }
 
-fn band_of(dist: i32) -> &'static str {
+pub(crate) fn band_of(dist: i32) -> &'static str {
     let tiles = dist as f64 / TILE as f64;
     BANDS
         .iter()
@@ -129,30 +133,61 @@ fn band_of(dist: i32) -> &'static str {
 }
 
 /// Collects metrics over a set of games; `widen` stretches intervals when games repeat exactly.
-struct Metrics<'a> {
-    games: &'a [&'a GameResult],
+pub(crate) struct Metrics<'a> {
+    pub(crate) games: &'a [&'a GameResult],
     widen: f64,
     distinct: u64,
     out: BTreeMap<String, Est>,
 }
 
 impl Metrics<'_> {
+    /// Stretch the interval for exact repeats and cap `n` at the distinct games.
+    fn widened(&self, mut e: Est) -> Est {
+        if let (Some(lo), Some(hi)) = (e.lo, e.hi) {
+            let half = (hi - lo) / 2.0 * self.widen;
+            (e.lo, e.hi) = (Some(e.value - half), Some(e.value + half));
+        }
+        e.n = e.n.min(self.distinct);
+        e
+    }
+
+    /// `(sum(a) / sum(b)) / (sum(c) / sum(d))` over games with `d > 0`, e.g. a kill index. `n` counts the
+    /// games with `b > 0` (where the weapon was carried); under two of them the index has no interval.
+    pub(crate) fn add_index(&mut self, key: &str, f: impl Fn(&GameResult) -> [f64; 4]) {
+        let clusters: Vec<[f64; 4]> = self
+            .games
+            .iter()
+            .map(|g| f(g))
+            .filter(|c| c[3] > 0.0)
+            .collect();
+        let Some(mut e) = index_ci(&clusters) else {
+            return;
+        };
+        e.n = clusters.iter().filter(|c| c[1] > 0.0).count() as u64;
+        if e.n < 2 {
+            (e.lo, e.hi) = (None, None);
+        }
+        let e = self.widened(e);
+        self.out.insert(key.to_string(), e);
+    }
+
     /// `sum(num) / sum(den)` over games. `unit_interval` clamps the interval to 0..=1 (rates and shares).
-    fn add(&mut self, key: &str, unit_interval: bool, f: impl Fn(&GameResult) -> (f64, f64)) {
+    pub(crate) fn add(
+        &mut self,
+        key: &str,
+        unit_interval: bool,
+        f: impl Fn(&GameResult) -> (f64, f64),
+    ) {
         let clusters: Vec<(f64, f64)> = self
             .games
             .iter()
             .map(|g| f(g))
             .filter(|c| c.1 > 0.0 || c.0 != 0.0)
             .collect();
-        let Some(mut e) = ratio_ci(&clusters) else {
+        let Some(e) = ratio_ci(&clusters) else {
             return;
         };
-        if let (Some(lo), Some(hi)) = (e.lo, e.hi) {
-            let half = (hi - lo) / 2.0 * self.widen;
-            (e.lo, e.hi) = (Some(e.value - half), Some(e.value + half));
-        }
-        e.n = e.n.min(self.distinct);
+        let e = self.widened(e);
         self.out.insert(
             key.to_string(),
             if unit_interval {
@@ -584,6 +619,29 @@ fn coverage_warnings(ok: &[&GameResult]) -> Vec<String> {
              read from an older games.jsonl); plant and kill-by-weapon metrics use the rest"
         ));
     }
+    let unattributed = ok
+        .iter()
+        .filter(|g| {
+            g.detail
+                .as_ref()
+                .is_some_and(|d| d.version < crate::metrics::DETAIL_VERSION)
+        })
+        .count();
+    if unattributed > 0 {
+        out.push(format!(
+            "{unattributed} game(s) have details from an older ibc-bench without per-weapon attribution; the \
+             per-weapon section (kill index, damage, kill reward, distance by weapon) uses the rest{}",
+            if ok.iter().all(|g| {
+                g.detail
+                    .as_ref()
+                    .is_none_or(|d| d.version < crate::metrics::DETAIL_VERSION)
+            }) {
+                ", so it is unavailable: re-run the league"
+            } else {
+                ""
+            }
+        ));
+    }
     out
 }
 
@@ -633,6 +691,7 @@ pub fn build(results: &[GameResult], mut warnings: Vec<String>) -> BalanceReport
     core_metrics(&mut m, &maps);
     detail_metrics(&mut m);
     weapon_metrics(&mut m);
+    let per_weapon = weapon_kill_metrics(&mut m, &bots);
     let fuel = fuel_rows(&ok, &mut m);
     let degenerate = degenerate(&ok);
     if !degenerate.always_timeout.is_empty() || !degenerate.never_shoot.is_empty() {
@@ -663,6 +722,7 @@ pub fn build(results: &[GameResult], mut warnings: Vec<String>) -> BalanceReport
         loadouts: loadouts(&ok),
         attack_matrix: attack_matrix(&ok),
         fuel,
+        per_weapon,
         degenerate,
         warnings,
     }

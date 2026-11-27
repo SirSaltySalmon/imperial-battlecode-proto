@@ -217,6 +217,35 @@ pub fn ratio_ci(clusters: &[(f64, f64)]) -> Option<Est> {
     })
 }
 
+/// Ratio of two ratios of sums, `(sum(a) / sum(b)) / (sum(c) / sum(d))`, over independent clusters (one
+/// `[a, b, c, d]` per match), with the delta-method interval: each cluster's influence on the estimate
+/// `K = A D / (B C)` is `D/(B C) a - K/B b - K/C c + K/D d`, and those sum to zero. A kill index is one
+/// (kills per carrier-round over kills per unit-round); `a` and `c` may overlap, which the clustering
+/// accounts for.
+pub fn index_ci(clusters: &[[f64; 4]]) -> Option<Est> {
+    let sum = |i: usize| clusters.iter().map(|c| c[i]).sum::<f64>();
+    let (a, b, c, d) = (sum(0), sum(1), sum(2), sum(3));
+    if b <= 0.0 || c <= 0.0 || d <= 0.0 {
+        return None;
+    }
+    let k = a * d / (b * c);
+    let n = clusters.len() as u64;
+    if n < 2 {
+        return Some(Est::point(k, n));
+    }
+    let ss: f64 = clusters
+        .iter()
+        .map(|x| (d / (b * c) * x[0] - k / b * x[1] - k / c * x[2] + k / d * x[3]).powi(2))
+        .sum();
+    let half = t95(n - 1) * (ss * n as f64 / (n as f64 - 1.0)).sqrt();
+    Some(Est {
+        value: k,
+        lo: Some(k - half),
+        hi: Some(k + half),
+        n,
+    })
+}
+
 /// Linear-interpolated percentile (`p` in 0..=100) of an ascending slice.
 pub fn percentile(sorted: &[f64], p: f64) -> f64 {
     if sorted.is_empty() {
@@ -446,6 +475,22 @@ mod tests {
         assert!(close(e.value, m.value, 1e-12) && close(e.lo.unwrap(), m.lo.unwrap(), 1e-12));
         assert!(ratio_ci(&[(0.0, 0.0)]).is_none());
         assert!(ratio_ci(&[(1.0, 2.0)]).unwrap().lo.is_none());
+    }
+
+    #[test]
+    fn index_interval() {
+        // Identical clusters: zero-width interval at the index.
+        let e = index_ci(&[[2.0, 4.0, 5.0, 20.0]; 3]).unwrap();
+        assert!(close(e.value, 2.0, 1e-12) && close(e.half_width().unwrap(), 0.0, 1e-12));
+        // A baseline that is the same in every cluster adds no noise: the index interval is then the
+        // ratio interval of a/b scaled by d/c.
+        let ab = [(1.0, 4.0), (3.0, 5.0), (0.0, 3.0), (2.0, 4.0)];
+        let r = ratio_ci(&ab).unwrap();
+        let e = index_ci(&ab.map(|(a, b)| [a, b, 2.0, 10.0])).unwrap();
+        assert!(close(e.value, r.value * 5.0, 1e-12));
+        assert!(close(e.lo.unwrap(), r.lo.unwrap() * 5.0, 1e-12));
+        assert!(index_ci(&[[1.0, 0.0, 1.0, 1.0]]).is_none());
+        assert!(index_ci(&[[1.0, 1.0, 1.0, 1.0]]).unwrap().lo.is_none());
     }
 
     #[test]
