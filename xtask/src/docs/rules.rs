@@ -2,8 +2,8 @@
 //!
 //! Values come from `ibc_engine::Ruleset::from_toml` (so defaults, clamps and derived counts are the engine's),
 //! field names and meanings from the doc comments of the ABI records (`CoreRules`, `WeaponRules`, ...) and the
-//! engine structs (`EconRules`, `FlowRules`), and the prose from the comments in `rules/*.toml`. A field with
-//! no doc comment gets an empty Meaning cell: document the field and regenerate.
+//! engine structs (`Ruleset`, `EconRules`, `FlowRules`), and the prose from the comments in `rules/*.toml`. A
+//! field with no doc comment gets an empty Meaning cell: document the field and regenerate.
 
 use super::md::{self, code};
 use super::source::{Module, Struct};
@@ -13,7 +13,7 @@ use ibc_engine::Ruleset;
 pub struct Inputs<'a> {
     pub ruleset: &'a Ruleset,
     pub abi: &'a Module,
-    /// Engine sources that document `EconRules` and `FlowRules`.
+    /// Engine sources that document `Ruleset`, `EconRules` and `FlowRules`.
     pub engine: &'a [Module],
     /// `(path, text)` of `rules/core.toml`, `weapons.toml`, `abilities.toml`, `economy.toml`.
     pub tomls: [(&'a str, &'a str); 4],
@@ -150,11 +150,23 @@ fn core(i: &Inputs) -> Result<String> {
             vec![code(&f.name), show(v), doc.trim().to_string()]
         })
         .collect();
-    rows.push(vec![
-        code("round_end_ticks"),
-        i.ruleset.round_end_ticks.to_string(),
-        "Pause after a round is decided. Not part of `T_RULES_CORE`.".to_string(),
-    ]);
+    // Core keys the engine keeps outside `CoreRules`, documented on their `Ruleset` field.
+    let ruleset = i
+        .engine
+        .iter()
+        .find_map(|m| m.record("Ruleset").ok())
+        .ok_or("struct Ruleset not found in the engine sources")?;
+    for (key, v) in [
+        ("round_end_ticks", i.ruleset.round_end_ticks),
+        ("memory_bytes", i.ruleset.memory_bytes),
+    ] {
+        let doc = ruleset.field(key).map(|f| f.doc.as_str()).unwrap_or("");
+        rows.push(vec![
+            code(key),
+            v.to_string(),
+            format!("{doc} Not part of `T_RULES_CORE`."),
+        ]);
+    }
     Ok(md::table(&["Key", "Value", "Meaning"], &rows))
 }
 

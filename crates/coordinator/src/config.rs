@@ -32,6 +32,7 @@ pub struct Config {
     pub verify_fraction: f64,
 
     pub max_wasm_bytes: usize,
+    /// Largest declared initial memory of an upload: the ruleset's `memory_bytes`, which the runner enforces.
     pub max_memory_bytes: u64,
     /// Largest accepted blob upload (replays) and request body in general.
     pub max_blob_bytes: usize,
@@ -131,7 +132,7 @@ impl Default for Config {
             sweep_ms: 2_000,
             verify_fraction: 0.05,
             max_wasm_bytes: 16 << 20,
-            max_memory_bytes: 64 << 20,
+            max_memory_bytes: 8 << 20,
             max_blob_bytes: 64 << 20,
             max_map_bytes: 1 << 20,
             unranked_daily_games: 100,

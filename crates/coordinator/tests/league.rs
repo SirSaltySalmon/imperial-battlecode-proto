@@ -12,6 +12,14 @@ fn wat(text: &str) -> Vec<u8> {
     wat::parse_str(text).unwrap()
 }
 
+/// The upload check refuses what the runner would refuse at instantiation: more memory than `memory_bytes`.
+#[test]
+fn the_upload_memory_cap_is_the_rule() {
+    let rule = ibc_engine::Ruleset::builtin().memory_bytes as u64;
+    assert_eq!(Limits::default().max_memory_bytes, rule);
+    assert_eq!(ibc_coordinator::config::Config::default().max_memory_bytes, rule);
+}
+
 #[test]
 fn wasm_validation_matches_the_runner_rules() {
     let limits = Limits::default();

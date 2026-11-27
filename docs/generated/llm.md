@@ -352,9 +352,14 @@ kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
 
 - Each unit gets `fuel_per_tick` fuel per tick (times a per-language multiplier), more on the draft tick and in
   the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
-  `memory.copy` and `memory.fill` cost fuel per byte, so large `memcpy`/`memset` calls are expensive.
+  `memory.copy` and `memory.fill` cost 1 fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
-- Memory is shared by the team and readable in every phase; each scope is writable in one phase only. Units run
+  One `memory.copy` or `memory.fill` always runs to completion, even past the budget, and the excess is taken
+  out of the following turns: one huge copy can leave a unit idle for several ticks.
+- Each bot instance has its own linear memory of at most `memory_bytes` (8 MiB); the stack counts. A module
+  that declares more is refused at upload and faults at the start of a match; `memory.grow` past the cap
+  returns -1, so the allocator reports out of memory. An instance may have one table of at most 65,536 entries.
+- Team-shared memory (`MEM_*`) is readable in every phase; each scope is writable in one phase only. Units run
   in an order that alternates teams and rotates each tick; a teammate that runs later in the same tick sees
   your write.
   - Team memory (`MEM_TEAM`): `team_mem_bytes`, **zeroed at the start of every round** (nothing carries from one
@@ -1135,7 +1140,7 @@ still loads and reads the prefix of each record it knows; what changed is what s
 
 # Ruleset reference
 
-Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `39c7b9830200a363`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -1176,6 +1181,7 @@ Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults an
 | `blast_radius` | 12288 | On detonation every living unit within this distance of the charge dies, through walls. |
 | `buy_mem_bytes` | 256 |  |
 | `round_end_ticks` | 2 | Pause after a round is decided. Not part of `T_RULES_CORE`. |
+| `memory_bytes` | 8388608 | Most linear memory one unit's wasm instance may have, in bytes: what it declares and what it grows to, its stack included. Each unit has its own. Enforced by the runner. Not part of `T_RULES_CORE`. |
 
 Notes from `rules/core.toml`:
 
@@ -1183,6 +1189,8 @@ Notes from `rules/core.toml`:
 Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full turn, times are ticks.
 
 Buy-phase team memory (MEM_BUY), cleared every round.
+
+Linear memory of each unit's own wasm instance (8 MiB), its stack included. The runner enforces it.
 
 On detonation every living unit within this distance of the charge dies, both teams, through walls.
 ```

@@ -46,7 +46,11 @@ impl RulesSource {
 #[derive(Clone, Debug)]
 pub struct Ruleset {
     pub core: CoreRules,
+    /// Pause after a round is decided.
     pub round_end_ticks: i32,
+    /// Most linear memory one unit's wasm instance may have, in bytes: what it declares and what it grows to,
+    /// its stack included. Each unit has its own. Enforced by the runner.
+    pub memory_bytes: i32,
     pub weapons: Vec<WeaponRules>,
     pub weapon_names: Vec<String>,
     pub abilities: Vec<AbilityRules>,
@@ -234,6 +238,7 @@ impl Ruleset {
         Ok(Ruleset {
             core,
             round_end_ticks: gi(&c, "round_end_ticks", 2).max(1),
+            memory_bytes: gi(&c, "memory_bytes", 8 << 20).max(0),
             weapons,
             weapon_names,
             abilities,
@@ -253,6 +258,7 @@ impl Ruleset {
         let mut h = crate::Fnv::new();
         h.bytes(ibc_abi::bytes_of(&self.core));
         h.i32(self.round_end_ticks);
+        h.i32(self.memory_bytes);
         for w in &self.weapons {
             h.bytes(ibc_abi::bytes_of(w));
         }

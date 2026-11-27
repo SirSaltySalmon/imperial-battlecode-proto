@@ -93,6 +93,8 @@ and the bot is paused mid-turn and resumes next tick, one tick late on everythin
   which the host charges by length. Copying a 4 KB array every tick costs more than most turns. Pass
   records by `const&`, keep big state in members instead of rebuilding it, and do not zero buffers you are
   about to overwrite. (`T v{}` of a large struct is a `memset`.)
+- **Memory is capped at `memory_bytes` (8 MiB) per unit**, the 1 MiB stack included. Past it `malloc` returns
+  null and `new` aborts, which faults the unit.
 - **Host calls have a fixed price** (`FUEL_GET` 40, `FUEL_LOS` 60, `FUEL_RAYCAST` 80, ...). Fetch `me()` and
   `match_info()` once per tick; cache `core_rules()` and weapon rules, which never change during a match.
 - **No heap in the turn loop.** `malloc`, `std::vector` growth, `std::string` and `std::function` all cost

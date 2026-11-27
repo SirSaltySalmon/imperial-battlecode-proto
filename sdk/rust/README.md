@@ -103,6 +103,8 @@ unit's first tick and in the buy phase). Running out ends your turn early.
   on the first tick of a round. Do expensive planning in the buy phase.
 - `memcpy`/`memset` cost fuel per byte: avoid cloning grids or big `Vec`s, do not collect iterators you
   can stream, and keep per-tick allocations out of hot loops.
+- Each unit has `memory_bytes` (8 MiB) of linear memory, its 1 MiB stack included. An allocation past that
+  aborts, which faults the unit.
 - `Pathfinder` keeps 6 distance fields, one per goal tile, grown lazily from the goal. `next_waypoint` /
   `Navigator::go` settle at most 160 tiles per call (about 200 instructions each) and return `None` /
   walk straight until the search reaches you; `path_len` and `tactics::approach_point` finish the search

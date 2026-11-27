@@ -55,6 +55,7 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   because they spread their path searches over the buy ticks and keep the results. `holder` still plans a
   whole round in its first buy tick and overruns it (7 turns in one match on `quarry`). Give it the same
   treatment or retire it, and make the bench default to the wasm backend for anything that is reported.
+  The native sim (`crates/sim`) has no memory cap at all: a bot over `memory_bytes` only fails on wasm.
 - [ ] **Pathfinding cost on large maps.** A full distance field on `crossfire` (544 tiles) is roughly one
   100k-fuel tick by estimate, never measured. On 56x40 maps `path_len`/`approach_point` in `sdk/rust/src/nav.rs`
   may exceed even the buy-phase budget. Measure fuel per call with the wasm runner and either budget the search
@@ -93,8 +94,11 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   summary, and a seed-independent game digest. `ibc-bench` re-simulates every replay to get these today.
 - [ ] **Stack-overflow depth is probably architecture-dependent.** A bot that recurses until it traps may
   fault at a different tick on another CPU. Test on arm64 (section 4) and, if so, bound it deterministically.
-- [ ] **`memory.copy`/`memory.fill` cost fuel per byte.** Documented for players; consider setting
-  `Config::operator_cost` so a 100 KB `memcpy` does not consume a whole tick.
+- [x] **`memory.copy`/`memory.fill` cost fuel per byte.** Decided: keep Wasmtime's 1 fuel per byte. Free bulk
+  operations would let one tick cost unbounded CPU; Wasmtime's per-byte cost is an integer, so the only options
+  are 0 or at least 1; a hand-written copy loop costs about the same. `docs/RULES.md` says that one huge copy is
+  paid for out of the following turns. Was: consider setting `Config::operator_cost` so a 100 KB `memcpy` does
+  not consume a whole tick.
 - [ ] **`lead` and `dist` in the Rust SDK overflow** on extreme inputs (a bullet speed near 1): wraps in
   release, panics in debug. Clamp or use wider arithmetic in `sdk/rust/src/geom.rs` and mirror it in
   `sdk/cpp/ibc.h` (the C++ port matches release behaviour on purpose).
@@ -203,6 +207,10 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   and the host API either through a statically linked extension module (needs a custom CPython build) or over
   a file descriptor the WASI shim implements (no rebuild). Cambridge gave Python 25x the fuel; that multiplier
   is the main running-cost lever, so choose it deliberately.
+- [ ] **Per-language allowances.** One table per language holding the fuel multiplier and a memory multiplier,
+  ideally in `rules/` so it is hashed and identical for local runs and the ladder. Today fuel multipliers are
+  coordinator config (`--language`), recorded per bot in the replay header (`BotInfo.fuel_multiplier`). A
+  memory multiplier would scale the `memory_bytes` cap in the runner and in the upload check.
 - [x] **Map editor** in the browser: `ibc view --editor` (unit 20).
 - [ ] **Bot parameter tuner** (SPSA, as `tools/evotune` did for the Cambridge bot) on top of `ibc-bench`.
 - [x] **Handbook generator:** rules pages from `rules/*.toml`, the ABI reference from `crates/abi`, and a

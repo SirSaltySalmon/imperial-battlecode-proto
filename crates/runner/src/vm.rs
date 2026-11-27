@@ -33,6 +33,8 @@ pub(crate) const INITIAL_FUEL: u64 = u64::MAX / 2;
 const INSTANTIATE_FUEL: u64 = 1_000_000;
 /// Largest `mem_read` / `mem_write` length passed on to the engine.
 const MAX_MEM_IO: u32 = 1 << 20;
+/// Most elements of a unit's one table (the function table of indirect calls; toolchains emit a few dozen).
+const MAX_TABLE_ELEMENTS: usize = 1 << 16;
 
 pub(crate) type Game = Arc<Mutex<Match>>;
 
@@ -346,8 +348,8 @@ impl UnitVm {
         let limits = StoreLimitsBuilder::new()
             .memory_size(memory_limit)
             .memories(1)
-            .tables(4)
-            .table_elements(1 << 20)
+            .tables(1)
+            .table_elements(MAX_TABLE_ELEMENTS)
             .instances(1)
             .build();
         let data = UnitData {

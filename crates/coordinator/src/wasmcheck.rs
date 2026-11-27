@@ -84,7 +84,7 @@ impl Default for Abi {
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
     pub max_bytes: usize,
-    /// Cap on the initial linear memory (the runner caps growth at run time: `MEMORY_LIMIT_BYTES`).
+    /// Cap on the initial linear memory: the ruleset's `memory_bytes` (the runner also caps growth with it).
     pub max_memory_bytes: u64,
 }
 
@@ -92,7 +92,7 @@ impl Default for Limits {
     fn default() -> Limits {
         Limits {
             max_bytes: 16 << 20,
-            max_memory_bytes: 64 << 20,
+            max_memory_bytes: 8 << 20,
         }
     }
 }

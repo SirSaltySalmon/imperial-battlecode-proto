@@ -132,9 +132,14 @@ kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
 
 - Each unit gets `fuel_per_tick` fuel per tick (times a per-language multiplier), more on the draft tick and in
   the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
-  `memory.copy` and `memory.fill` cost fuel per byte, so large `memcpy`/`memset` calls are expensive.
+  `memory.copy` and `memory.fill` cost 1 fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
-- Memory is shared by the team and readable in every phase; each scope is writable in one phase only. Units run
+  One `memory.copy` or `memory.fill` always runs to completion, even past the budget, and the excess is taken
+  out of the following turns: one huge copy can leave a unit idle for several ticks.
+- Each bot instance has its own linear memory of at most `memory_bytes` (8 MiB); the stack counts. A module
+  that declares more is refused at upload and faults at the start of a match; `memory.grow` past the cap
+  returns -1, so the allocator reports out of memory. An instance may have one table of at most 65,536 entries.
+- Team-shared memory (`MEM_*`) is readable in every phase; each scope is writable in one phase only. Units run
   in an order that alternates teams and rotates each tick; a teammate that runs later in the same tick sees
   your write.
   - Team memory (`MEM_TEAM`): `team_mem_bytes`, **zeroed at the start of every round** (nothing carries from one
