@@ -492,3 +492,54 @@ fn gunplay_is_deterministic() {
         "different seeds give different games"
     );
 }
+
+/// Hits of `damage` that kill a fresh unit wearing `armor` when armour absorbs `absorb_pct` of each hit.
+fn hits_to_kill(absorb_pct: i32, armor: i32, damage: i32) -> i32 {
+    let mut m = start(&arena(10, 5, 1), 1);
+    m.world.rules.econ.armor_absorb_pct = absorb_pct;
+    m.world.units[1].hp = m.world.rules.core.max_hp;
+    m.world.units[1].armor = armor;
+    let mut hits = 0;
+    while m.world.units[1].alive && hits < 10 {
+        m.world.damage(1, damage, Some(0), 0);
+        hits += 1;
+    }
+    hits
+}
+
+/// The marksman's identity: two hits kill a bare or light-armoured unit and three a heavy-armoured one, at
+/// every distance it reaches. Checked with the current armour split and with armour as plain extra health, and
+/// with its reach cut to 30 tiles, so no falloff can move a breakpoint inside its band.
+#[test]
+fn the_marksman_kills_in_two_two_three_hits_across_its_band() {
+    let r = Ruleset::builtin();
+    let base = r.weapons[weapon_id(&r, "marksman") as usize];
+    let mut armour: Vec<i32> = r
+        .items
+        .iter()
+        .filter(|i| i.kind == ITEM_KIND_ARMOR)
+        .map(|i| i.value)
+        .collect();
+    armour.sort();
+    let (light, heavy) = (armour[0], armour[armour.len() - 1]);
+    let mut damages = Vec::new();
+    for range in [base.range, base.range.min(30 * TILE)] {
+        let wr = WeaponRules { range, ..base };
+        for d in (0..=range).step_by(64) {
+            damages.push(damage_at(&wr, d));
+        }
+    }
+    damages.sort();
+    damages.dedup();
+    for absorb in [r.econ.armor_absorb_pct, 100] {
+        for &damage in &damages {
+            for (armor, want) in [(0, 2), (light, 2), (heavy, 3)] {
+                assert_eq!(
+                    hits_to_kill(absorb, armor, damage),
+                    want,
+                    "{damage} damage against {armor} armour absorbing {absorb}%"
+                );
+            }
+        }
+    }
+}

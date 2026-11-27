@@ -112,13 +112,15 @@ unsteady_decay = 2
 unsteady_max = 8
 startup_per_point = 25
 
-# Long range: one fast bullet with no falloff, two hits kill. Slow to cycle, very slow to start after moving,
+# Long range: one fast bullet. Two hits kill a bare or light-armoured unit and three a heavy-armoured one,
+# anywhere in its reach: a shallow falloff past its 24-tile sight takes 74 down to 63, never across a breakpoint
+# (63 kills light armour in two, 75 would kill heavy in two). Slow to cycle, very slow to start after moving,
 # and the two-tick startup warns the target.
 [[weapon]]
 name = "marksman"
 slot = 0
 price = 3200
-damage = 75
+damage = 74
 pellets = 1
 spread = 0
 recoil_spread = 300
@@ -130,8 +132,8 @@ magazine = 5
 reload_ticks = 5
 bullet_speed = 20480
 range = 40960
-falloff_start = 40960
-falloff_min_pct = 100
+falloff_start = 24576
+falloff_min_pct = 86
 move_pct = 80
 kill_reward = 100
 unsteady_gain = 12
