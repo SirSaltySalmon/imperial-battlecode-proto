@@ -2,7 +2,7 @@
 
 # Ruleset reference
 
-Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `775ebbe3afe520d8`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -216,7 +216,7 @@ Kit 0 is what a unit plays if it never drafts. Slot 0 is the kit's free ability,
 | `light_armor` | 400 | 25 |
 | `heavy_armor` | 1000 | 50 |
 
-Armour absorbs `armor_absorb_pct` = 50% of each hit until its points are used up.
+Armour absorbs `armor_absorb_pct` = 100% of each hit until its points are used up.
 
 ## Economy and match flow
 
@@ -230,7 +230,7 @@ Armour absorbs `armor_absorb_pct` = 50% of each hit until its points are used up
 | `loss_streak_cap` | 3 |  |
 | `plant_reward` | 300 |  |
 | `default_sidearm` | 0 |  |
-| `armor_absorb_pct` | 50 |  |
+| `armor_absorb_pct` | 100 |  |
 | `defuse_reward` | 300 | Paid to every defender when a round is won by defusing. |
 | `ability_kill_reward` | 200 | Kill reward when the kill was not made with a weapon (ability damage). |
 | `refund_pct` | 100 | Share of the price returned when an item bought this buy phase is replaced in the same phase. |

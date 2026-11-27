@@ -237,7 +237,7 @@ impl Ruleset {
             loss_streak_cap: gi(&e, "loss_streak_cap", 2),
             plant_reward: gi(&e, "plant_reward", 300),
             default_sidearm: gi(&e, "default_sidearm", 0).clamp(0, weapons.len() as i32 - 1),
-            armor_absorb_pct: gi(&e, "armor_absorb_pct", 50),
+            armor_absorb_pct: gi(&e, "armor_absorb_pct", 100),
         };
         Ok(Ruleset {
             core,

@@ -1,7 +1,7 @@
 {
   "patch": {
     "engine": "0.2.0",
-    "ruleset_hash": "76bad4d5dc0354b6",
+    "ruleset_hash": "775ebbe3afe520d8",
     "abi": 1
   },
   "cases": [
@@ -17,8 +17,8 @@
         6,
         8
       ],
-      "ticks": 939,
-      "final_state_hash": "d5507c594468e994"
+      "ticks": 938,
+      "final_state_hash": "4590408ef790f00a"
     },
     {
       "name": "crossfire-holder-rusher-s2",

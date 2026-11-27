@@ -168,7 +168,8 @@ attackers.
 
 **Credits.** Money, per unit, capped at `max_credits`, spent in the buy phase.
 
-**Armour.** Points bought in the shop; absorbs `armor_absorb_pct` of each hit until used up.
+**Armour.** Points bought in the shop; absorbs `armor_absorb_pct` of each hit until used up. At 100 it is plain
+extra health: a hit takes armour first, point for point, then hp.
 
 ## What a bot can know and spend
 
@@ -329,7 +330,7 @@ the earlier one.
   where the target will be.
 - Bullets are fast objects, not hitscan: they fly at `bullet_speed` per tick, are stopped by walls, and hit the
   first enemy circle on their path. Damage is full up to `falloff_start` and drops linearly to `falloff_min_pct`
-  at `range`. Armour absorbs a share of each hit until it is used up. There is no friendly fire.
+  at `range`. Armour is extra health: a hit takes it first. There is no friendly fire.
 - At long range sustained fire with a multi-pellet weapon loses its outer pellets (an even fan, all of them):
   read `UnitInfo.recoil` and pause to let it settle, at the price of a fresh startup.
 - Each shot adds `recoil_per_shot`; recoil recovers by `recoil_recovery` on ticks without a shot. Magazines hold
@@ -526,7 +527,9 @@ otherwise:            damage * (100 - (100 - falloff_min_pct) * min(t - falloff_
                                        / (range - falloff_start)) / 100
 ```
 
-Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used up (`rules/economy.toml`).
+Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used up (`rules/economy.toml`). At 100
+it is plain extra health, taken point for point before hp: with no armour penetration, light armour (25) means 125
+damage to kill and heavy (50) means 150.
 
 ## Recoil
 
@@ -1209,7 +1212,7 @@ still loads and reads the prefix of each record it knows; what changed is what s
 
 # Ruleset reference
 
-Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `775ebbe3afe520d8`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -1423,7 +1426,7 @@ Kit 0 is what a unit plays if it never drafts. Slot 0 is the kit's free ability,
 | `light_armor` | 400 | 25 |
 | `heavy_armor` | 1000 | 50 |
 
-Armour absorbs `armor_absorb_pct` = 50% of each hit until its points are used up.
+Armour absorbs `armor_absorb_pct` = 100% of each hit until its points are used up.
 
 ## Economy and match flow
 
@@ -1437,7 +1440,7 @@ Armour absorbs `armor_absorb_pct` = 50% of each hit until its points are used up
 | `loss_streak_cap` | 3 |  |
 | `plant_reward` | 300 |  |
 | `default_sidearm` | 0 |  |
-| `armor_absorb_pct` | 50 |  |
+| `armor_absorb_pct` | 100 |  |
 | `defuse_reward` | 300 | Paid to every defender when a round is won by defusing. |
 | `ability_kill_reward` | 200 | Kill reward when the kill was not made with a weapon (ability damage). |
 | `refund_pct` | 100 | Share of the price returned when an item bought this buy phase is replaced in the same phase. |
