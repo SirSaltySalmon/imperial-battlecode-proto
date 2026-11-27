@@ -20,6 +20,8 @@ mod fight;
 mod kit;
 mod plan;
 
+pub use buy::Arm;
+
 /// How the team attacks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Attack {
@@ -61,6 +63,23 @@ pub struct Style {
     pub buy: Buy,
     /// Arm unit slots differently (rifles, a machine gun, a marksman rifle, a shotgun) instead of all alike.
     pub mixed_arms: bool,
+    /// Force one unit slot's primary weapon, for a loadout A/B (`bots/README.md`). `None` for every bot in
+    /// the pool.
+    pub loadout: Option<Loadout>,
+}
+
+/// One unit slot's primary weapon, named by role: the ABI gives weapons no names, so the role is resolved
+/// against the rules at runtime exactly as the normal buy resolves it (`Arm::Marksman` is the longest range,
+/// and so on).
+///
+/// The override changes what the slot buys, never when: an eco bot saves in the rounds it would save
+/// anyway. When the slot can afford the forced weapon it buys it, and armour from what is left, even if it
+/// holds a dearer weapon. When it cannot, it buys what it would have bought without the override.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Loadout {
+    /// `MatchInfo::unit_slot`, 0 to 4; any other value never matches, so the bot plays as its base.
+    pub slot: i32,
+    pub arm: Arm,
 }
 
 /// Team memory: [tick + 1, x, y] of the last enemy any teammate saw.

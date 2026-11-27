@@ -12,8 +12,9 @@ struct Offer {
     rules: WeaponRules,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Arm {
+/// A primary weapon's role, resolved from what the weapons are (see `find`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arm {
     Rifle,
     Marksman,
     MachineGun,
@@ -51,6 +52,12 @@ fn find(offers: &[Offer], arm: Arm) -> Option<Offer> {
     }
 }
 
+/// The weapon `Style::loadout` forces on this unit's slot, if any.
+fn forced(style: &Style, info: &MatchInfo, offers: &[Offer]) -> Option<Offer> {
+    let slot = info.unit_slot.max(0);
+    style.loadout.filter(|l| l.slot == slot).and_then(|l| find(offers, l.arm))
+}
+
 /// Buy everything this unit wants this round. Safe to call on every buy tick: it only buys what is missing.
 pub(crate) fn shop(style: &Style, me: &UnitInfo, info: &MatchInfo, core: &CoreRules, kit: &Kit) {
     // The free sidearm has no price, so this is 0 unless a primary is in hand.
@@ -60,18 +67,24 @@ pub(crate) fn shop(style: &Style, me: &UnitInfo, info: &MatchInfo, core: &CoreRu
         .filter_map(|it| weapon(it.value).map(|rules| Offer { item: it.id, price: it.price, rules }))
         .collect();
     let armour: Vec<ItemRules> = items().filter(|it| it.kind == ITEM_KIND_ARMOR).collect();
-    let want = find(&offers, arm_for(style, me, info));
+    let usual = find(&offers, arm_for(style, me, info));
     let mut credits = me.credits;
 
-    if style.buy == Buy::Eco && held_price == 0 && saves(me, info, core, want, &armour) {
+    // Whether to save is the usual weapon's question, so a loadout override never moves an eco round.
+    if style.buy == Buy::Eco && held_price == 0 && saves(me, info, core, usual, &armour) {
         return;
     }
 
-    // Weapon: the one this unit wants, else the most expensive it can afford that beats what it holds.
-    let pick = want
-        .filter(|w| w.price <= credits)
-        .or_else(|| offers.iter().filter(|o| o.price <= credits).max_by_key(|o| o.price).copied())
-        .filter(|w| w.price > held_price && w.rules.id != me.weapon);
+    // Weapon: a forced one it can afford, even over a dearer one it holds (else the A/B would measure the
+    // weapon a survivor kept); otherwise the one it wants, else the most expensive it can afford that beats
+    // what it holds.
+    let pick = match forced(style, info, &offers).filter(|w| w.price <= credits) {
+        Some(w) => Some(w).filter(|w| w.rules.id != me.weapon),
+        None => usual
+            .filter(|w| w.price <= credits)
+            .or_else(|| offers.iter().filter(|o| o.price <= credits).max_by_key(|o| o.price).copied())
+            .filter(|w| w.price > held_price && w.rules.id != me.weapon),
+    };
     if let Some(w) = pick {
         if buy(w.item).is_ok() {
             credits -= w.price;
