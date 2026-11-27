@@ -640,32 +640,47 @@ Measured by `crates/engine/tests/combat_ttk.rs` in the engine, not computed: tic
 until a stationary target dies. The shooter stands, pulls whenever the weapon is ready and the pellets nearest
 the aim would still land on the target, and reloads when empty. "After running" means it strafed across the
 line of fire at the weapon's top speed for eight ticks just before the first pull, so that pull starts up
-unsteady. "no kill" means the target was still alive after 100 ticks.
+unsteady. "no kill" means the target was still alive after 100 ticks. Each distance has a standing and an
+after-running column: 2 tiles is shotgun range, 5 and 10 are fighting distances, 15 is where the rifle meets the
+marksman, and 20 is long range.
 
 Target with 100 health and no armour:
 
 <!-- generated:ttk -->
-| weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
-|---|---:|---:|---:|---:|---:|---:|
-| pistol | 8 | 9 | 17 | 18 | no kill | no kill |
-| rifle | 6 | 9 | 6 | 9 | 11 | 14 |
-| smg | 6 | 6 | 9 | 9 | no kill | no kill |
-| shotgun | 6 | 8 | no kill | no kill | no kill | no kill |
-| marksman | 8 | 12 | 8 | 12 | 8 | 12 |
-| lmg | 6 | 10 | 9 | 13 | 25 | 29 |
+| weapon | 2 tiles standing | 2 tiles after running | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 15 tiles standing | 15 tiles after running | 20 tiles standing | 20 tiles after running |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| pistol | 8 | 9 | 8 | 9 | 17 | 18 | no kill | no kill | no kill | no kill |
+| rifle | 4 | 7 | 6 | 9 | 6 | 9 | 11 | 14 | 11 | 14 |
+| smg | 6 | 6 | 6 | 6 | 9 | 9 | 19 | 19 | no kill | no kill |
+| shotgun | 2 | 4 | 6 | 8 | no kill | no kill | no kill | no kill | no kill | no kill |
+| marksman | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 |
+| lmg | 6 | 10 | 6 | 10 | 9 | 13 | 22 | 26 | 25 | 29 |
 <!-- /generated:ttk -->
+
+Target with 100 health and the lightest armour in the shop:
+
+<!-- generated:ttk-light -->
+| weapon | 2 tiles standing | 2 tiles after running | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 15 tiles standing | 15 tiles after running | 20 tiles standing | 20 tiles after running |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| pistol | 10 | 11 | 10 | 11 | 19 | 20 | no kill | no kill | no kill | no kill |
+| rifle | 4 | 7 | 8 | 11 | 8 | 11 | 13 | 16 | 15 | 18 |
+| smg | 8 | 8 | 8 | 8 | 11 | 11 | 23 | 23 | no kill | no kill |
+| shotgun | 6 | 8 | 10 | 12 | no kill | no kill | no kill | no kill | no kill | no kill |
+| marksman | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 |
+| lmg | 6 | 10 | 6 | 10 | 9 | 13 | 28 | 32 | 31 | 35 |
+<!-- /generated:ttk-light -->
 
 Target with 100 health and the heaviest armour in the shop:
 
 <!-- generated:ttk-armor -->
-| weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
-|---|---:|---:|---:|---:|---:|---:|
-| pistol | 12 | 13 | 23 | 24 | no kill | no kill |
-| rifle | 10 | 13 | 10 | 13 | 17 | 20 |
-| smg | 10 | 10 | 15 | 15 | no kill | no kill |
-| shotgun | 10 | 12 | no kill | no kill | no kill | no kill |
-| marksman | 8 | 12 | 8 | 12 | 8 | 12 |
-| lmg | 6 | 10 | 12 | 16 | 37 | 41 |
+| weapon | 2 tiles standing | 2 tiles after running | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 15 tiles standing | 15 tiles after running | 20 tiles standing | 20 tiles after running |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| pistol | 12 | 13 | 12 | 13 | 23 | 24 | no kill | no kill | no kill | no kill |
+| rifle | 6 | 9 | 10 | 13 | 10 | 13 | 15 | 18 | 17 | 20 |
+| smg | 10 | 10 | 10 | 10 | 15 | 15 | 29 | 29 | no kill | no kill |
+| shotgun | 6 | 8 | 10 | 12 | no kill | no kill | no kill | no kill | no kill | no kill |
+| marksman | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 |
+| lmg | 6 | 10 | 6 | 10 | 12 | 16 | 31 | 35 | 37 | 41 |
 <!-- /generated:ttk-armor -->
 
 These are duels against a target that stands still. A target that strafes at range dodges any single shot

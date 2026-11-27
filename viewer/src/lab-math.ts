@@ -82,6 +82,10 @@ export interface LabFile {
   maxHp: number;
   runSpeed: number;
   heavyArmor: number;
+  /** Target armour of the time-to-kill duels, starting with none. */
+  ttkArmors?: number[];
+  /** Distances in tiles of the time-to-kill duels. */
+  ttkTiles?: number[];
   visionRange: number;
   senseRadius: number;
   ruleset: string;
