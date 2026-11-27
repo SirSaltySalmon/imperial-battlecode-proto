@@ -52,6 +52,11 @@ pub const WASI_IMPORTS: &[&str] = &[
 
 const PAGE: u64 = 65_536;
 
+/// WebAssembly 2.0, what a `wasm32-wasip1` toolchain emits, plus exception handling in its standard
+/// (exnref) encoding, which C++ bots built with exceptions use. The legacy encoding (`try`/`catch`) is
+/// refused, as the runner's Wasmtime config refuses it. No threads, GC, memory64 or components.
+pub const FEATURES: WasmFeatures = WasmFeatures::WASM2.union(WasmFeatures::EXCEPTIONS);
+
 /// The imports a patch offers a bot. The defaults are this build's lists (`IBC_IMPORTS`, `WASI_IMPORTS`); a
 /// patch registered with an `imports` object overrides either list (docs/release.md, "Revalidation").
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,8 +127,7 @@ pub fn check_against(wasm: &[u8], limits: &Limits, abi: &Abi) -> Result<(), Stri
             limits.max_bytes
         ));
     }
-    // WebAssembly 2.0: what a `wasm32-wasip1` toolchain emits. No threads, GC, memory64 or components.
-    Validator::new_with_features(WasmFeatures::WASM2)
+    Validator::new_with_features(FEATURES)
         .validate_all(wasm)
         .map_err(invalid)?;
 
@@ -269,5 +273,28 @@ pub fn detect_languages(wasm: &[u8]) -> BTreeSet<String> {
         produced
     } else {
         declared
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The modules crates/runner/tests/exceptions.rs gives the runner: both sides must agree on them.
+    const THROWER: &str = include_str!("../../../fixtures/exceptions/thrower.wat");
+    const LEGACY: &str = include_str!("../../../fixtures/exceptions/legacy.wat");
+
+    #[test]
+    fn exceptions_are_accepted_in_the_standard_encoding_only() {
+        let limits = Limits::default();
+        assert_eq!(
+            check_wasm(&wat::parse_str(THROWER).unwrap(), &limits),
+            Ok(())
+        );
+        let err = check_wasm(&wat::parse_str(LEGACY).unwrap(), &limits).unwrap_err();
+        assert!(
+            err.starts_with("invalid wasm") && err.contains("legacy_exceptions feature required"),
+            "{err}"
+        );
     }
 }

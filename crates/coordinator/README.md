@@ -100,7 +100,8 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
   as soon as it closes, so three series take minutes rather than three rounds. Placement series are marked
   in `series.placement_for`; at most `--placement-daily-series` (9) start per team per 24 h, which bounds
   what frequent uploads cost. A tournament lock pauses placement as it pauses the scheduler.
-- **Upload validation** is a light parser (`wasmparser`), not the runner: WebAssembly 2.0 only, size cap,
+- **Upload validation** is a light parser (`wasmparser`), not the runner: WebAssembly 2.0 plus exception
+  handling in the standard (exnref) encoding, as the runner accepts (`wasmcheck::FEATURES`), size cap,
   initial-memory cap, imports only from `ibc` and the WASI functions the runner provides, exports `_start`
   and `memory`. The lists in `src/wasmcheck.rs` mirror `ibc_runner::{IBC_IMPORTS, WASI_IMPORTS}`; keep them
   in sync when the ABI grows. Maps are stored, not parsed: check them with `ibc` first.
