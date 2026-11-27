@@ -45,6 +45,30 @@ server (CI, several accounts).
 | `ibc replay download MATCH_ID [-o FILE] [--view public\|team]` | Saves the replay (default `out/replays/<MATCH_ID>.ibcr`) and reads its header. Then `ibc replay verify FILE` or `ibc view FILE`. |
 | `ibc maps pull [--dir maps] [--all]` | Writes the platform's map pool as `<dir>/<name>.ibcmap`, checking each file's sha256 against the list. Files are only created or replaced under pool names; your own maps are never deleted. `--all` includes maps retired from the pool. |
 
+## Debug builds and bot output
+
+`ibc build --debug BOT_DIR` builds without optimisation and keeps debug info: cargo's `dev` profile for Rust,
+`-O0 -g` for C++. Use it to find a crash, not to judge a bot:
+
+- A Rust debug build checks arithmetic. An overflow that wraps silently in release panics instead: the panic
+  message (file, line, `attempt to add with overflow`) goes to stderr and so to the unit's log, then the unit
+  faults on that tick (`[ibc] unit N faulted at tick T: trap: ... unreachable ...`) and idles for the rest of
+  the match.
+- It is slow. `rusher` built with `--debug`, against its own release build on all 14 maps, both sides, seed 3
+  (28 matches): 3.8 to 10.4 times the fuel per turn (median 6.9), out of fuel on 6 to 45% of its turns (median
+  29%, against 0.5% for the release build), 6 wins in 28. The module is 2.9 MB instead of 54 KB.
+
+So a debug build plays a different game. `ibc submit` always builds in release, and that is what the platform
+plays.
+
+Whatever a bot prints goes to its unit's log: `ibc::log` / `log!`, stdout and stderr, in the order written.
+A write to any other file descriptor fails with `EBADF`. Each unit's log holds 256 KiB per match; past that,
+output is dropped (writes still succeed) and the log ends with `[ibc] log truncated at 262144 bytes`.
+`ibc run` writes the logs to `team-a.log` and `team-b.log`, and the replay records each turn's output
+(`ibc replay records FILE`). Rust's stdout is line buffered: what `print!` writes without a newline appears
+only when a later write to stdout ends the line, and is lost if none does before the unit faults or the match
+ends. `eprint!` and `log!` are written at once.
+
 ## For scripts and agents
 
 **`--json`.** Every platform command takes `--json` and then prints exactly one JSON document on stdout. Human

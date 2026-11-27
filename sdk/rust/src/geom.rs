@@ -63,23 +63,40 @@ pub fn isqrt(n: i64) -> i64 {
     }
 }
 
-/// Euclidean distance between two points, rounded down.
+/// Euclidean distance between two points, rounded down, saturating at `i32::MAX`.
 #[inline]
 pub fn dist(a: (i32, i32), b: (i32, i32)) -> i32 {
-    len(b.0 - a.0, b.1 - a.1)
+    len_wide(b.0 as i64 - a.0 as i64, b.1 as i64 - a.1 as i64)
 }
 
-/// Squared distance (i64, no overflow).
+/// Squared distance, saturating at `i64::MAX` (only points about 3e9 units apart reach it).
 #[inline]
 pub fn dist2(a: (i32, i32), b: (i32, i32)) -> i64 {
-    let (dx, dy) = ((b.0 - a.0) as i64, (b.1 - a.1) as i64);
-    dx * dx + dy * dy
+    match squares(b.0 as i64 - a.0 as i64, b.1 as i64 - a.1 as i64) {
+        Some(n) if n <= i64::MAX as u64 => n as i64,
+        _ => i64::MAX,
+    }
 }
 
-/// Length of a vector, rounded down.
+/// Length of a vector, rounded down, saturating at `i32::MAX`.
 #[inline]
 pub fn len(dx: i32, dy: i32) -> i32 {
-    isqrt(dx as i64 * dx as i64 + dy as i64 * dy as i64) as i32
+    len_wide(dx as i64, dy as i64)
+}
+
+/// Length of a vector whose components are differences of two `i32`s, saturating at `i32::MAX`.
+fn len_wide(dx: i64, dy: i64) -> i32 {
+    match squares(dx, dy) {
+        // Below 2^62 the root is below 2^31; from there on it is past `i32::MAX`.
+        Some(n) if n < 1 << 62 => isqrt(n as i64) as i32,
+        _ => i32::MAX,
+    }
+}
+
+/// `dx * dx + dy * dy` for components below 2^32 in magnitude, or `None` past `u64::MAX`.
+fn squares(dx: i64, dy: i64) -> Option<u64> {
+    // Each square is below 2^64, so the wrapped product read as a u64 is exact.
+    (dx.wrapping_mul(dx) as u64).checked_add(dy.wrapping_mul(dy) as u64)
 }
 
 /// (cos, sin) of an angle, scaled by 32768.
@@ -108,14 +125,21 @@ pub fn offset(x: i32, y: i32, angle: i32, d: i32) -> (i32, i32) {
 
 /// Where to aim so a bullet of `bullet_speed` (units/tick), leaving after `windup` ticks,
 /// meets a target at `target` moving with constant velocity `vel` (units/tick).
+/// Each coordinate saturates at the `i32` range (a very slow bullet aimed at a fast target).
 pub fn lead(from: (i32, i32), target: (i32, i32), vel: (i32, i32), bullet_speed: i32, windup: i32) -> (i32, i32) {
-    let speed = bullet_speed.max(1);
+    let speed = bullet_speed.max(1) as i64;
     let mut p = target;
     for _ in 0..3 {
-        let t = windup + (dist(from, p) + speed - 1) / speed;
-        p = (target.0 + vel.0 * t, target.1 + vel.1 * t);
+        // Ticks until impact: windup plus at most `dist`, so within -2^31..2^32.
+        let t = windup as i64 + (dist(from, p) as i64 + speed - 1) / speed;
+        p = (along(target.0, vel.0, t), along(target.1, vel.1, t));
     }
     p
+}
+
+/// `x + v * t`, saturated to the i32 range. Exact in i64 for any `t` in -2^32..2^32.
+fn along(x: i32, v: i32, t: i64) -> i32 {
+    (x as i64 + v as i64 * t).clamp(i32::MIN as i64, i32::MAX as i64) as i32
 }
 
 #[cfg(test)]

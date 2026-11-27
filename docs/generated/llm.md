@@ -2155,12 +2155,12 @@ Deterministic, float-free geometry. Angles are 0..65535 per turn, 0 = +x, increa
 - `pub fn angle_to(dx: i32, dy: i32) -> i32`: Integer atan2: the angle of the vector (dx, dy), 0..65535. `angle_to(0, 0)` is 0.
 - `pub fn angle_diff(a: i32, b: i32) -> i32`: Signed shortest turn from `a` to `b`, in -32768..=32767 (positive = towards +y / clockwise on screen).
 - `pub fn isqrt(n: i64) -> i64`: Floor of the square root.
-- `pub fn dist(a: (i32, i32), b: (i32, i32)) -> i32`: Euclidean distance between two points, rounded down.
-- `pub fn dist2(a: (i32, i32), b: (i32, i32)) -> i64`: Squared distance (i64, no overflow).
-- `pub fn len(dx: i32, dy: i32) -> i32`: Length of a vector, rounded down.
+- `pub fn dist(a: (i32, i32), b: (i32, i32)) -> i32`: Euclidean distance between two points, rounded down, saturating at `i32::MAX`.
+- `pub fn dist2(a: (i32, i32), b: (i32, i32)) -> i64`: Squared distance, saturating at `i64::MAX` (only points about 3e9 units apart reach it).
+- `pub fn len(dx: i32, dy: i32) -> i32`: Length of a vector, rounded down, saturating at `i32::MAX`.
 - `pub fn cos_sin(angle: i32) -> (i32, i32)`: (cos, sin) of an angle, scaled by 32768.
 - `pub fn offset(x: i32, y: i32, angle: i32, d: i32) -> (i32, i32)`: The point `d` units from (x, y) in direction `angle`.
-- `pub fn lead(from: (i32, i32), target: (i32, i32), vel: (i32, i32), bullet_speed: i32, windup: i32) -> (i32, i32)`: Where to aim so a bullet of `bullet_speed` (units/tick), leaving after `windup` ticks, meets a target at `target` moving with constant velocity `vel` (units/tick).
+- `pub fn lead(from: (i32, i32), target: (i32, i32), vel: (i32, i32), bullet_speed: i32, windup: i32) -> (i32, i32)`: Where to aim so a bullet of `bullet_speed` (units/tick), leaving after `windup` ticks, meets a target at `target` moving with constant velocity `vel` (units/tick). Each coordinate saturates at the `i32` range (a very slow bullet aimed at a fast target).
 
 ## `sdk/rust/src/nav.rs`
 
