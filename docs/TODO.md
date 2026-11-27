@@ -104,7 +104,12 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   computes those checksums. The checks cost `rusher` 1.4% more fuel (crossfire, seed 1). Left over, outside
   these helpers: `cos_sin` (`angle + 16384`) and `offset` (the final addition) still overflow on extreme
   inputs in a Rust debug build.
-- [ ] **`ibc build --debug`** and bots that print to stdout have never been exercised.
+- [x] **`ibc build --debug`** and bots that print to stdout have never been exercised. Done (docs/CLI.md,
+  "Debug builds and bot output"): a debug build plays, but at a median 6.9 times the fuel per turn and out of
+  fuel on 29% of its turns; an overflow panics, the message lands in the unit log and the unit faults.
+  stdout, stderr and `ibc.log` share the unit log in order, the cap truncates with its notice, other fds get
+  `EBADF`: `crates/runner/tests/wasi.rs`, and `crates/cli/tests/debug_build.rs` end to end (skipped without
+  the wasm32-wasip1 target).
 
 ## 3. Job system and platform
 
