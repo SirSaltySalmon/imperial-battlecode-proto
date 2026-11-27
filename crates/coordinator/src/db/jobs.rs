@@ -274,12 +274,16 @@ pub fn lease(
         };
         let token = random_hex(16);
         let expires = now + cfg.lease_ms;
+        let job = wire_job(&id, &token, expires, &payload, cfg, &runners)?;
+        // The runners sent with this lease stay readable by it if the organisers replace them meanwhile.
+        let lease_runners = job.get("runner_blobs").map(Value::to_string);
         tx.execute(
-            "UPDATE jobs SET state = 'leased', attempts = attempts + 1, lease_token = ?2, lease_expires_at = ?3, worker_id = ?4
+            "UPDATE jobs SET state = 'leased', attempts = attempts + 1, lease_token = ?2, lease_expires_at = ?3, worker_id = ?4,
+               lease_runners = ?5
              WHERE id = ?1 AND state = 'queued'",
-            params![id, token, expires, worker.id],
+            params![id, token, expires, worker.id, lease_runners],
         )?;
-        out.push(wire_job(&id, &token, expires, &payload, cfg, &runners)?);
+        out.push(job);
     }
     Ok(out)
 }
@@ -290,6 +294,33 @@ fn live_lease(job: &JobRow, token: &str, worker: &WorkerRow, now: i64) -> bool {
         && job.lease_token.as_deref() == Some(token)
         && job.worker_id.as_deref() == Some(worker.id.as_str())
         && job.lease_expires_at.is_some_and(|t| t > now)
+}
+
+/// Whether `worker_id` holds a live lease on a job whose bots, map or runners (the `runner_blobs` sent with
+/// the lease) include `sha256`: the only blobs a worker may read. Uses the index `jobs_worker`.
+pub fn lease_names_blob(
+    tx: &Transaction,
+    worker_id: &str,
+    sha256: &str,
+    now: i64,
+) -> ApiResult<bool> {
+    let mut st = tx.prepare_cached(
+        "SELECT EXISTS(SELECT 1 FROM jobs j
+           WHERE j.worker_id = ?1 AND j.state = 'leased' AND j.lease_expires_at > ?3
+             AND (?2 IN (json_extract(j.payload, '$.bot_a.sha256'), json_extract(j.payload, '$.bot_b.sha256'),
+                         json_extract(j.payload, '$.map.sha256'))
+                  OR EXISTS(SELECT 1 FROM json_each(j.lease_runners) r WHERE r.value = ?2)))",
+    )?;
+    Ok(st.query_row(params![worker_id, sha256, now], |r| r.get(0))?)
+}
+
+/// Whether `worker_id` holds a live lease on any job: a worker may only upload (its replay) while it does.
+pub fn holds_lease(tx: &Transaction, worker_id: &str, now: i64) -> ApiResult<bool> {
+    let mut st = tx.prepare_cached(
+        "SELECT EXISTS(SELECT 1 FROM jobs
+           WHERE worker_id = ?1 AND state = 'leased' AND lease_expires_at > ?2)",
+    )?;
+    Ok(st.query_row(params![worker_id, now], |r| r.get(0))?)
 }
 
 pub fn heartbeat(

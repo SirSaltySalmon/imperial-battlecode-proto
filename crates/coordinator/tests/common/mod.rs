@@ -320,11 +320,12 @@ impl MockWorker {
         self.job_call(h, job, "heartbeat", json!({})).await
     }
 
-    /// Upload the fake replay and complete the job.
+    /// Upload the fake replay and complete the job. A refused upload (a worker that holds no lease) is
+    /// returned as it came, and `complete` is not called.
     pub async fn complete(&self, h: &Harness, job: &Value) -> (StatusCode, Value) {
         let (replay, result) = fake_result(job, self.cheat);
         let sha = result["replay_sha256"].as_str().unwrap();
-        let (status, _) = h
+        let (status, body) = h
             .raw(
                 "PUT",
                 &format!("/v1/blobs/{sha}"),
@@ -332,7 +333,9 @@ impl MockWorker {
                 replay,
             )
             .await;
-        assert!(status.is_success());
+        if !status.is_success() {
+            return (status, serde_json::from_slice(&body).unwrap_or(Value::Null));
+        }
         self.job_call(h, job, "complete", json!({"result": result}))
             .await
     }

@@ -236,11 +236,12 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   and runs every match server-side. Identical wasm across teams is still flagged (unit 11).
 - [ ] **Accounts:** emails are not verified, so register the `IBC_ADMIN_EMAILS` accounts before the site is
   public; login throttling is per email only (put per-IP limits in the reverse proxy).
-- [ ] **Any worker token can read any blob** by hash, not only replays: every team's compiled module, every
-  map (hidden tournament maps too) and unredacted replays. No worker needs it: workers only download the
-  bots, map and runner of a job they hold. `GET /v1/blobs` accepts the admin or any worker token for any
-  blob. Fine while every worker is ours; scope worker reads to blobs a held lease names before untrusted
-  workers.
+- [x] **Any worker token can read any blob.** Done: a worker reads only the bots, map and runner of a job it
+  holds a live lease on (anything else is 403: the worker fails the job as retryable) and uploads only while
+  it holds a lease (otherwise 409 `lease_lost`); the admin is unrestricted (`docs/JOBS.md`, `blobs`). Still
+  open: a worker holding any lease can upload any content up to the blob size limit. Was: `GET /v1/blobs`
+  accepted the admin or any worker token for any blob by hash: every team's compiled module, every map
+  (hidden tournament maps too) and unredacted replays.
 - [x] **Double elimination has no bracket reset.** Done: when the losers-bracket champion wins the grand
   final, a reset between the same two teams decides (`docs/api/tournaments.md`). Was: The grand final was
   played once, so the winners-bracket champion was out after its first loss.
