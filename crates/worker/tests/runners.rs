@@ -6,7 +6,8 @@
 //! patch, a binary that names another patch is deleted, and nothing is written outside the runners
 //! directory.
 //!
-//! Needs `IBC_RUNNER` (a built `ibc`, like `tests/worker.rs`) and `rustc` on PATH; skipped without them.
+//! Needs `IBC_RUNNER` (a built `ibc`, like `tests/worker.rs`) and `rustc` on PATH; skipped without them,
+//! or failed when `CI` is set.
 //! The "other patch" runner is a few lines of Rust compiled here: it reports a made-up patch, logs how it
 //! was called to `calls.log` beside itself, and hands everything else to the real `ibc`.
 
@@ -72,24 +73,14 @@ fn main() {{
             "compiling the fake runner:\n{}",
             String::from_utf8_lossy(&o.stderr)
         ),
-        Err(e) => {
-            eprintln!("SKIPPED: `rustc` is needed to build the fake runner ({e})");
-            None
-        }
+        Err(e) => common::skip(&format!("`rustc` is needed to build the fake runner ({e})")),
     }
 }
 
 fn fixture() -> Option<&'static Fixture> {
     static F: OnceLock<Option<Fixture>> = OnceLock::new();
     F.get_or_init(|| {
-        let Some(runner) = std::env::var_os("IBC_RUNNER")
-            .map(PathBuf::from)
-            .filter(|p| p.is_file())
-        else {
-            eprintln!("SKIPPED: set IBC_RUNNER to a built `ibc` binary to run the runner tests");
-            return None;
-        };
-        let runner = runner.canonicalize().unwrap();
+        let runner = common::runner("the runner tests")?.canonicalize().unwrap();
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let bot = root.join("bots/rusher");
         let out = std::process::Command::new(&runner)

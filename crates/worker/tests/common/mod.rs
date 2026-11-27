@@ -1,10 +1,12 @@
 //! A mock coordinator: an in-process HTTP server that implements the endpoints of docs/JOBS.md part B over
 //! a scripted job queue, with switches for the failures a worker must survive. Shared by the integration
-//! tests and by `examples/mock-coordinator.rs`.
+//! tests and by `examples/mock-coordinator.rs`, with the rule for when a test that needs the real runner
+//! skips.
 #![allow(dead_code)]
 
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -25,6 +27,7 @@ pub struct State {
     pub corrupt: HashSet<String>,
     /// Every blob download takes this long.
     pub blob_delay: Duration,
+    /// Blob downloads, counted when the request arrives: a nonzero count means a job has started.
     pub blob_gets: u32,
     /// The SHA-256 asked for by every blob download, in order.
     pub blob_log: Vec<String>,
@@ -63,6 +66,36 @@ pub struct Mock {
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
     ibc_worker::sha256_hex(bytes)
+}
+
+/// The `ibc` binary that `IBC_RUNNER` names, for the tests that play real matches. Without the variable
+/// they skip (see `skip`). If it names something that is not a file they fail: the runner was asked for,
+/// and the usual mistake, a relative path, is read from this package's directory, not the workspace's.
+pub fn runner(tests: &str) -> Option<PathBuf> {
+    let Some(runner) = std::env::var_os("IBC_RUNNER").map(PathBuf::from) else {
+        return skip(&format!(
+            "set IBC_RUNNER to a built `ibc` binary to run {tests}"
+        ));
+    };
+    assert!(
+        runner.is_file(),
+        "IBC_RUNNER={} is not a file: these tests need the path of a built `ibc`, not a command name \
+         (a relative path is read from {})",
+        runner.display(),
+        env!("CARGO_MANIFEST_DIR")
+    );
+    Some(runner)
+}
+
+/// `None`, after saying why the test is skipped. Under CI (`CI` is set) the test fails instead: libtest
+/// hides the output of a passing test, so there a skipped test reads as a pass.
+pub fn skip<T>(why: &str) -> Option<T> {
+    assert!(
+        std::env::var_os("CI").is_none(),
+        "{why} (CI is set, so this fails instead of skipping)"
+    );
+    eprintln!("SKIPPED: {why}");
+    None
 }
 
 type Reply = (u16, Vec<u8>);
@@ -225,10 +258,13 @@ fn route(shared: &Shared, method: &str, path: &str, bearer: Option<&str>, body: 
             None => err(400, "malformed"),
         },
         ("GET", ["v1", "blobs", sha]) => {
-            let delay = lock().blob_delay;
+            let delay = {
+                let mut st = lock();
+                st.blob_gets += 1;
+                st.blob_delay
+            };
             std::thread::sleep(delay);
             let mut st = lock();
-            st.blob_gets += 1;
             st.blob_log.push(sha.to_string());
             match st.blobs.get(*sha) {
                 Some(_) if st.corrupt.contains(*sha) => {
