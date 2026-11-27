@@ -142,6 +142,18 @@ fn fog_hides_enemies_behind_walls_and_outside_the_cone() {
 }
 
 #[test]
+fn a_map_row_past_the_last_is_out_of_range_however_far() {
+    let m = Match::new(Ruleset::builtin(), Map::parse(OPEN).unwrap(), 1);
+    let height = m.count(0, T_MAP_ROW) as u32;
+    let mut row = Vec::new();
+    assert_eq!(m.get(0, T_MAP_ROW, height - 1, &mut row), m.world.map.width);
+    // An index read as a negative i32 (a bot's `y - 1` at y = 0) included.
+    for index in [height, 1 << 31, u32::MAX] {
+        assert_eq!(m.get(0, T_MAP_ROW, index, &mut Vec::new()), -ERR_OUT_OF_RANGE, "row {index}");
+    }
+}
+
+#[test]
 fn summary_lists_plants_and_kills_and_its_digest_leaves_out_the_seed() {
     let summary = |m: &Match| -> serde_json::Value { serde_json::from_str(&m.summary_json()).unwrap() };
     let sum = |s: &serde_json::Value, key: &str| -> i64 {

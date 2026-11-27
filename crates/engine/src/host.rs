@@ -221,7 +221,7 @@ impl Host for Match {
                 )
             }
             T_MAP_ROW => {
-                if index as i32 >= w.map.height {
+                if index >= w.map.height as u32 {
                     return -ERR_OUT_OF_RANGE;
                 }
                 let a = ix * w.map.width as usize;
