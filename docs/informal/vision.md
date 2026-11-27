@@ -63,6 +63,7 @@ Principles:
   - Friendly fire is possible with every ability, but not with bullets.
   - You can see what agent other team selected (and therefore their kit), but not the equipment they held or the ability charges they have. When an enemy is in sight you can see their weapon, but not their HP or armour. You can see their credit counts at the start of round during buy phase, not how it changed when they buy anything. You can see team's equipment, credits, and kit at all times.
   - Team can buy kit and equipment for each other. So likely, buy phase will want a director agent separate from agent during round too.
+  - Compute and memory are scarce on purpose: the game is about optimization, so the fuel and memory limits should bite, not sit far above what a bot needs.
 - The participant experience might look like:
   - Can run local tests, with downloaded maps from map pool and custom maps as well
   - Can access API and run automated unranked testing
