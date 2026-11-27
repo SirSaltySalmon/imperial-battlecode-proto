@@ -274,7 +274,7 @@ fn running_out_of_fuel_inside_a_catch_handler_resumes_there() {
 }
 
 #[test]
-fn a_throw_and_catch_costs_one_fuel_per_instruction() {
+fn a_throw_and_catch_costs_fixed_fuel() {
     let out = run(bot("throw-cost", THROW_COST), bot("idle", IDLE));
     for id in team_a(&out) {
         let log = &out.logs[id];
@@ -284,8 +284,10 @@ fn a_throw_and_catch_costs_one_fuel_per_instruction() {
             .collect();
         assert_eq!(costs.len(), TICKS as usize);
         // local.set, try_table, call, entering `$throw`, i32.const, throw, then i32.const, local.get and the
-        // call that reads the fuel again: 1 each. Unwinding, the catch and the exception object are free.
-        assert!(costs.iter().all(|&c| c == 9), "unit {id}: {costs:?}");
+        // call that reads the fuel again: 1 each (9). The stack limiter adds 9 on entering `$throw` and 2 in
+        // the catch handler, which restores the caller's stack height (docs/RULES.md). Unwinding, the catch
+        // and the exception object are free.
+        assert!(costs.iter().all(|&c| c == 9 + 9 + 2), "unit {id}: {costs:?}");
     }
 }
 
