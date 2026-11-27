@@ -420,6 +420,9 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
     }
     let replay = writer.finish(result.clone());
     let replay_sha256 = sha256_hex(&replay.encode());
+    for (t, f) in team_fuel.iter_mut().enumerate() {
+        f.set_turn_percentiles(&replay, t);
+    }
     let team = |i: usize| TeamSummary {
         name: replay.header.bots[i].name.clone(),
         wasm_sha256: replay.header.bots[i].sha256.clone(),

@@ -140,3 +140,40 @@ fn fog_hides_enemies_behind_walls_and_outside_the_cone() {
     // Allies are always known.
     assert_eq!(m.count(0, T_ALLIES), 1);
 }
+
+#[test]
+fn summary_lists_plants_and_kills_and_its_digest_leaves_out_the_seed() {
+    let summary = |m: &Match| -> serde_json::Value { serde_json::from_str(&m.summary_json()).unwrap() };
+    let sum = |s: &serde_json::Value, key: &str| -> i64 {
+        s["units"].as_array().unwrap().iter().map(|u| u[key].as_i64().unwrap()).sum()
+    };
+    // [tick, round, killer, victim, killer_team, victim_team, weapon]
+    let row =
+        |k: &serde_json::Value| -> Vec<i64> { k.as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect() };
+    let (fight, _, _) = play(7, false);
+    let s = summary(&fight);
+    let kills: Vec<Vec<i64>> = s["kills"].as_array().unwrap().iter().map(row).collect();
+    let n = s["team_size"].as_i64().unwrap();
+    for k in &kills {
+        assert!(k[0] < s["ticks"].as_i64().unwrap() && k[1] >= 1, "{k:?}");
+        assert_eq!(k[5], k[3] / n, "victim team {k:?}");
+        assert_eq!(k[4], if k[2] < 0 { -1 } else { k[2] / n }, "killer team {k:?}");
+    }
+    let enemy_kills = kills.iter().filter(|k| k[2] >= 0 && k[4] != k[5]).count() as i64;
+    assert_eq!(enemy_kills, sum(&s, "kills"));
+    assert_eq!(kills.len() as i64, sum(&s, "deaths"));
+
+    let (plant, _, _) = play(1, true);
+    let p = summary(&plant);
+    let planted = p["rounds"].as_array().unwrap().iter().filter(|r| r["planted"] == true).count() as i64;
+    assert!(planted > 0);
+    assert_eq!(planted, sum(&p, "plants"), "one plant per planted round");
+
+    // The controllers never read the seed: another seed plays the same game, so the digest is the same while
+    // the state hash (which covers the seed) is not.
+    let (again, _, _) = play(8, false);
+    let t = summary(&again);
+    assert_ne!(s["final_hash"], t["final_hash"]);
+    assert_eq!(s["digest"], t["digest"]);
+    assert_ne!(s["digest"], p["digest"]);
+}

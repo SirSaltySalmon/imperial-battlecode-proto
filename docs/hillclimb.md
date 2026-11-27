@@ -17,8 +17,9 @@ export IBC_BIN=target/release/ibc                  # only for the wasm backend (
 2. **Matches are deterministic, so the sample is maps x seeds x sides, not "runs".** Re-running the same
    command gives the same numbers. Evidence comes from more maps, more seeds and both slot orders.
 3. **Exact repeats are counted once.** If the bots ignore the seed, ten seeds are one game played ten
-   times. Reports show `distinct` next to `played` and compute intervals from the distinct ones. When
-   `distinct` stops growing, more seeds are wasted compute: add maps or opponents.
+   times (same map, bots and slots, and the same `digest` in the match summary, docs/REPLAY.md). Reports
+   show `distinct` next to `played` and compute intervals from the distinct ones. When `distinct` stops
+   growing, more seeds are wasted compute: add maps or opponents.
 4. **One change at a time.** Two changes in one run cannot be told apart afterwards.
 5. **A loss might be a bug.** Before dropping an idea, read a lost game with `ibc-bench why`.
 

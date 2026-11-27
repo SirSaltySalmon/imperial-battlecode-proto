@@ -98,8 +98,11 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [x] **Core rules are not in the replay header.** Done in replay format 2 (docs/REPLAY.md). The viewer hardcodes vision range, cone angle, unit radius
   and more in `viewer/src/vision.ts`; a balance patch will make drawn cones disagree with what units saw. Put
   the ruleset tables (or the whole TOML) in the header and have the viewer read them.
-- [ ] **Per-round and per-kill statistics in `summary_json`**, a per-turn fuel distribution in the runner
-  summary, and a seed-independent game digest. `ibc-bench` re-simulates every replay to get these today.
+- [x] **Per-round and per-kill statistics in `summary_json`**, a per-turn fuel distribution in the runner
+  summary, and a seed-independent game digest. Done (docs/REPLAY.md, "Match summary"): `game.rounds[].planted`,
+  `game.kills`, `game.digest` and `teams[i].fuel.turn_p50/p90/p99`. `ibc-bench` takes plants, kills by weapon
+  and exact repeats from the summary; it still re-simulates wasm replays for first contact, kill distance,
+  movement, economy, loadouts and shots by weapon. Was: `ibc-bench` re-simulated every replay to get these.
 - [ ] **Stack-overflow depth is probably architecture-dependent.** A bot that recurses until it traps may
   fault at a different tick on another CPU. Test on arm64 (section 4) and, if so, bound it deterministically.
 - [x] **`memory.copy`/`memory.fill` cost fuel per byte.** Decided: keep Wasmtime's 1 fuel per byte. Free bulk

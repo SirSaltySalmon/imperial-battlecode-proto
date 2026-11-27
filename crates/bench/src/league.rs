@@ -44,7 +44,7 @@ pub struct LeagueReport {
     pub seeds: Vec<u64>,
     pub games: u64,
     pub failed: u64,
-    /// Games left after dropping exact repeats (same map, bots, slots, rounds and totals).
+    /// Games left after dropping exact repeats (same map, bots and slots, same game digest).
     pub distinct_games: u64,
     /// Sorted by rating, best first.
     pub rows: Vec<LeagueRow>,
@@ -71,7 +71,7 @@ pub fn run_league(
     )
 }
 
-/// Exact repeats removed: the same bots in the same slots on the same map with identical rounds and totals.
+/// Exact repeats removed: the same bots in the same slots on the same map, and the same game (`signature`).
 pub fn distinct_games(results: &[GameResult]) -> Vec<&GameResult> {
     let mut seen = BTreeSet::new();
     results
@@ -155,7 +155,7 @@ pub fn table(bots: &[String], results: &[GameResult], mut warnings: Vec<String>)
     }
     if distinct < played {
         warnings.push(format!(
-            "{} of {played} games are exact repeats (same map, slots, rounds and totals): the seed does not \
+            "{} of {played} games are exact repeats (same map, slots and game digest): the seed does not \
              change those games. Rating intervals count each distinct (map, seed) block once",
             played - distinct
         ));

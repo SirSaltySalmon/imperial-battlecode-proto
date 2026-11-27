@@ -329,7 +329,12 @@ fn squad_bots_are_deterministic_and_vary_with_the_seed() {
     for bot in SQUAD_BOTS {
         let (x, y) = (play(&map, 7, bot, "holder"), play(&map, 7, bot, "holder"));
         assert_eq!(x.final_hash, y.final_hash, "{bot} vs holder on {name}: two runs differ");
-        let hashes: std::collections::BTreeSet<u64> = (1..=4).map(|seed| play(&map, seed, bot, bot).final_hash).collect();
-        assert!(hashes.len() > 1, "{bot} mirror on {name}: four seeds gave one game");
+        // The final hash covers the seed; the summary's digest does not, so it tells whether the game changed.
+        let digest = |seed| {
+            let s: serde_json::Value = serde_json::from_str(&play(&map, seed, bot, bot).summary_json).unwrap();
+            s["digest"].as_str().unwrap().to_string()
+        };
+        let digests: std::collections::BTreeSet<String> = (1..=4).map(digest).collect();
+        assert!(digests.len() > 1, "{bot} mirror on {name}: four seeds gave one game");
     }
 }

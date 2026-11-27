@@ -85,6 +85,57 @@ ibc replay records FILE                 # memory writes, logs, fuel and debug dr
 ibc replay info FILE                    # header
 ```
 
+## Match summary (`summary.json`)
+
+Written next to the replay by `ibc run`, `ibc run-batch` and the worker (`ibc_replay::Summary`), so a finished
+match can be counted without re-simulating it. Deterministic: no times, no paths. Fields are only added.
+
+| Field | |
+|---|---|
+| `outcome`, `winner`, `score`, `ticks` | `"a"`, `"b"`, `"draw"` or `"unfinished"`; 0, 1 or null; rounds won; ticks simulated |
+| `teams[i]` | team A, then team B: `name`, `wasm_sha256`, `fuel_multiplier`, `faults` (count) and `fuel` |
+| `faults` | every bot crash: `{unit, team, tick, reason}` |
+| `seed`, `engine_version`, `wasmtime_version`, `abi_version`, `ruleset_hash`, `map_hash` | what was played |
+| `final_state_hash`, `replay_sha256` | `Match::state_hash()` after the last tick (it covers the seed); SHA-256 of `replay.ibcr` |
+| `game` | the engine's statistics, `Match::summary_json()` (below) |
+
+`teams[i].fuel`: `total` used, `granted` (the sum of the turn budgets), `turns`, `out_of_fuel_turns`,
+`max_per_tick` (all the team's units in one tick), `max_unit_turn` (one unit in one turn), and `turn_p50`,
+`turn_p90`, `turn_p99`: nearest-rank percentiles of the fuel one unit used in one turn, over every turn the
+team took.
+
+`game`:
+
+| Field | |
+|---|---|
+| `engine`, `ruleset_hash`, `map`, `map_hash`, `seed`, `winner`, `score`, `ticks`, `team_size`, `final_hash` | as above |
+| `rounds` | per finished round: `round`, `attackers` and `winner` (teams), `reason` (`ROUND_WIN_*`: elimination, detonation, defuse, clock), `ticks` (from its first buy tick to the tick that decided it), `planted` |
+| `kills` | per `EVENT_KILL`, in order: `[tick, round, killer, victim, killer_team, victim_team, weapon]` |
+| `units` | per unit: `id`, `team`, `kit`, `faulted`, `kills`, `deaths`, `damage`, `shots`, `plants`, `defuses` |
+| `digest` | 16 hex digits: how the game went, without the seed |
+
+A kill's `tick` is the tick being played when it was resolved (its event is in the next frame). The detonation
+blast has `killer` and `killer_team` -1; `weapon` is -1 for an ability or the blast. Friendly kills are listed
+too, while a unit's `kills` counts enemies only.
+
+`digest` is FNV-1a over the ruleset and map hashes, `team_size`, the result, `ticks`, `rounds`, `kills` and
+every unit's kit, fault flag and totals. It leaves out the seed, and `final_hash`, which covers it. The engine
+draws nothing at random, so bots that ignore the seed play the same game under every seed, and those
+games share one digest. `ibc-bench` counts games with the same map, slots and digest once.
+
+Example, abridged (`rusher` against `holder` on `crossfire`, seed 1: 7 rounds, 46 kills):
+
+```json
+"fuel": {"total": 10159170, "granted": 330500000, "max_per_tick": 2000210, "max_unit_turn": 400042,
+         "turns": 2630, "out_of_fuel_turns": 5, "turn_p50": 2128, "turn_p90": 2323, "turn_p99": 22707},
+"game": {"digest": "2fb85c13b2a2fed1", "final_hash": "58facedd899908c4",
+         "rounds": [{"round": 1, "attackers": 0, "winner": 0, "reason": 1, "ticks": 76, "planted": false}, ...],
+         "kills": [[32, 1, 0, 9, 0, 1, 0], [39, 1, 1, 7, 0, 1, 0], ...], ...}
+```
+
+Rounds and kills are about 20 bytes a kill and 75 a round in the compact JSON the coordinator stores: a few
+kilobytes for a match of a few dozen rounds and a hundred kills.
+
 ## Platform
 
 The coordinator stores the full replay as the record and redacts on request:

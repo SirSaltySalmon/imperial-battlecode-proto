@@ -5,11 +5,12 @@
 //! `report.json` keeps all of them in one flat `metrics` map so `--compare` can diff two runs.
 
 use crate::league::distinct_games;
-use crate::model::GameResult;
+use crate::model::{GameResult, Kill};
 use crate::stats::{percentile, ratio_ci, Est};
 use ibc_abi::{
     ROUND_WIN_DEFUSE, ROUND_WIN_DETONATION, ROUND_WIN_ELIMINATION, ROUND_WIN_TIMEOUT, TILE,
 };
+use ibc_replay::hash_hex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -250,12 +251,16 @@ fn core_metrics(m: &mut Metrics, maps: &[String]) {
     m.add("damage_per_round", false, |g| {
         (total(g, |t| t.damage), g.rounds.len() as f64)
     });
+    m.add("plant_rate", true, |g| {
+        let known = || g.rounds.iter().filter_map(|r| r.planted);
+        (
+            known().filter(|&p| p).count() as f64,
+            known().count() as f64,
+        )
+    });
 }
 
 fn detail_metrics(m: &mut Metrics) {
-    m.add("plant_rate", true, |g| {
-        (rounds_where(g, |r| r.planted), detail_rounds(g))
-    });
     m.add("first_contact_ticks.mean", false, |g| {
         (
             detail_sum(g, |r| r.first_contact.unwrap_or(0) as f64),
@@ -307,7 +312,6 @@ fn detail_metrics(m: &mut Metrics) {
             )
         });
     }
-    let kills = |g: &GameResult| g.detail.as_ref().map_or(0.0, |d| d.kills.len() as f64);
     let kills_where = |g: &GameResult, f: &dyn Fn(&crate::metrics::KillRec) -> bool| {
         g.detail
             .as_ref()
@@ -331,15 +335,34 @@ fn detail_metrics(m: &mut Metrics) {
             )
         });
     }
+}
+
+/// Kills by a unit, from the engine summary: friendly kills in, the detonation blast (no killer) out, as in
+/// the engine's own stats.
+fn unit_kills(g: &GameResult) -> impl Iterator<Item = &Kill> {
+    g.kills.iter().flatten().filter(|k| k.killer >= 0)
+}
+
+/// Weapon names by id of the rules a game was played on: its details carry them; without details, this
+/// build's rules (`builtin`: hash and names) if the game was played on those.
+fn names_of<'a>(g: &'a GameResult, builtin: &'a (String, Vec<String>)) -> &'a [String] {
+    match &g.detail {
+        Some(d) => &d.weapon_names,
+        None if g.ruleset_hash == builtin.0 => &builtin.1,
+        None => &[],
+    }
+}
+
+/// Kills by weapon (from the summary) and shots per kill by weapon (shots from the details).
+fn weapon_metrics(m: &mut Metrics) {
+    let rules = ibc_engine::Ruleset::builtin();
+    let builtin = (hash_hex(rules.hash()), rules.weapon_names);
     // Weapons come from the games themselves, never from a hard-coded list.
     let mut weapons: BTreeSet<(i32, String)> = BTreeSet::new();
     for g in m.games {
+        let names = names_of(g, &builtin);
+        weapons.extend(unit_kills(g).map(|k| (k.weapon.max(-1), weapon_name(names, k.weapon))));
         if let Some(d) = &g.detail {
-            weapons.extend(
-                d.kills
-                    .iter()
-                    .map(|k| (k.weapon.max(-1), weapon_name(&d.weapon_names, k.weapon))),
-            );
             weapons.extend(
                 d.shots_by_weapon
                     .iter()
@@ -349,9 +372,14 @@ fn detail_metrics(m: &mut Metrics) {
             );
         }
     }
+    let kills_where =
+        |g: &GameResult, f: &dyn Fn(&Kill) -> bool| unit_kills(g).filter(|k| f(k)).count() as f64;
     for (id, name) in weapons {
         m.add(&format!("kills.weapon.{name}.share"), true, |g| {
-            (kills_where(g, &|k| k.weapon.max(-1) == id), kills(g))
+            (
+                kills_where(g, &|k| k.weapon.max(-1) == id),
+                kills_where(g, &|_| true),
+            )
         });
         if id >= 0 {
             m.add(&format!("shots_per_kill.weapon.{name}"), false, |g| {
@@ -537,6 +565,28 @@ fn degenerate(games: &[&GameResult]) -> Degenerate {
     d
 }
 
+/// Games that lack what some metrics are computed from: per-tick details, or the summary's plants and kills.
+fn coverage_warnings(ok: &[&GameResult]) -> Vec<String> {
+    let mut out = Vec::new();
+    let without_detail = ok.iter().filter(|g| g.detail.is_none()).count();
+    if without_detail > 0 {
+        out.push(format!(
+            "{without_detail} game(s) carry no per-tick details; detail metrics use the rest"
+        ));
+    }
+    let without_stats = ok
+        .iter()
+        .filter(|g| g.kills.is_none() || g.rounds.iter().any(|r| r.planted.is_none()))
+        .count();
+    if without_stats > 0 {
+        out.push(format!(
+            "{without_stats} game(s) have no plants or kills in their summary (played by an older `ibc` or \
+             read from an older games.jsonl); plant and kill-by-weapon metrics use the rest"
+        ));
+    }
+    out
+}
+
 /// Build the report from league results. Games without details still contribute the summary-level metrics.
 pub fn build(results: &[GameResult], mut warnings: Vec<String>) -> BalanceReport {
     let ok: Vec<&GameResult> = results.iter().filter(|r| r.ok()).collect();
@@ -547,7 +597,7 @@ pub fn build(results: &[GameResult], mut warnings: Vec<String>) -> BalanceReport
     }
     if distinct < ok.len() as u64 {
         warnings.push(format!(
-            "{} of {} games are exact repeats (same map, slots, rounds and totals): the seed does not change \
+            "{} of {} games are exact repeats (same map, slots and game digest): the seed does not change \
              those games. Intervals are widened to the {distinct} distinct games; more maps or bots add information, \
              more seeds do not",
             ok.len() as u64 - distinct,
@@ -555,12 +605,7 @@ pub fn build(results: &[GameResult], mut warnings: Vec<String>) -> BalanceReport
         ));
     }
     warnings.extend(crate::model::fuel_warnings(results));
-    let without_detail = ok.iter().filter(|g| g.detail.is_none()).count();
-    if without_detail > 0 {
-        warnings.push(format!(
-            "{without_detail} game(s) carry no per-tick details; detail metrics use the rest"
-        ));
-    }
+    warnings.extend(coverage_warnings(&ok));
     let uniq = |f: &dyn Fn(&GameResult) -> String| {
         ok.iter()
             .map(|g| f(g))
@@ -587,6 +632,7 @@ pub fn build(results: &[GameResult], mut warnings: Vec<String>) -> BalanceReport
     };
     core_metrics(&mut m, &maps);
     detail_metrics(&mut m);
+    weapon_metrics(&mut m);
     let fuel = fuel_rows(&ok, &mut m);
     let degenerate = degenerate(&ok);
     if !degenerate.always_timeout.is_empty() || !degenerate.never_shoot.is_empty() {
