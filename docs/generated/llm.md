@@ -581,7 +581,7 @@ Values, straight from `rules/weapons.toml`:
 | `id` | 0 | 1 | 2 | 3 | 4 | 5 |
 | `slot` | sidearm | primary | primary | primary | primary | primary |
 | `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |
-| `damage` | 26 | 22 | 17 | 15 | 75 | 16 |
+| `damage` | 26 | 22 | 17 | 15 | 74 | 16 |
 | `pellets` | 1 | 3 | 2 | 7 | 1 | 5 |
 | `spread` | 0 | 250 | 200 | 260 | 0 | 300 |
 | `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 |
@@ -593,8 +593,8 @@ Values, straight from `rules/weapons.toml`:
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
 | `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |
-| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 |
-| `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |
+| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 24576 | 14336 |
+| `falloff_min_pct` | 50 | 70 | 40 | 25 | 86 | 60 |
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |
 | `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 |
@@ -614,7 +614,7 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 | rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
 | smg | 1 / 1 / 1 | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
-| marksman | 2 / 6 / 6 | 5 | 75 / 75 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
+| marksman | 2 / 6 / 6 | 5 | 74 / 63 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
 | lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
 <!-- /generated:derived -->
 
@@ -629,7 +629,8 @@ Roles:
   the fan is hard to sidestep; nearly harmless past six tiles. Slow pump, small magazine.
 - **rifle**: the all-rounder. A tight three-bullet burst that kills in two pulls while all three land and
   still reaches across the map, if you stand still and pace your fire.
-- **marksman**: one fast bullet, no falloff, two hits kill anything. Slow to cycle, and a two-tick startup
+- **marksman**: one fast bullet. Two hits kill a bare or light-armoured unit and three a heavy-armoured one,
+  anywhere in its reach: its shallow falloff never crosses a breakpoint. Slow to cycle, and a two-tick startup
   that the target can see, which grows the most of any weapon after moving.
 - **lmg**: heavy and slow. Five bullets a pull, a magazine that lasts sixty ticks and no recoil build-up, for
   holding a lane; slow to carry, very slow to start after moving, and above all slow to reload.
@@ -664,7 +665,7 @@ Target with 100 health and the heaviest armour in the shop:
 | rifle | 10 | 13 | 10 | 13 | 17 | 20 |
 | smg | 10 | 10 | 15 | 15 | no kill | no kill |
 | shotgun | 10 | 12 | no kill | no kill | no kill | no kill |
-| marksman | 8 | 12 | 8 | 12 | 8 | 12 |
+| marksman | 13 | 17 | 13 | 17 | 13 | 17 |
 | lmg | 6 | 10 | 12 | 16 | 37 | 41 |
 <!-- /generated:ttk-armor -->
 
@@ -1209,7 +1210,7 @@ still loads and reads the prefix of each record it knows; what changed is what s
 
 # Ruleset reference
 
-Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `49cfb359909ba135`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -1275,7 +1276,7 @@ On detonation every living unit within this distance of the charge dies, both te
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `id` | 0 | 1 | 2 | 3 | 4 | 5 |  |
 | `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |  |
-| `damage` | 26 | 22 | 17 | 15 | 75 | 16 |  |
+| `damage` | 26 | 22 | 17 | 15 | 74 | 16 |  |
 | `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | Bullets per trigger pull. |
 | `spread` | 0 | 250 | 200 | 260 | 0 | 300 | Angle between adjacent pellets when standing still and settled. |
 | `_reserved0` | 0 | 0 | 0 | 0 | 0 | 0 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
@@ -1288,8 +1289,8 @@ On detonation every living unit within this distance of the charge dies, both te
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |  |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | Units per tick. |
 | `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |  |
-| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
-| `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |  |
+| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 24576 | 14336 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
+| `falloff_min_pct` | 50 | 70 | 40 | 25 | 86 | 60 |  |
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | Percent of max run speed while holding this weapon. |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |  |
 | `slot` | 1 | 0 | 0 | 0 | 0 | 0 |  |
@@ -1324,7 +1325,9 @@ Run-and-gun: running barely unsteadies it and it carries at full speed, but shor
 Close quarters: a wide seven-bullet fan that kills in one pull inside three tiles and tickles beyond six.
 
 (above [[weapon]] "marksman")
-Long range: one fast bullet with no falloff, two hits kill. Slow to cycle, very slow to start after moving,
+Long range: one fast bullet. Two hits kill a bare or light-armoured unit and three a heavy-armoured one,
+anywhere in its reach: a shallow falloff past its 24-tile sight takes 74 down to 63, never across a breakpoint
+(63 kills light armour in two, 75 would kill heavy in two). Slow to cycle, very slow to start after moving,
 and the two-tick startup warns the target.
 
 (above [[weapon]] "lmg")
