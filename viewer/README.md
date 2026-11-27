@@ -35,7 +35,7 @@ folder (see `docs/maps.md`, "The editor"). From any other host it still opens, e
 `cargo run -p ibc-combatviz -- --out viewer/public/lab.json`. Drop a `lab.json` on the page if it is not
 served from `public/`.
 
-`/play.html` is the page of `ibc play` (play one unit against a bot; see `docs/PLAY.md`). It only works
+`/play.html` is the page of `ibc play` (play alongside your team's bot against another; see `docs/PLAY.md`). It only works
 served by `ibc play`, which provides its `/setup`, `/state` and input endpoints. Its code is in `src/play/`
 and reuses the renderer, map parser and perspective of the replay viewer; it needs no engine module.
 

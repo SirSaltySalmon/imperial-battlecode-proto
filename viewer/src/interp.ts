@@ -1,7 +1,7 @@
 // In-between positions for smooth playback. Rendering only: the simulation stays tick-exact, and a paused
 // viewer (t = 0) always shows exactly what the frame says.
 
-import { FULL_TURN, TILE, type ProjectileFrame, type UnitFrame, type Vec2 } from "./types";
+import { FULL_TURN, TILE, type ProjectileFrame, type TrailFrame, type UnitFrame, type Vec2 } from "./types";
 import { angleDiff } from "./vision";
 
 export function lerp(a: number, b: number, t: number): number {
@@ -60,14 +60,17 @@ export type StopFn = (p: ProjectileFrame) => Vec2 | null;
  * Bullets at time `t` between two frames.
  *  - A bullet of the next frame was at `pos - vel` one tick earlier, so it is drawn at `pos - vel * (1 - t)`.
  *    That covers both bullets that carry over and bullets fired during the tick (they leave the muzzle).
- *  - A bullet of the current frame with no successor hit something during the tick: it flies on until
- *    `stop` says where it ended, then disappears.
+ *  - A bullet that ended during the tick is in the next frame's `ended` (trails): it flies from where it was
+ *    to where it ended, its tail following it in, so a shot fired and stopped within one tick is seen too.
+ *  - A bullet of the current frame with neither hit something during the tick: it flies on until `stop`
+ *    says where it ended, then disappears (thrown devices, and frames without trails).
  */
 export function interpShots(
   cur: ProjectileFrame[],
   next: ProjectileFrame[] | null,
   t: number,
   stop: StopFn = () => null,
+  ended: TrailFrame[] = [],
 ): Shot[] {
   const out: Shot[] = [];
   const trail = (p: ProjectileFrame, x: number, y: number, travelled: number): Shot => {
@@ -80,19 +83,26 @@ export function interpShots(
     return out;
   }
   const carried = new Array<boolean>(cur.length).fill(false);
-  for (const q of next) {
-    const sx = q.x - q.vx;
-    const sy = q.y - q.vy;
-    const from = cur.findIndex(
+  const match = (owner: number, vx: number, vy: number, sx: number, sy: number) => {
+    const i = cur.findIndex(
       (p, i) =>
         !carried[i] &&
-        p.owner === q.owner &&
-        p.vx === q.vx &&
-        p.vy === q.vy &&
+        p.owner === owner &&
+        p.vx === vx &&
+        p.vy === vy &&
         Math.abs(p.x - sx) <= MATCH_TOLERANCE &&
         Math.abs(p.y - sy) <= MATCH_TOLERANCE,
     );
-    if (from >= 0) carried[from] = true;
+    if (i >= 0) carried[i] = true;
+    return i;
+  };
+  for (const e of ended) {
+    const flown = match(e.owner, e.vx, e.vy, e.x0, e.y0) >= 0;
+    const shot = endedShot(e, t, flown);
+    if (shot) out.push(shot);
+  }
+  for (const q of next) {
+    const from = match(q.owner, q.vx, q.vy, q.x - q.vx, q.y - q.vy);
     const speed = Math.hypot(q.vx, q.vy);
     // A fresh bullet has only flown `speed * t` since it left the muzzle.
     out.push(trail(q, q.x - q.vx * (1 - t), q.y - q.vy * (1 - t), from >= 0 ? TRAIL : speed * t));
@@ -109,6 +119,22 @@ export function interpShots(
     out.push(trail(p, x, y, TRAIL));
   });
   return out;
+}
+
+/**
+ * A bullet that ended during the tick, `t` of the way through it: the head flies at its speed and stops where
+ * the bullet ended, and the tail follows it in. `flown`: it was already in flight (in the earlier frame), so
+ * its tail starts a full trail behind; otherwise it leaves the muzzle at `(x0, y0)`. Null once all of it is in.
+ */
+function endedShot(e: TrailFrame, t: number, flown: boolean): Shot | null {
+  const len = Math.hypot(e.x1 - e.x0, e.y1 - e.y0);
+  const speed = Math.hypot(e.vx, e.vy) || 1;
+  const d = speed * t;
+  const tail = flown ? d - TRAIL : Math.max(0, d - TRAIL);
+  if (tail >= len) return null;
+  const head = Math.min(d, len);
+  const [ux, uy] = [e.vx / speed, e.vy / speed];
+  return { team: e.team, kind: 0, x: e.x0 + ux * head, y: e.y0 + uy * head, tx: e.x0 + ux * tail, ty: e.y0 + uy * tail };
 }
 
 /** Fraction of the way from `a` to `b` at which the segment passes closest to `p`, clamped to 0..1. */

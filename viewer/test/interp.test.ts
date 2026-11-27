@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fitCamera, toTiles, zoomAt } from "../src/camera";
 import { closestOnSegment, interpShots, interpUnits, lerp, lerpAngle, MAX_GLIDE, TRAIL } from "../src/interp";
-import { bullet, unit } from "./helpers";
+import { bullet, trail, unit } from "./helpers";
 
 describe("unit interpolation", () => {
   it("lerps numbers and takes the short way round for angles", () => {
@@ -72,6 +72,24 @@ describe("bullet interpolation", () => {
     expect(interpShots(cur, [], 0.25, stop).map((s) => s.x)).toEqual([4000]);
     expect(interpShots(cur, [], 0.5, stop)).toEqual([]);
     expect(interpShots(cur, [], 0.9, () => null).map((s) => s.x)).toEqual([9200]);
+  });
+
+  it("draws a shot fired and stopped within one tick from its trail, tail following it in", () => {
+    const ended = [trail({ x0: 2000, x1: 4000, vx: 8000 })];
+    const early = interpShots([], [], 0.125, () => null, ended);
+    expect(early.map((s) => [s.x, s.tx])).toEqual([[3000, 2000]]);
+    const late = interpShots([], [], 0.5, () => null, ended);
+    expect(late.map((s) => [s.x, s.tx])).toEqual([[4000, 2000 + 4000 - TRAIL]]);
+    expect(interpShots([], [], 1, () => null, ended)).toEqual([]);
+  });
+
+  it("finishes a bullet in flight along its trail instead of guessing where it stopped", () => {
+    const cur = [bullet({ x: 2000, vx: 8000 })];
+    const ended = [trail({ x0: 2000, x1: 6000, vx: 8000 })];
+    const guess = () => [3000, 2000] as [number, number];
+    const shots = interpShots(cur, [], 0.25, guess, ended);
+    expect(shots.map((s) => [s.x, s.tx])).toEqual([[4000, 4000 - TRAIL]]);
+    expect(interpShots(cur, [], 0.75, guess, ended).map((s) => s.x)).toEqual([6000]);
   });
 
   it("matches each bullet once", () => {

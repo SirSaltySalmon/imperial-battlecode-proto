@@ -99,6 +99,8 @@ export class Engine {
     }
     const names = fields.weapons;
     if (Array.isArray(names) && names.every((n) => typeof n === "string")) out.weapons = names as string[];
+    const ranges = fields.weapon_ranges;
+    if (Array.isArray(ranges) && ranges.every((n) => typeof n === "number")) out.weapon_ranges = ranges as number[];
     return out;
   }
 

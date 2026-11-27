@@ -113,7 +113,7 @@ enum Command {
         #[arg(long)]
         server: Option<String>,
     },
-    /// Play one unit against a bot in the browser: ibc play OPPONENT [--map M] [--mode realtime|turn] ...
+    /// Play alongside your team's bot in the browser: ibc play TEAM_BOT OPPONENT [--map M] [--unit SLOT] ...
     Play {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
