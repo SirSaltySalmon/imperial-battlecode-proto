@@ -86,9 +86,9 @@ fn process(
     dir: &Path,
     seq: u64,
 ) -> Result<Finished, Stop> {
-    // Granted by a long poll that was still open when the drain began: nothing has started, so give it back
-    // now (no attempt spent) rather than start a match the machine may not live to finish.
-    if ctx.shutdown.is_draining() {
+    // Granted by a long poll that returned after the drain began: nothing has started, so give it back now
+    // (no attempt spent) rather than start a match the machine may not live to finish.
+    if active.leased_while_draining {
         return Err(Stop::Release("worker shutting down".into()));
     }
     if lease.kind != "match" {

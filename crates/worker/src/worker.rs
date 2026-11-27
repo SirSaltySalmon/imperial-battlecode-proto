@@ -80,6 +80,8 @@ pub(crate) struct Active {
     next_heartbeat: Mutex<Instant>,
     /// The coordinator told us the lease is gone (409): stop work, report nothing.
     pub lost: AtomicBool,
+    /// Granted by a long poll that returned after the drain began: give it back unstarted.
+    pub leased_while_draining: bool,
 }
 
 impl Active {
@@ -339,9 +341,12 @@ fn lease_loop(ctx: &Arc<Ctx>, mut just_registered: bool) -> Result<(), String> {
                         ctx.shutdown.is_draining()
                     });
                 }
+                // Decided when the poll returns, not when a job thread starts: a job leased before the
+                // drain began is finished, one the poll brought back after it is released.
+                let draining = ctx.shutdown.is_draining();
                 for raw in jobs {
                     seq += 1;
-                    start_job(ctx, raw, seq, asked);
+                    start_job(ctx, raw, seq, asked, draining);
                 }
             }
             Err(ApiError::Unauthorized) => {
@@ -386,7 +391,7 @@ impl Drop for Slot {
     }
 }
 
-fn start_job(ctx: &Arc<Ctx>, raw: Value, seq: u64, asked: Instant) {
+fn start_job(ctx: &Arc<Ctx>, raw: Value, seq: u64, asked: Instant, draining: bool) {
     let Some(lease) = Lease::from_value(&raw) else {
         crate::log!(
             "error",
@@ -403,6 +408,7 @@ fn start_job(ctx: &Arc<Ctx>, raw: Value, seq: u64, asked: Instant) {
         lease_deadline: Mutex::new(asked),
         next_heartbeat: Mutex::new(asked),
         lost: AtomicBool::new(false),
+        leased_while_draining: draining,
     });
     active.set_lease_len(&ctx.cfg, lease.lease_secs);
     *active
