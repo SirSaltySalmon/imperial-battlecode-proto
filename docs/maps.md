@@ -242,7 +242,7 @@ figure marked * was measured again after the map changed: 20 seeds, native, inte
 | [`spillway`](../maps/spillway.ibcmap)<br>![spillway](../maps/renders/spillway.svg) | 5v5, 25x40, 2 sites | 42 / 39 | 24 / 21 | 18 / 18 | 22 | 3 / 3 | 22.3 | 0 | 61.9% [57.6, 66.2] |
 | [`steppe`](../maps/steppe.ibcmap)<br>![steppe](../maps/renders/steppe.svg) | 5v5, 44x34, 2 sites | 32 / 46 | 15 / 32 | 17 / 14 | 26 | 3 / 4 | 24.5 | 0 | 51.3% [47.6, 55.0] |
 | [`trident`](../maps/trident.ibcmap)<br>![trident](../maps/renders/trident.svg) | 5v5, 33x27, 3 sites | 31 / 27 / 32 | 25 / 21 / 25 | 6 / 6 / 7 | 16 / 30 / 16 | 5 / 5 / 5 | 24.7 | 0 | 60.0% [55.0, 65.0] |
-| [`tunnels`](../maps/tunnels.ibcmap)<br>![tunnels](../maps/renders/tunnels.svg) | 3v3, 24x13, 2 sites | 30 / 33 | 6 / 7 | 24 / 26 | 14 | 2 / 2 | 21.0 | 6 | 48.1% [44.1, 52.2]* |
+| [`tunnels`](../maps/tunnels.ibcmap)<br>![tunnels](../maps/renders/tunnels.svg) | 3v3, 24x13, 2 sites | 29 / 32 | 6 / 6 | 23 / 26 | 14 | 2 / 2 | 21.0 | 6 | 48.1% [44.1, 52.2]* |
 | [`warrens`](../maps/warrens.ibcmap)<br>![warrens](../maps/renders/warrens.svg) | 5v5, 35x25, 2 sites | 39 / 39 | 21 / 21 | 18 / 18 | 28 | 3 / 3 | 22.2 | 0 | 47.1% [42.4, 51.7] |
 
 | Map | Identity |
@@ -259,7 +259,7 @@ figure marked * was measured again after the map changed: 20 seeds, native, inte
 | `postern` | 3v3. Small and fast: three one-tile entrances per site, 18-tick rotation |
 | `culvert` | 3v3, diagonal. Spawns in opposite corners, sites in the other two, so each site has a different timing |
 | `quarry` | 4v4. A central pit full of low cover that you can shoot across but not run through, sites above and below it |
-| `crossfire`, `tunnels` | The two original maps. `crossfire` is unchanged (byte-identical); `tunnels` has five tiles changed to take away the attackers' edge (see "Side-balance fixes"). They predate the bands: defenders start next to the sites (advantage 24 to 35 ticks) and `crossfire` has 30-tile sightlines |
+| `crossfire`, `tunnels` | The two original maps. `crossfire` is unchanged (byte-identical); `tunnels` has five tiles changed to take away the attackers' edge (see "Side-balance fixes"). They predate the bands: defenders start next to the sites (advantage 23 to 35 ticks) and `crossfire` has 30-tile sightlines |
 
 The "without" rotations for `delta` and `fulcrum` were measured on a copy of the map with those doors walled.
 
