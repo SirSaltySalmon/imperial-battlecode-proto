@@ -2,9 +2,14 @@
 //!
 //! Attack: everyone runs to the site nearest their spawn. The carrier plants on arrival, the rest
 //! stand in a ring around the site (then around the planted charge) watching where defenders appear.
-//! Defence: run at the last enemy sound, else at the attackers' spawn, then sweep the sites;
+//! Defence: run at an enemy sound until there or it goes stale, else at the attackers' spawn, then sweep
+//! the sites;
 //! once the charge is planted, run to it and defuse.
 //! Always: shoot the nearest visible enemy, leading it; reload when it is quiet.
+//!
+//! Fuel: the site to rush is the same every round of a side, so the path searches that find it are
+//! made once per side, one per buy tick as the last thing in the turn, and kept. A defender chases one
+//! sound at a time, so the action phase starts a new search only when the place to go changes.
 use ibc::tactics::{approach_point, shop, Gunner};
 use ibc::*;
 
@@ -34,6 +39,14 @@ pub struct Rusher {
     heard: Option<((i32, i32), i32)>,
     /// Defence: index into the sweep route (attacker spawn, then each site).
     sweep: usize,
+    /// The map's sites, in the order the engine lists them.
+    sites: Vec<SiteInfo>,
+    /// Side the two answers below were worked out for (the spawns swap with the sides).
+    known_side: i32,
+    /// Per site, the path length from our spawn to its centre once it has been searched.
+    reach: Vec<Option<i32>>,
+    /// The site to rush and its watch point, once every site's distance is known.
+    target: Option<((i32, i32), (i32, i32))>,
 }
 
 impl Bot for Rusher {
@@ -49,6 +62,10 @@ impl Bot for Rusher {
             watch: (0, 0),
             heard: None,
             sweep: 0,
+            sites: sites().collect(),
+            known_side: -1,
+            reach: Vec::new(),
+            target: None,
         }
     }
 
@@ -62,11 +79,13 @@ impl Bot for Rusher {
             return; // sides and spawns are not set yet
         }
         if self.plan_for != (info.round, info.my_side) {
-            self.plan(&info); // lands on the first buy tick, where the fuel budget is larger
+            self.plan(&info);
         }
         match info.phase {
             PHASE_BUY => {
                 shop(&me);
+                // Last in the turn: if it runs out of fuel, nothing after it is lost.
+                self.survey(&info);
             }
             PHASE_ACTION | PHASE_PLANTED => self.fight(&me, &info),
             _ => {}
@@ -75,19 +94,44 @@ impl Bot for Rusher {
 }
 
 impl Rusher {
-    /// Once per round: pick the site to rush and the angle to watch from it.
+    /// Once per round, cheap: reset the round's memory and take the site worked out for this side.
     fn plan(&mut self, info: &MatchInfo) {
         self.plan_for = (info.round, info.my_side);
         self.map = map_info(); // spawns swap with the sides
         self.heard = None;
         self.sweep = 0;
-        let spawn = (self.map.spawn_x, self.map.spawn_y);
-        let nav = &mut self.nav;
-        let nearest = sites().min_by_key(|s| nav.path_len(spawn, (s.centre_x, s.centre_y)).unwrap_or(i32::MAX));
-        if let Some(s) = nearest {
-            self.site = (s.centre_x, s.centre_y);
-            self.watch = approach_point(nav, self.site, (self.map.enemy_spawn_x, self.map.enemy_spawn_y));
+        if self.known_side != info.my_side {
+            self.known_side = info.my_side;
+            self.reach = vec![None; self.sites.len()];
+            self.target = None;
         }
+        // Until the survey has found the site (it takes a few buy ticks once per side), the first one.
+        let first = self.sites.first().map(|s| ((s.centre_x, s.centre_y), (s.centre_x, s.centre_y)));
+        if let Some((site, watch)) = self.target.or(first) {
+            (self.site, self.watch) = (site, watch);
+        }
+    }
+
+    /// One path search per call until the site to rush is known: the distance from our spawn to each
+    /// site, then the point where defenders come into view of the nearest one.
+    fn survey(&mut self, info: &MatchInfo) {
+        // A search can outlast its tick on a large map. Never start one on the last buy tick, so the
+        // overrun costs a buy tick (the shopping is already done) and not the first tick of the round.
+        if info.phase_ticks_left < 2 || self.target.is_some() || self.sites.is_empty() {
+            return;
+        }
+        let spawn = (self.map.spawn_x, self.map.spawn_y);
+        let centre = |s: &SiteInfo| (s.centre_x, s.centre_y);
+        if let Some(i) = self.reach.iter().position(Option::is_none) {
+            self.reach[i] = Some(self.nav.path_len(spawn, centre(&self.sites[i])).unwrap_or(i32::MAX));
+            return;
+        }
+        // The first of the nearest, as `min_by_key` picks it.
+        let nearest = (0..self.sites.len()).min_by_key(|&i| self.reach[i]).unwrap_or(0);
+        let site = centre(&self.sites[nearest]);
+        let watch = approach_point(&mut self.nav, site, (self.map.enemy_spawn_x, self.map.enemy_spawn_y));
+        self.target = Some((site, watch));
+        (self.site, self.watch) = (site, watch);
     }
 
     fn fight(&mut self, me: &UnitInfo, info: &MatchInfo) {
@@ -135,11 +179,13 @@ impl Rusher {
 
     /// Returns true if the tick's one "hands" action (defuse) was used.
     fn defend(&mut self, me: &UnitInfo, info: &MatchInfo, fighting: bool, hold: bool, speed: i32) -> bool {
-        for s in sounds().filter(|s| s.team != me.team && s.kind != SOUND_DECOY) {
-            self.heard = Some(((s.x, s.y), info.tick));
-        }
+        // One place to go at a time, kept until it is reached or goes stale: chasing every new sound would
+        // start a new path search each tick, and one search can take a whole tick's fuel.
         if matches!(self.heard, Some((_, at)) if info.tick - at > SOUND_MEMORY_TICKS) {
             self.heard = None;
+        }
+        for s in sounds().filter(|s| s.team != me.team && s.kind != SOUND_DECOY) {
+            self.heard.get_or_insert(((s.x, s.y), info.tick));
         }
         let charge = (info.charge_x, info.charge_y);
         let goal = if info.phase == PHASE_PLANTED {

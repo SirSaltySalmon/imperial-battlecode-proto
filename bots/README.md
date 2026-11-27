@@ -37,8 +37,8 @@ What the squad bots do that the first three do not:
   The logic survives a change to `rules/weapons.toml`.
 - **Stay inside the fuel budget.** The expensive questions (where does the enemy come into view of a site,
   how far is it) are asked one per buy tick, last in the turn, and kept for the match. Measured with the
-  wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` does the
-  same (measured below).
+  wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` and
+  `rusher` (so `utility`) do the same (measured below).
 
 ## Measured
 
@@ -151,6 +151,17 @@ single turn (seed 1): 353,027 of the 400,000 a buy tick allows (`steppe`), 98,39
 phase, where one `Pathfinder::next_waypoint` call towards a new goal alone costs up to about 95,000. Same
 league, Elo before and after: metered -157 [-210, -117] and -136 [-181, -96]; native (unmetered) -140
 [-189, -98] and -134 [-180, -97], 28.7% and 29.2% of 672 matches won: inside the noise.
+
+`rusher` searched the path from its spawn to every site, and from the chosen site to the enemy spawn, in
+its first buy tick of every round, and a defender started a new path search for every sound it heard. Same
+league: 9,046 out-of-fuel turns over 588 sides, and 11,057 over 602 for `utility`, which plays as `rusher`.
+The site to rush is the same every round of a side, so the searches now run once per side, one per buy
+tick, and a defender keeps one sound to chase until it is reached or stale. After: `rusher` 2 turns over
+2 sides, `utility` 201 over 87, all in the action phase and all from the `next_waypoint` cost above
+(`utility` adds its abilities to the same tick; `holder`, now facing the new `rusher`, has 2 turns over 1
+side from the same cause). Largest buy-phase turn 387,912 of 400,000 (`steppe`).
+Elo before and after, metered: `rusher` 77 [22, 129] and 88 [41, 131], `utility` -81 [-132, -33] and -75
+[-127, -19]; native: `rusher` 77 [22, 130] and 89 [43, 133]. Inside the noise.
 
 Fuel, wasm runner (measured before the timing change): 40 matches (every pair of the five squad bots on `agora`, `longwatch`, `tunnels` and
 `warrens`, seed 11) had no out-of-fuel turn and no fault; the largest single turn was 297,188 of the
