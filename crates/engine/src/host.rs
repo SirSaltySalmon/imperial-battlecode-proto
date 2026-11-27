@@ -68,18 +68,23 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
     }
 }
 
-/// Indices of the rows of a list table as the calling unit's team perceives it, in a fixed order.
-fn rows(w: &World, me: usize, table: u32) -> Vec<usize> {
+/// The units listed in `T_ALLIES` or `T_ENEMIES` for the calling unit, in roster order. Walked, not listed:
+/// a team has a handful of units, and `count` and `get` then allocate nothing.
+fn unit_rows(w: &World, me: usize, table: u32) -> impl Iterator<Item = usize> + '_ {
     let team = w.units[me].team;
-    let view = &w.views[team as usize];
-    match table {
-        T_ALLIES => (0..w.units.len()).filter(|&j| j != me && w.units[j].team == team).collect(),
-        T_ENEMIES => (0..w.units.len())
-            .filter(|&j| w.units[j].team != team && w.units[j].alive && view.units & (1 << j) != 0)
-            .collect(),
-        T_PROJECTILES | T_EFFECTS | T_DROPS => w.perceived(team, table),
-        _ => Vec::new(),
-    }
+    let seen = w.views[team as usize].units;
+    (0..w.units.len()).filter(move |&j| {
+        let u = &w.units[j];
+        match table {
+            T_ALLIES => j != me && u.team == team,
+            _ => u.team != team && u.alive && seen & (1 << j) != 0,
+        }
+    })
+}
+
+/// Index of row `ix` of `T_PROJECTILES`, `T_EFFECTS` or `T_DROPS` as the calling unit's team perceives it.
+fn perceived_row(w: &World, me: usize, table: u32, ix: usize) -> Option<usize> {
+    w.perceived(w.units[me].team, table).get(ix).map(|&j| j as usize)
 }
 
 fn match_info(w: &World, me: usize) -> MatchInfo {
@@ -123,7 +128,8 @@ impl Host for Match {
         }
         match table {
             T_SELF | T_MATCH | T_MAP | T_RULES_CORE => 1,
-            T_ALLIES | T_ENEMIES | T_PROJECTILES | T_EFFECTS | T_DROPS => rows(w, me, table).len() as i32,
+            T_ALLIES | T_ENEMIES => unit_rows(w, me, table).count() as i32,
+            T_PROJECTILES | T_EFFECTS | T_DROPS => w.perceived(w.units[me].team, table).len() as i32,
             T_SOUNDS => w.team_sounds[w.units[me].team as usize].len() as i32,
             T_MAP_ROW => w.map.height,
             T_WEAPON => w.rules.weapons.len() as i32,
@@ -155,17 +161,17 @@ impl Host for Match {
         }
         match table {
             T_SELF => push(out, &unit_info(w, me, true)),
-            T_ALLIES => match rows(w, me, table).get(ix) {
-                Some(&j) => push(out, &unit_info(w, j, true)),
+            T_ALLIES => match unit_rows(w, me, table).nth(ix) {
+                Some(j) => push(out, &unit_info(w, j, true)),
                 None => -ERR_OUT_OF_RANGE,
             },
-            T_ENEMIES => match rows(w, me, table).get(ix) {
-                Some(&j) => push(out, &unit_info(w, j, false)),
+            T_ENEMIES => match unit_rows(w, me, table).nth(ix) {
+                Some(j) => push(out, &unit_info(w, j, false)),
                 None => -ERR_OUT_OF_RANGE,
             },
             T_SOUNDS => row!(w.team_sounds[w.units[me].team as usize]),
-            T_PROJECTILES => match rows(w, me, table).get(ix) {
-                Some(&j) => {
+            T_PROJECTILES => match perceived_row(w, me, table, ix) {
+                Some(j) => {
                     let p = &w.projectiles[j];
                     push(
                         out,
@@ -183,12 +189,12 @@ impl Host for Match {
                 }
                 None => -ERR_OUT_OF_RANGE,
             },
-            T_EFFECTS => match rows(w, me, table).get(ix) {
-                Some(&j) => push(out, &w.effects[j].info),
+            T_EFFECTS => match perceived_row(w, me, table, ix) {
+                Some(j) => push(out, &w.effects[j].info),
                 None => -ERR_OUT_OF_RANGE,
             },
-            T_DROPS => match rows(w, me, table).get(ix) {
-                Some(&j) => push(out, &w.drops[j]),
+            T_DROPS => match perceived_row(w, me, table, ix) {
+                Some(j) => push(out, &w.drops[j]),
                 None => -ERR_OUT_OF_RANGE,
             },
             T_MATCH => push(out, &match_info(w, me)),
@@ -215,7 +221,7 @@ impl Host for Match {
                 )
             }
             T_MAP_ROW => {
-                if index as i32 >= w.map.height {
+                if index >= w.map.height as u32 {
                     return -ERR_OUT_OF_RANGE;
                 }
                 let a = ix * w.map.width as usize;

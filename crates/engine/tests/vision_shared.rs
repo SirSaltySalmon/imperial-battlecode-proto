@@ -168,3 +168,36 @@ fn enemy_hp_and_armor_read_zero() {
     let ally = table::<UnitInfo>(&m, 3, T_ALLIES).into_iter().find(|u| u.id == 2).unwrap();
     assert_eq!((ally.hp, ally.armor), (m.world.units[2].hp, 50), "teammates see everything");
 }
+
+/// A weapon on the floor at (8, 6), east of team A, with both team A units at x = 3 looking west.
+fn drop_behind_team_a(m: &mut Match) {
+    place(m, 0, c(3, 6), WEST);
+    place(m, 1, c(3, 7), WEST);
+    m.world.drops.push(DropInfo { kind: DROP_WEAPON, x: c(8, 6).0, y: c(8, 6).1, item: 0 });
+}
+
+#[test]
+fn a_turn_in_the_buy_phase_shows_in_the_next_read() {
+    let mut m = Match::new(Ruleset::builtin(), Map::parse(ARENA).unwrap(), 1);
+    while m.world.phase != PHASE_BUY {
+        m.step();
+    }
+    drop_behind_team_a(&mut m);
+    assert_eq!(m.count(1, T_DROPS), 0, "team A looks away from the drop");
+    // Buy-phase acts apply at once, so the rows are listed afresh at every read (`World::perceived`).
+    assert_eq!(m.act(0, A_FACE, EAST, 0, 0), OK);
+    assert_eq!(m.count(1, T_DROPS), 1, "unit 0 has turned, and its teammate reads what it sees");
+}
+
+/// In the action phases a tick's perceived rows are listed at its first read and kept until the step, so an
+/// edit to `world` after that read would not show. Debug builds refuse it rather than serve stale rows.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "edited after a read")]
+fn editing_the_world_after_a_read_of_the_tick_is_caught() {
+    let mut m = setup();
+    drop_behind_team_a(&mut m);
+    assert_eq!(m.count(0, T_DROPS), 0);
+    place(&mut m, 0, c(3, 6), EAST);
+    m.count(0, T_DROPS);
+}
