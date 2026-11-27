@@ -1,5 +1,5 @@
-//! The buy phase. Weapons are chosen by what they are (longest range, biggest magazine, most pellets,
-//! cheapest), not by name or id, so the logic survives a change to `rules/weapons.toml`.
+//! The buy phase. Weapons are chosen by what they are (one bullet or a fan, longest range, biggest magazine,
+//! most pellets, cheapest), not by name or id, so the logic survives a change to `rules/weapons.toml`.
 use crate::kit::Kit;
 use crate::{Buy, Style};
 use ibc::*;
@@ -38,17 +38,28 @@ fn arm_for(style: &Style, me: &UnitInfo, info: &MatchInfo) -> Arm {
     }
 }
 
+/// The weapon for `arm`. Single-bullet guns (the marksman rifle and the cheap long gun) and fans (everything
+/// else) are told apart first, so a cheap long gun never passes for the SMG and a dear fan for the marksman.
 fn find(offers: &[Offer], arm: Arm) -> Option<Offer> {
-    let marksman = offers.iter().max_by_key(|o| (o.rules.range, o.price)).copied();
+    let fans = || offers.iter().filter(|o| o.rules.pellets > 1);
     match arm {
-        Arm::Marksman => marksman,
-        Arm::MachineGun => offers.iter().max_by_key(|o| (o.rules.magazine, o.price)).copied(),
-        Arm::Shotgun => offers.iter().max_by_key(|o| (o.rules.pellets, o.price)).copied(),
-        Arm::Smg => offers.iter().min_by_key(|o| o.price).copied(),
-        Arm::Rifle => {
-            offers.iter().filter(|o| Some(o.item) != marksman.map(|m| m.item)).max_by_key(|o| o.price).copied()
-        }
+        Arm::Marksman => marksman(offers),
+        Arm::MachineGun => fans().max_by_key(|o| (o.rules.magazine, o.price)).copied(),
+        Arm::Shotgun => fans().max_by_key(|o| (o.rules.pellets, o.price)).copied(),
+        Arm::Smg => fans().min_by_key(|o| o.price).copied(),
+        Arm::Rifle => fans().max_by_key(|o| o.price).copied(),
     }
+}
+
+/// The longest-reaching single-bullet gun.
+fn marksman(offers: &[Offer]) -> Option<Offer> {
+    offers.iter().filter(|o| o.rules.pellets == 1).max_by_key(|o| (o.rules.range, o.price)).copied()
+}
+
+/// The cheap long gun: the cheapest single-bullet gun other than the marksman rifle.
+fn long_eco(offers: &[Offer]) -> Option<Offer> {
+    let top = marksman(offers).map(|m| m.item);
+    offers.iter().filter(|o| o.rules.pellets == 1 && Some(o.item) != top).min_by_key(|o| o.price).copied()
 }
 
 /// Buy everything this unit wants this round. Safe to call on every buy tick: it only buys what is missing.
@@ -58,20 +69,36 @@ pub(crate) fn shop(style: &Style, me: &UnitInfo, info: &MatchInfo, core: &CoreRu
     let offers: Vec<Offer> = items()
         .filter(|it| it.kind == ITEM_KIND_WEAPON && it.price > 0)
         .filter_map(|it| weapon(it.value).map(|rules| Offer { item: it.id, price: it.price, rules }))
+        .filter(|o| o.rules.slot == 0)
         .collect();
     let armour: Vec<ItemRules> = items().filter(|it| it.kind == ITEM_KIND_ARMOR).collect();
-    let want = find(&offers, arm_for(style, me, info));
+    let arm = arm_for(style, me, info);
+    let long = arm == Arm::Marksman;
+    let want = find(&offers, arm);
     let mut credits = me.credits;
+    let beats = |o: &Offer, credits: i32| o.price <= credits && o.price > held_price && o.rules.id != me.weapon;
 
-    if style.buy == Buy::Eco && held_price == 0 && saves(me, info, core, want, &armour) {
+    // A saving team keeps its money, except that the long slot takes the cheap long gun for its angles.
+    let cheap_long = long_eco(&offers);
+    let saving_kit = held_price == 0 || cheap_long.is_some_and(|w| w.rules.id == me.weapon);
+    if style.buy == Buy::Eco && saving_kit && saves(me, info, core, want, &armour) {
+        if let Some(w) = cheap_long.filter(|w| long && beats(w, credits)) {
+            let _ = buy(w.item);
+        }
         return;
     }
 
-    // Weapon: the one this unit wants, else the most expensive it can afford that beats what it holds.
-    let pick = want
-        .filter(|w| w.price <= credits)
-        .or_else(|| offers.iter().filter(|o| o.price <= credits).max_by_key(|o| o.price).copied())
-        .filter(|w| w.price > held_price && w.rules.id != me.weapon);
+    // Weapon: the one this unit wants (nothing, if it already holds it). Short of it: for the long slot the
+    // cheap long gun, for the same angles; else the most expensive it can afford that beats what it holds (a
+    // fan, unless this is the long slot).
+    let fallback = || {
+        let fits = |o: &&Offer| beats(o, credits) && (long || o.rules.pellets > 1);
+        offers.iter().filter(fits).max_by_key(|o| o.price).copied()
+    };
+    let pick = match want.filter(|w| w.price <= credits) {
+        Some(w) => Some(w).filter(|w| beats(w, credits)),
+        None => cheap_long.filter(|w| long && beats(w, credits)).or_else(fallback),
+    };
     if let Some(w) = pick {
         if buy(w.item).is_ok() {
             credits -= w.price;

@@ -33,8 +33,10 @@ What the squad bots do that the first three do not:
 - **Draft and use abilities for the objective.** Smoke on the line the enemy arrives on, or on the charge
   to defuse inside it; fire on a defuse in progress; a barrier in front of a plant or defuse; recon on the
   site before going in; flash, heal and dash as the fight asks. Kits are unique within a team.
-- **Buy by what a weapon is,** not by its name: longest range, biggest magazine, most pellets, cheapest.
-  The logic survives a change to `rules/weapons.toml`.
+- **Buy by what a weapon is,** not by its name: one bullet or a fan, longest range, biggest magazine, most
+  pellets, cheapest. The marksman slot that cannot afford the marksman rifle, or whose team is saving, takes
+  the hunter, the cheap single-bullet gun, for the same angles. The logic survives a change to
+  `rules/weapons.toml`.
 - **Stay inside the fuel budget.** The expensive questions (where does the enemy come into view of a site,
   how far is it) are asked one per buy tick, last in the turn, and kept for the match. Measured with the
   wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` and

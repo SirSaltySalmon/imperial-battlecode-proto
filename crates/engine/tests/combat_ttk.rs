@@ -338,11 +338,30 @@ fn time_to_kill_gives_each_weapon_its_role() {
     );
     assert!(lmg.move_pct < rifle.move_pct && lmg.reload_ticks > rifle.reload_ticks);
 
-    // The free sidearm is the slowest standing kill at 5 tiles: every purchase is an upgrade somewhere.
-    for o in others("pistol") {
+    // Hunter: the marksman's bullet on a slower cycle, so the same hits to kill everywhere it reaches but
+    // always behind the marksman, and nothing past its own 24 tiles.
+    for d in [5, 10, 20] {
+        let (hunter, marksman) = (t("hunter", d, false), t("marksman", d, false));
+        assert!(
+            hunter.unwrap() > marksman.unwrap(),
+            "hunter vs marksman at {d} tiles"
+        );
+    }
+    let (hunter, marksman) = (
+        r.weapons[id("hunter") as usize],
+        r.weapons[id("marksman") as usize],
+    );
+    assert!(hunter.cooldown > marksman.cooldown && hunter.range < marksman.range);
+    assert!(hunter.price < r.weapons[id("smg") as usize].price);
+
+    // The free sidearm is the slowest standing kill at 5 tiles: every purchase is an upgrade somewhere. The
+    // hunter's upgrade is reach, not close range (it loses to anything that closes): it beats the pistol
+    // from 10 tiles out instead.
+    for o in others("pistol").into_iter().filter(|o| o != "hunter") {
         assert!(
             t(&o, 5, false).unwrap() <= t("pistol", 5, false).unwrap(),
             "{o} vs pistol at 5 tiles"
         );
     }
+    assert!(t("hunter", 10, false).unwrap() < t("pistol", 10, false).unwrap_or(CAP));
 }

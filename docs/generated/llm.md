@@ -576,31 +576,31 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 Values, straight from `rules/weapons.toml`:
 
 <!-- generated:weapons -->
-| field | pistol | rifle | smg | shotgun | marksman | lmg |
-|---|---:|---:|---:|---:|---:|---:|
-| `id` | 0 | 1 | 2 | 3 | 4 | 5 |
-| `slot` | sidearm | primary | primary | primary | primary | primary |
-| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |
-| `damage` | 26 | 22 | 17 | 15 | 75 | 16 |
-| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 |
-| `spread` | 0 | 250 | 200 | 260 | 0 | 300 |
-| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 |
-| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |
-| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |
-| `windup` | 1 | 1 | 1 | 1 | 2 | 2 |
-| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 |
-| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
-| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
-| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
-| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |
-| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 |
-| `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |
-| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 |
-| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |
-| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 |
-| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 |
-| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 |
-| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 |
+| field | pistol | rifle | smg | shotgun | marksman | lmg | hunter |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `id` | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+| `slot` | sidearm | primary | primary | primary | primary | primary | primary |
+| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 | 1200 |
+| `damage` | 26 | 22 | 17 | 15 | 75 | 16 | 75 |
+| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | 1 |
+| `spread` | 0 | 250 | 200 | 260 | 0 | 300 | 0 |
+| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 | 300 |
+| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 | 4 |
+| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 | 1 |
+| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | 2 |
+| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 | 5 |
+| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 | 5 |
+| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 | 5 |
+| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | 20480 |
+| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 | 24576 |
+| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 | 24576 |
+| `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 | 100 |
+| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | 80 |
+| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 | 400 |
+| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 | 12 |
+| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
+| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 | 16 |
+| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 | 25 |
 <!-- /generated:weapons -->
 
 What they add up to (startup in ticks for a steady unit, one that has walked long enough to settle, and one
@@ -616,6 +616,7 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
 | marksman | 2 / 6 / 6 | 5 | 75 / 75 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
 | lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
+| hunter | 2 / 6 / 6 | 6 | 75 / 75 | 0 | 560 | 24.0 | 20.0 | 27 + 5 |
 <!-- /generated:derived -->
 
 Roles:
@@ -633,6 +634,9 @@ Roles:
   that the target can see, which grows the most of any weapon after moving.
 - **lmg**: heavy and slow. Five bullets a pull, a magazine that lasts sixty ticks and no recoil build-up, for
   holding a lane; slow to carry, very slow to start after moving, and above all slow to reload.
+- **hunter**: the eco long gun. The marksman's bullet, damage, startup tell and handling for little money, so
+  a saving team can still hold a long angle; but it cycles slower than anything else and reaches only its
+  own 24 tiles of sight. A miss costs a long wait, and anyone who closes the distance beats it.
 
 ## Time to kill
 
@@ -653,6 +657,7 @@ Target with 100 health and no armour:
 | shotgun | 6 | 8 | no kill | no kill | no kill | no kill |
 | marksman | 8 | 12 | 8 | 12 | 8 | 12 |
 | lmg | 6 | 10 | 9 | 13 | 25 | 29 |
+| hunter | 9 | 13 | 9 | 13 | 9 | 13 |
 <!-- /generated:ttk -->
 
 Target with 100 health and the heaviest armour in the shop:
@@ -666,6 +671,7 @@ Target with 100 health and the heaviest armour in the shop:
 | shotgun | 10 | 12 | no kill | no kill | no kill | no kill |
 | marksman | 8 | 12 | 8 | 12 | 8 | 12 |
 | lmg | 6 | 10 | 12 | 16 | 37 | 41 |
+| hunter | 9 | 13 | 9 | 13 | 9 | 13 |
 <!-- /generated:ttk-armor -->
 
 These are duels against a target that stands still. A target that strafes at range dodges any single shot
@@ -719,6 +725,11 @@ positions in the `[[item]]` list and are append-only.
 | 4 | `pistol` | weapon | 0 | the default sidearm (only useful to trade back to it) |
 | 5 | `ability_charge_0` | ability charge | 0 + ability price | one charge of the ability in kit slot 0 |
 | 6 | `ability_charge_1` | ability charge | 0 + ability price | one charge of the ability in kit slot 1 |
+| 7 | `smg` | weapon | 1500 | primary weapon, full magazine |
+| 8 | `shotgun` | weapon | 1800 | primary weapon, full magazine |
+| 9 | `marksman` | weapon | 3200 | primary weapon, full magazine |
+| 10 | `lmg` | weapon | 2300 | primary weapon, full magazine |
+| 11 | `hunter` | weapon | 1200 | primary weapon, full magazine |
 
 Checks run in this order, and a refused purchase costs nothing:
 
@@ -1209,7 +1220,7 @@ still loads and reads the prefix of each record it knows; what changed is what s
 
 # Ruleset reference
 
-Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `f39d20a7d7b023d1`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -1242,9 +1253,9 @@ Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults an
 | `draft_mem_bytes` | 1024 |  |
 | `pickup_reach` | 900 |  |
 | `interact_reach` | 1200 |  |
-| `weapons` | 6 | *(not a key in rules/core.toml: set by the loader)* |
+| `weapons` | 7 | *(not a key in rules/core.toml: set by the loader)* |
 | `abilities` | 11 | *(not a key in rules/core.toml: set by the loader)* |
-| `items` | 11 | *(not a key in rules/core.toml: set by the loader)* |
+| `items` | 12 | *(not a key in rules/core.toml: set by the loader)* |
 | `kits` | 10 | *(not a key in rules/core.toml: set by the loader)* |
 | `max_ticks` | 4000 |  |
 | `blast_radius` | 12288 | On detonation every living unit within this distance of the charge dies, through walls. |
@@ -1271,32 +1282,32 @@ On detonation every living unit within this distance of the charge dies, both te
 
 ## Weapons
 
-| Field | pistol | rifle | smg | shotgun | marksman | lmg | Meaning |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `id` | 0 | 1 | 2 | 3 | 4 | 5 |  |
-| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |  |
-| `damage` | 26 | 22 | 17 | 15 | 75 | 16 |  |
-| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | Bullets per trigger pull. |
-| `spread` | 0 | 250 | 200 | 260 | 0 | 300 | Angle between adjacent pellets when standing still and settled. |
-| `_reserved0` | 0 | 0 | 0 | 0 | 0 | 0 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
-| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 | Extra spread between pellets per recoil point. |
-| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |  |
-| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |  |
-| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
-| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 | Ticks after a shot before the next pull is accepted. |
-| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |  |
-| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |  |
-| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | Units per tick. |
-| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |  |
-| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
-| `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |  |
-| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | Percent of max run speed while holding this weapon. |
-| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |  |
-| `slot` | 1 | 0 | 0 | 0 | 0 | 0 |  |
-| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 | Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered. |
-| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 | Unsteadiness lost per tick without moving. |
-| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 | Unsteadiness never exceeds this. |
-| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 | Startup added per point of unsteadiness, in hundredths of a tick (rounded half up). |
+| Field | pistol | rifle | smg | shotgun | marksman | lmg | hunter | Meaning |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `id` | 0 | 1 | 2 | 3 | 4 | 5 | 6 |  |
+| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 | 1200 |  |
+| `damage` | 26 | 22 | 17 | 15 | 75 | 16 | 75 |  |
+| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | 1 | Bullets per trigger pull. |
+| `spread` | 0 | 250 | 200 | 260 | 0 | 300 | 0 | Angle between adjacent pellets when standing still and settled. |
+| `_reserved0` | 0 | 0 | 0 | 0 | 0 | 0 | 0 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
+| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 | 300 | Extra spread between pellets per recoil point. |
+| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 | 4 |  |
+| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 | 1 |  |
+| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
+| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 | 5 | Ticks after a shot before the next pull is accepted. |
+| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 | 5 |  |
+| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 | 5 |  |
+| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | 20480 | Units per tick. |
+| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 | 24576 |  |
+| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 | 24576 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
+| `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 | 100 |  |
+| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | 80 | Percent of max run speed while holding this weapon. |
+| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 | 400 |  |
+| `slot` | 1 | 0 | 0 | 0 | 0 | 0 | 0 |  |
+| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 | 12 | Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered. |
+| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 | 2 | Unsteadiness lost per tick without moving. |
+| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 | 16 | Unsteadiness never exceeds this. |
+| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 | 25 | Startup added per point of unsteadiness, in hundredths of a tick (rounded half up). |
 
 Notes from `rules/weapons.toml`:
 
@@ -1330,6 +1341,10 @@ and the two-tick startup warns the target.
 (above [[weapon]] "lmg")
 Heavy and slow: a five-bullet wall every pull, a deep magazine and almost no recoil, for holding a lane.
 Slow to carry, very slow to start firing after moving and very slow to reload.
+
+(above [[weapon]] "hunter")
+Eco long gun: the marksman's bullet, damage and startup tell for little money, so a saving team can still hold
+a long angle. A miss costs a long wait, and it reaches only its own 24 tiles of sight.
 ```
 
 ## Abilities
@@ -1415,6 +1430,7 @@ Kit 0 is what a unit plays if it never drafts. Slot 0 is the kit's free ability,
 | 8 | `shotgun` | 1 (WEAPON) | 1800 | shotgun (3) |
 | 9 | `marksman` | 1 (WEAPON) | 3200 | marksman (4) |
 | 10 | `lmg` | 1 (WEAPON) | 2300 | lmg (5) |
+| 11 | `hunter` | 1 (WEAPON) | 1200 | hunter (6) |
 
 ## Armour
 
