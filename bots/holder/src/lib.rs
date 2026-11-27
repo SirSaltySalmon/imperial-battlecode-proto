@@ -9,7 +9,7 @@
 use ibc::tactics::{approach_point, hold_spot, shop, Gunner};
 use ibc::*;
 
-/// Posts are picked within this many tiles of the site centre.
+/// Posts are picked within this many tiles of the site's plant point.
 const POST_RADIUS_TILES: i32 = 3;
 /// A shared enemy sighting is trusted for this many ticks.
 const SIGHT_TTL: i32 = 15;
@@ -82,8 +82,9 @@ impl Bot for Holder {
 }
 
 impl Holder {
-    fn centre(&self, site: usize) -> (i32, i32) {
-        (self.sites[site].centre_x, self.sites[site].centre_y)
+    /// Where this team plants on `site`, and the point its posts are picked around.
+    fn plant_point(&self, site: usize) -> (i32, i32) {
+        self.sites[site].plant_point()
     }
 
     /// Once per round: choose a site, a post near it and the point to watch.
@@ -109,11 +110,11 @@ impl Holder {
         };
         self.take_post(self.site, rank);
         // Do the path search to the site now, so the per-tick `path_len` in `attack` is a lookup.
-        let _ = self.nav.path_len(me.pos(), self.centre(self.site));
+        let _ = self.nav.path_len(me.pos(), self.plant_point(self.site));
     }
 
     fn take_post(&mut self, site: usize, rank: usize) {
-        let anchor = self.centre(site);
+        let anchor = self.plant_point(site);
         self.watch = approach_point(&mut self.nav, anchor, (self.map.enemy_spawn_x, self.map.enemy_spawn_y));
         self.post = hold_spot(&self.nav, anchor, self.watch, POST_RADIUS_TILES, rank);
     }
@@ -153,7 +154,7 @@ impl Holder {
 
     /// Returns true if the tick's one "hands" action (plant, pickup) was used.
     fn attack(&mut self, me: &UnitInfo, info: &MatchInfo, fighting: bool) -> bool {
-        let anchor = self.centre(self.site);
+        let anchor = self.plant_point(self.site);
         let charge = (info.charge_x, info.charge_y);
         let goal = if info.phase == PHASE_PLANTED {
             self.post
@@ -193,7 +194,7 @@ impl Holder {
         // Spare defenders (not the first at their site) rotate to the site nearest a fresh sighting.
         let rank = info.unit_slot.max(0) as usize / self.sites.len();
         if let (Some(seen), true) = (sighting, rank > 0) {
-            let hot = (0..self.sites.len()).min_by_key(|&i| dist2(self.centre(i), seen)).unwrap_or(self.site);
+            let hot = (0..self.sites.len()).min_by_key(|&i| dist2(self.plant_point(i), seen)).unwrap_or(self.site);
             if hot != self.site {
                 self.site = hot;
                 self.take_post(hot, rank);

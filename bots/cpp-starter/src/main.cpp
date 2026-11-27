@@ -48,11 +48,11 @@ class Starter {
         const Point spawn{map_.spawn_x, map_.spawn_y};
         int32_t best = INT32_MAX;
         for (const SiteInfo& s : sites()) {
-            const Point centre{s.centre_x, s.centre_y};
-            const int32_t d = nav_.path_len(spawn, centre).value_or(INT32_MAX - 1);
+            const Point point = plant_point(s);  // a site tile, unlike the box centre
+            const int32_t d = nav_.path_len(spawn, point).value_or(INT32_MAX - 1);
             if (d < best) {
                 best = d;
-                site_ = centre;
+                site_ = point;
             }
         }
     }
@@ -205,7 +205,7 @@ class Starter {
         const uint32_t stops = static_cast<uint32_t>(map_.sites > 0 ? map_.sites : 0) + 1;
         const uint32_t stop = sweep_ % stops;
         if (stop > 0) {
-            if (const auto s = sites().at(stop - 1)) return {s->centre_x, s->centre_y};
+            if (const auto s = sites().at(stop - 1)) return plant_point(*s);
         }
         return {map_.enemy_spawn_x, map_.enemy_spawn_y};
     }
@@ -216,7 +216,7 @@ class Starter {
     WeaponRules gun_{.id = -1};
     /// (round, side) the plan below was made for.
     int32_t plan_round_ = -1, plan_side_ = -1;
-    /// Attack: centre of the site we rush.
+    /// Attack: plant point of the site we rush.
     Point site_{};
     /// Defence: last heard enemy position and the tick it was heard (-1 = none).
     Point heard_{};

@@ -8,7 +8,7 @@
 use ibc::tactics::{approach_point, shop, Gunner};
 use ibc::*;
 
-/// Guards stand this far from the site centre / planted charge.
+/// Guards stand this far from the site's plant point / planted charge.
 const GUARD_RING: i32 = 1400;
 /// A heard enemy position is chased for this many ticks.
 const SOUND_MEMORY_TICKS: i32 = 12;
@@ -26,7 +26,7 @@ pub struct Rusher {
     gun: Gunner,
     /// (round, side) the plan below was made for.
     plan_for: (i32, i32),
-    /// Attack: centre of the site we rush.
+    /// Attack: plant point of the site we rush.
     site: (i32, i32),
     /// Attack: the point where defenders come into view of the site.
     watch: (i32, i32),
@@ -83,9 +83,9 @@ impl Rusher {
         self.sweep = 0;
         let spawn = (self.map.spawn_x, self.map.spawn_y);
         let nav = &mut self.nav;
-        let nearest = sites().min_by_key(|s| nav.path_len(spawn, (s.centre_x, s.centre_y)).unwrap_or(i32::MAX));
+        let nearest = sites().min_by_key(|s| nav.path_len(spawn, s.plant_point()).unwrap_or(i32::MAX));
         if let Some(s) = nearest {
-            self.site = (s.centre_x, s.centre_y);
+            self.site = s.plant_point();
             self.watch = approach_point(nav, self.site, (self.map.enemy_spawn_x, self.map.enemy_spawn_y));
         }
     }
@@ -198,7 +198,7 @@ impl Rusher {
         let stops = self.map.sites.max(0) as usize + 1;
         match self.sweep % stops {
             0 => (self.map.enemy_spawn_x, self.map.enemy_spawn_y),
-            i => sites().nth(i - 1).map_or(self.site, |s| (s.centre_x, s.centre_y)),
+            i => sites().nth(i - 1).map_or(self.site, |s| s.plant_point()),
         }
     }
 }

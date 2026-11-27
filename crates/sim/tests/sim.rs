@@ -104,18 +104,18 @@ impl ibc::Bot for Planter {
     }
 
     fn turn(&mut self) {
-        use ibc::UnitExt;
+        use ibc::{SiteExt, UnitExt};
         let (me, info) = (ibc::me(), ibc::match_info());
         if !me.alive() || info.phase != ibc::PHASE_ACTION || !me.has(ibc::S_HAS_CHARGE) {
             return;
         }
         let nav = &mut self.0;
         let site = ibc::sites()
-            .map(|s| (s.centre_x, s.centre_y))
+            .map(|s| s.plant_point())
             .min_by_key(|&c| nav.path_len(me.pos(), c).unwrap_or(i32::MAX))
             .expect("map has a site");
         if ibc::dist(me.pos(), site) <= ibc::TILE / 4 {
-            ibc::plant().expect("plant on the site centre");
+            ibc::plant().expect("plant on the plant point");
         } else {
             nav.go(&me, site.0, site.1, 100_000).expect("move");
         }
@@ -196,7 +196,8 @@ struct Walker {
 impl ibc::Bot for Walker {
     fn new() -> Self {
         let map = ibc::map_info();
-        let mut stops: Vec<(i32, i32)> = ibc::sites().map(|s| (s.centre_x, s.centre_y)).collect();
+        use ibc::SiteExt;
+        let mut stops: Vec<(i32, i32)> = ibc::sites().map(|s| s.plant_point()).collect();
         stops.push((map.enemy_spawn_x, map.enemy_spawn_y));
         stops.push((map.spawn_x, map.spawn_y));
         WALKERS.with(|w| w.set((w.get().0 + 1, w.get().1)));

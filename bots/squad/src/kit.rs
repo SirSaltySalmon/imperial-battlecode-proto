@@ -23,7 +23,7 @@ pub(crate) struct Scene {
     pub planted: bool,
     /// Nearest visible enemy.
     pub enemy: Option<UnitInfo>,
-    /// The planted charge, or the centre of the site this unit plays.
+    /// The planted charge, or the plant point of the site this unit plays.
     pub objective: (i32, i32),
     /// Where the enemy comes into view of the objective.
     pub watch: (i32, i32),
