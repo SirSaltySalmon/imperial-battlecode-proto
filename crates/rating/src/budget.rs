@@ -13,10 +13,11 @@ pub struct BudgetConfig {
     /// Hard ceiling per batch, whatever the hardware (keeps storage growth bounded).
     pub max_series_per_batch: u32,
     /// Cost assumed for a game while nothing has been measured yet (a new season). Set it on the
-    /// high side: the first batches are then small, and the measured mean takes over.
+    /// high side: the first batches are then small, and the measured mean takes over. The default is
+    /// about twice the longest legal match with every unit burning its whole fuel (`README.md`).
     pub prior_core_seconds_per_game: f64,
     /// Floor under the measured mean, so that a mean polluted by a few instantly-failing jobs cannot
-    /// make games look free.
+    /// make games look free. The default is just above what today's reference bots cost (0.03).
     pub min_core_seconds_per_game: f64,
 }
 
@@ -27,8 +28,8 @@ impl Default for BudgetConfig {
             batches_per_hour: 6.0,
             utilisation: 0.7,
             max_series_per_batch: 500,
-            prior_core_seconds_per_game: 10.0,
-            min_core_seconds_per_game: 0.25,
+            prior_core_seconds_per_game: 2.0,
+            min_core_seconds_per_game: 0.05,
         }
     }
 }
@@ -101,17 +102,17 @@ mod tests {
     #[test]
     fn unmeasured_or_implausible_cost() {
         let cfg = BudgetConfig::default();
-        // No measurement yet: the prior (10 core-seconds) lets a new ladder start. 3 360 / 50 = 67.
-        assert_eq!(series_per_batch(28_800.0, None, &cfg), 67);
+        // No measurement yet: the prior (2 core-seconds) lets a new ladder start. 3 360 / 10 = 336.
+        assert_eq!(series_per_batch(28_800.0, None, &cfg), 336);
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-            assert_eq!(series_per_batch(28_800.0, Some(bad), &cfg), 67, "{bad}");
+            assert_eq!(series_per_batch(28_800.0, Some(bad), &cfg), 336, "{bad}");
         }
-        // A mean dragged down by instant failures is floored at 0.25: 3 360 / 1.25 = 2 688, not 500.
+        // A mean dragged down by instant failures is floored at 0.05: 3 360 / 0.25 = 13 440.
         let roomy = BudgetConfig {
             max_series_per_batch: 100_000,
             ..cfg
         };
-        assert_eq!(series_per_batch(28_800.0, Some(0.001), &roomy), 2688);
+        assert_eq!(series_per_batch(28_800.0, Some(0.001), &roomy), 13_440);
         let no_prior = BudgetConfig {
             prior_core_seconds_per_game: 0.0,
             min_core_seconds_per_game: 0.0,
