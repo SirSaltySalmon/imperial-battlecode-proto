@@ -74,12 +74,18 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 
 - [ ] **Fuel does not bound a match's CPU or memory: some host calls cost far more than they charge.**
   Found 2026-11-27 with the kernels in `bots/burner/examples`, full idle-length games, native `ibc`:
-  - `mem_write` stores `Input::MemWrite { data }` in the replay before any phase, scope or range check
-    (`crates/engine/src/host.rs`), at 20 fuel per call. Refused 1 MiB writes grew the runner by about 23 MB
-    a tick (923 MB after 40 ticks): a submission can exhaust a worker's memory. Record only accepted writes.
-  - `mem_read` allocates a zeroed buffer of the requested length (`h_mem_read` in `crates/runner/src/vm.rs`)
-    before the engine refuses it, for a flat 20 fuel: about 750 to 1,200 core-s a match, past the worker's
-    300 s job timeout. Check the length against the scope first, or charge per byte.
+  - Fixed: `mem_write` stored `Input::MemWrite { data }` in the replay before any check, so refused 1 MiB
+    writes grew the runner by about 23 MB a tick. Now a refused `mem_write` or `act` leaves no input,
+    accepted writes are kept once per team and scope a tick (the bytes they left), and `act` accepts at most
+    `MAX_ACTS` (64) per unit and tick (docs/REPLAY.md, "Inputs"). Mirrors on crossfire: `mem_write` took
+    705 MB after 25 ticks before, 26 MB for the whole match after; looping accepted 64-byte writes took
+    760 MB after 100 ticks before, 16 MB and a 58 KB replay for the whole match after; looping moves took
+    a 7.6 MB replay after 100 ticks before, 2.8 MB for the whole match after.
+  - Fixed: `mem_read` allocated a zeroed buffer of the requested length before the engine refused it. The
+    engine now checks first and lends its bytes, which the runner copies straight into guest memory, and
+    `mem_write` passes the guest's bytes in place. The first 60 ticks of the `mem_read` mirror took 166
+    core-s before and 2.7 after (on a loaded machine, where the plain burner took 3 core-s a match). A
+    whole match is 68 core-s, as for any other host call made back to back at 20 fuel (`mem_spam`: 56).
   - `debug_draw` costs 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB replay, 568 MB peak.
   - `count`/`get` and `los` spend about 1.9 ns per fuel, about 5 core-s per game. Partly fixed: reading a
     perceived table row by row redid the visibility pass per row (n passes, now one a tick: 11 times

@@ -64,9 +64,11 @@ Measured on 2026-11-27, ruleset `5795cbc069627a93`, wasm runner, one match per p
 
 The fuel budget bounds CPU time only as well as host calls are priced. The same fuel costs 0.18 ns of CPU
 per unit as arithmetic, 0.37 as division, 2 as `los` or table reads, 8 as cache misses, 28 as `debug_draw`
-calls (free) and about 290 as 1 MiB `mem_read` calls (charged 20 fuel whatever the length). `mem_write` is
-worse: the engine records every call in the replay, refused or not, so one refused 1 MiB call per unit-turn
-grows the runner's memory by about 23 MB a tick.
+calls (free) and about 290 as 1 MiB `mem_read` calls (charged 20 fuel whatever the length). `mem_write` was
+worse: the engine recorded every call in the replay, refused or not, so one refused 1 MiB call per unit-turn
+grew the runner's memory by about 23 MB a tick. Both are fixed: the engine checks a memory call before
+anything of the requested length exists, and the replay keeps only what accepted calls left
+(docs/REPLAY.md, "Inputs").
 
 ## Measured
 

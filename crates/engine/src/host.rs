@@ -241,80 +241,14 @@ impl Host for Match {
         }
     }
 
+    /// Recorded only if accepted: a refused call changes nothing, so re-simulation without it reaches the
+    /// same state. Every check of every phase must therefore run before anything is written.
     fn act(&mut self, unit: u32, kind: u32, a: i32, b: i32, c: i32) -> i32 {
-        self.inputs.push(Input::Act { unit, kind, a, b, c });
-        let w = &mut self.world;
-        let me = unit as usize;
-        if me >= w.units.len() {
-            return ERR_BAD_ARG;
+        let r = self.apply_act(unit, kind, a, b, c);
+        if r == OK {
+            self.inputs.push(Input::Act { unit, kind, a, b, c });
         }
-        if w.units[me].faulted {
-            return ERR_NOT_ALLOWED;
-        }
-        match w.phase {
-            PHASE_DRAFT => match kind {
-                A_DRAFT => abilities::draft(w, me, a),
-                A_DRAFT_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| abilities::draft(w, t, a)),
-                _ => ERR_NOT_ALLOWED,
-            },
-            PHASE_BUY => match kind {
-                A_BUY => economy::buy(w, me, a),
-                A_BUY_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| economy::buy_for(w, me, t, a)),
-                A_FACE => {
-                    w.units[me].facing = a & 0xFFFF;
-                    OK
-                }
-                _ => ERR_NOT_ALLOWED,
-            },
-            PHASE_ACTION | PHASE_PLANTED => {
-                if !w.units[me].alive {
-                    return ERR_NOT_ALLOWED;
-                }
-                let check = match kind {
-                    A_MOVE => {
-                        w.units[me].intent.mv = Some((a & 0xFFFF, b.max(0)));
-                        return OK;
-                    }
-                    A_FACE => {
-                        w.units[me].intent.face = Some(a & 0xFFFF);
-                        return OK;
-                    }
-                    A_FIRE => combat::can_fire(w, me),
-                    A_PLANT => {
-                        if w.units[me].channel_kind == CHANNEL_PLANT {
-                            OK
-                        } else {
-                            w.can_plant(me)
-                        }
-                    }
-                    A_DEFUSE => {
-                        if w.units[me].channel_kind == CHANNEL_DEFUSE {
-                            OK
-                        } else {
-                            w.can_defuse(me)
-                        }
-                    }
-                    A_ABILITY => abilities::can_use(w, me, a, (b, c)),
-                    A_SWAP => {
-                        if (0..2).contains(&a) && w.units[me].weapons[a as usize] >= 0 {
-                            OK
-                        } else {
-                            ERR_BAD_ARG
-                        }
-                    }
-                    A_RELOAD | A_PICKUP | A_DROP | A_CANCEL => OK,
-                    _ => ERR_UNSUPPORTED,
-                };
-                // Abilities unit: hands are busy during an ability's startup; only A_CANCEL gets through.
-                let check =
-                    if check == OK && kind != A_CANCEL && abilities::casting(w, me) { ERR_NOT_READY } else { check };
-                if check == OK {
-                    w.units[me].intent.primary = Some((kind, a, b, c));
-                }
-                check
-            }
-            _ => ERR_NOT_ALLOWED,
-        }
+        r
     }
 
     fn los(&self, x0: i32, y0: i32, x1: i32, y1: i32) -> i32 {
@@ -331,27 +265,84 @@ impl Host for Match {
     }
 
     fn mem_read(&self, unit: u32, scope: u32, off: u32, out: &mut [u8]) -> i32 {
-        let w = &self.world;
-        let team = match w.units.get(unit as usize) {
-            Some(u) => u.team as usize,
-            None => return ERR_BAD_ARG,
-        };
-        let mem = match scope {
-            MEM_TEAM => &w.team_mem[team],
-            MEM_DRAFT => &w.draft_mem[team],
-            MEM_BUY => &w.buy_mem[team],
-            _ => return ERR_BAD_ARG,
-        };
-        let off = off as usize;
-        if off.checked_add(out.len()).map_or(true, |end| end > mem.len()) {
-            return ERR_OUT_OF_RANGE;
+        match self.mem_view(unit, scope, off, out.len()) {
+            Ok(src) => {
+                out.copy_from_slice(src);
+                OK
+            }
+            Err(e) => e,
         }
-        out.copy_from_slice(&mem[off..off + out.len()]);
-        OK
     }
 
+    /// Accepted writes are recorded per team and scope, not per call (`flush_writes`).
     fn mem_write(&mut self, unit: u32, scope: u32, off: u32, data: &[u8]) -> i32 {
-        self.inputs.push(Input::MemWrite { unit, scope, off, data: data.to_vec() });
+        let r = self.apply_mem_write(unit, scope, off, data);
+        if r == OK && !data.is_empty() {
+            let team = self.world.units[unit as usize].team as usize;
+            let (lo, hi) = (off, off + data.len() as u32);
+            let w = self.written[team][scope as usize].get_or_insert(Written { unit, lo, hi });
+            *w = Written { unit, lo: w.lo.min(lo), hi: w.hi.max(hi) };
+        }
+        r
+    }
+
+    fn debug_draw(&mut self, unit: u32, kind: u32, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) -> i32 {
+        if self.world.debug.len() < 4096 {
+            self.world.debug.push((unit, kind, x0, y0, x1, y1, color));
+        }
+        OK
+    }
+}
+
+/// Most actions `act` accepts from one unit in one tick; later calls get `ERR_NOT_ALLOWED` and change
+/// nothing. A bot needs a handful (a move, a facing, a primary action, a purchase per teammate); the cap
+/// bounds what the replay stores for one that calls `act` in a loop.
+pub const MAX_ACTS: u32 = 64;
+
+/// What one team wrote to one memory scope since the inputs were last taken: every write lies in `lo..hi`,
+/// and `unit` made the last one.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Written {
+    unit: u32,
+    lo: u32,
+    hi: u32,
+}
+
+fn memory(w: &World, team: usize, scope: u32) -> Option<&[u8]> {
+    match scope {
+        MEM_TEAM => Some(&w.team_mem[team]),
+        MEM_DRAFT => Some(&w.draft_mem[team]),
+        MEM_BUY => Some(&w.buy_mem[team]),
+        _ => None,
+    }
+}
+
+impl Match {
+    /// `act` without recording it (the replay path). Counts against the unit's `MAX_ACTS` like a live call.
+    pub(crate) fn apply_act(&mut self, unit: u32, kind: u32, a: i32, b: i32, c: i32) -> i32 {
+        let me = unit as usize;
+        let Some(u) = self.world.units.get(me) else { return ERR_BAD_ARG };
+        if u.faulted || self.acts[me] >= MAX_ACTS {
+            return ERR_NOT_ALLOWED;
+        }
+        let r = act_now(&mut self.world, me, kind, a, b, c);
+        if r == OK {
+            self.acts[me] += 1;
+        }
+        r
+    }
+
+    /// Bytes `off..off + len` of the memory `unit`'s team has in `scope`, or the error `mem_read` returns.
+    /// `mem_read` is this and a copy; the wasm runner copies the bytes straight into the bot's memory.
+    pub fn mem_view(&self, unit: u32, scope: u32, off: u32, len: usize) -> Result<&[u8], i32> {
+        let team = self.world.units.get(unit as usize).ok_or(ERR_BAD_ARG)?.team as usize;
+        let mem = memory(&self.world, team, scope).ok_or(ERR_BAD_ARG)?;
+        let off = off as usize;
+        off.checked_add(len).and_then(|end| mem.get(off..end)).ok_or(ERR_OUT_OF_RANGE)
+    }
+
+    /// `mem_write` without recording it (the replay path).
+    pub(crate) fn apply_mem_write(&mut self, unit: u32, scope: u32, off: u32, data: &[u8]) -> i32 {
         let w = &mut self.world;
         let team = match w.units.get(unit as usize) {
             Some(u) if !u.faulted => u.team as usize,
@@ -372,11 +363,86 @@ impl Host for Match {
         OK
     }
 
-    fn debug_draw(&mut self, unit: u32, kind: u32, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) -> i32 {
-        if self.world.debug.len() < 4096 {
-            self.world.debug.push((unit, kind, x0, y0, x1, y1, color));
+    /// Turn what each team wrote since the last flush into inputs: per team and scope, one `MemWrite` of
+    /// the bytes as they are now, over the span of every write. Memory never feeds the simulation, so the
+    /// end state is all a replay needs, and that is at most a scope's size per team, however many calls.
+    pub(crate) fn flush_writes(&mut self) {
+        for team in 0..2 {
+            for scope in [MEM_TEAM, MEM_DRAFT, MEM_BUY] {
+                let Some(s) = self.written[team][scope as usize].take() else { continue };
+                let mem = memory(&self.world, team, scope).expect("a written scope exists");
+                let data = mem[s.lo as usize..s.hi as usize].to_vec();
+                self.inputs.push(Input::MemWrite { unit: s.unit, scope, off: s.lo, data });
+            }
         }
-        OK
+    }
+}
+
+/// An action of a unit that exists and has not faulted, in the current phase.
+fn act_now(w: &mut World, me: usize, kind: u32, a: i32, b: i32, c: i32) -> i32 {
+    match w.phase {
+        PHASE_DRAFT => match kind {
+            A_DRAFT => abilities::draft(w, me, a),
+            A_DRAFT_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| abilities::draft(w, t, a)),
+            _ => ERR_NOT_ALLOWED,
+        },
+        PHASE_BUY => match kind {
+            A_BUY => economy::buy(w, me, a),
+            A_BUY_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| economy::buy_for(w, me, t, a)),
+            A_FACE => {
+                w.units[me].facing = a & 0xFFFF;
+                OK
+            }
+            _ => ERR_NOT_ALLOWED,
+        },
+        PHASE_ACTION | PHASE_PLANTED => {
+            if !w.units[me].alive {
+                return ERR_NOT_ALLOWED;
+            }
+            let check = match kind {
+                A_MOVE => {
+                    w.units[me].intent.mv = Some((a & 0xFFFF, b.max(0)));
+                    return OK;
+                }
+                A_FACE => {
+                    w.units[me].intent.face = Some(a & 0xFFFF);
+                    return OK;
+                }
+                A_FIRE => combat::can_fire(w, me),
+                A_PLANT => {
+                    if w.units[me].channel_kind == CHANNEL_PLANT {
+                        OK
+                    } else {
+                        w.can_plant(me)
+                    }
+                }
+                A_DEFUSE => {
+                    if w.units[me].channel_kind == CHANNEL_DEFUSE {
+                        OK
+                    } else {
+                        w.can_defuse(me)
+                    }
+                }
+                A_ABILITY => abilities::can_use(w, me, a, (b, c)),
+                A_SWAP => {
+                    if (0..2).contains(&a) && w.units[me].weapons[a as usize] >= 0 {
+                        OK
+                    } else {
+                        ERR_BAD_ARG
+                    }
+                }
+                A_RELOAD | A_PICKUP | A_DROP | A_CANCEL => OK,
+                _ => ERR_UNSUPPORTED,
+            };
+            // Abilities unit: hands are busy during an ability's startup; only A_CANCEL gets through.
+            let check =
+                if check == OK && kind != A_CANCEL && abilities::casting(w, me) { ERR_NOT_READY } else { check };
+            if check == OK {
+                w.units[me].intent.primary = Some((kind, a, b, c));
+            }
+            check
+        }
+        _ => ERR_NOT_ALLOWED,
     }
 }
 

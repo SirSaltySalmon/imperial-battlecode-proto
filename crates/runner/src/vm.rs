@@ -33,8 +33,6 @@ use wasmtime::{
 pub(crate) const INITIAL_FUEL: u64 = u64::MAX / 2;
 /// Fuel available to instantiation (data segment initialisation, wasm start function).
 const INSTANTIATE_FUEL: u64 = 1_000_000;
-/// Largest `mem_read` / `mem_write` length passed on to the engine.
-const MAX_MEM_IO: u32 = 1 << 20;
 /// Most elements of a unit's one table (the function table of indirect calls; toolchains emit a few dozen).
 const MAX_TABLE_ELEMENTS: usize = 1 << 16;
 
@@ -251,31 +249,41 @@ async fn h_raycast(mut caller: C<'_>, x: i32, y: i32, angle: i32, max: i32) -> w
 
 async fn h_mem_read(mut caller: C<'_>, scope: u32, off: u32, ptr: u32, len: u32) -> wasmtime::Result<i32> {
     charge(&mut caller, ibc_abi::FUEL_MEM).await?;
-    if len > MAX_MEM_IO {
-        return Ok(ibc_abi::ERR_BAD_ARG);
-    }
-    let mut buf = vec![0u8; len as usize];
-    let r = {
-        let d = caller.data();
-        lock(&d.game).mem_read(d.unit, scope, off, &mut buf)
-    };
-    if r != ibc_abi::OK {
-        return Ok(r);
-    }
-    Ok(if write_bytes(&mut caller, ptr, &buf) { ibc_abi::OK } else { ibc_abi::ERR_BAD_PTR })
+    Ok(mem_to_guest(&mut caller, scope, off, ptr, len))
 }
 
+/// `mem_read`: the engine checks the request first and lends the bytes, which are copied straight into guest
+/// memory. Nothing the size of `len` is allocated, so a refused read costs what its fuel says.
+fn mem_to_guest(caller: &mut C<'_>, scope: u32, off: u32, ptr: u32, len: u32) -> i32 {
+    let memory = caller.data().memory;
+    let (guest, data) = match memory {
+        Some(mem) => {
+            let (guest, data) = mem.data_and_store_mut(&mut *caller);
+            (Some(guest), data)
+        }
+        None => (None, caller.data_mut()),
+    };
+    let game = lock(&data.game);
+    let src = match game.mem_view(data.unit, scope, off, len as usize) {
+        Ok(src) => src,
+        Err(e) => return e,
+    };
+    match guest.and_then(|g| range(g.len(), ptr, len).map(|r| &mut g[r])) {
+        Some(dst) => {
+            dst.copy_from_slice(src);
+            ibc_abi::OK
+        }
+        None => ibc_abi::ERR_BAD_PTR,
+    }
+}
+
+/// `mem_write` hands the engine the guest's bytes in place.
 async fn h_mem_write(mut caller: C<'_>, scope: u32, off: u32, ptr: u32, len: u32) -> wasmtime::Result<i32> {
     charge(&mut caller, ibc_abi::FUEL_MEM).await?;
-    if len > MAX_MEM_IO {
-        return Ok(ibc_abi::ERR_BAD_ARG);
-    }
-    let mut buf = vec![0u8; len as usize];
-    if !read_bytes(&caller, ptr, &mut buf) {
-        return Ok(ibc_abi::ERR_BAD_PTR);
-    }
-    let d = caller.data();
-    Ok(lock(&d.game).mem_write(d.unit, scope, off, &buf))
+    let Some(mem) = caller.data().memory else { return Ok(ibc_abi::ERR_BAD_PTR) };
+    let (guest, data) = mem.data_and_store_mut(&mut caller);
+    let Some(r) = range(guest.len(), ptr, len) else { return Ok(ibc_abi::ERR_BAD_PTR) };
+    Ok(lock(&data.game).mem_write(data.unit, scope, off, &guest[r]))
 }
 
 #[allow(clippy::too_many_arguments)]
