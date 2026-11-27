@@ -39,9 +39,9 @@
         2,
         7
       ],
-      "ticks": 418,
-      "final_state_hash": "72bef8f11d08da9f",
-      "replay_sha256": "b5e7c83cf5c82d03150330d89f4bb1ca6fde8b075727cac77f96a085630536ed"
+      "ticks": 454,
+      "final_state_hash": "fc9d651fbd44e74c",
+      "replay_sha256": "bd118dd65db8ff20627bab874cd6df9968bdbad635b0810071a6ec91716b6b7c"
     },
     {
       "name": "crossfire-idle-rusher-s5",
