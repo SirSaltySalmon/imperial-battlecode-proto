@@ -67,11 +67,6 @@ constexpr int32_t sin_q15(int32_t angle) {
 }
 
 constexpr int32_t floor_div(int32_t a, int32_t b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
-// Two's complement wrap-around, like Rust's release arithmetic, instead of signed-overflow UB.
-constexpr int32_t wrap_sub(int32_t a, int32_t b) { return static_cast<int32_t>(static_cast<uint32_t>(a) - static_cast<uint32_t>(b)); }
-constexpr int32_t wrap_mul_add(int32_t a, int32_t b, int32_t c) {
-    return static_cast<int32_t>(static_cast<uint32_t>(a) + static_cast<uint32_t>(b) * static_cast<uint32_t>(c));
-}
 }  // namespace detail
 
 /// Wrap any angle into 0..65535.
@@ -110,16 +105,36 @@ constexpr int64_t isqrt(int64_t n) {
     }
 }
 
-/// Length of a vector, rounded down.
-constexpr int32_t len(int32_t dx, int32_t dy) {
-    return static_cast<int32_t>(isqrt(int64_t{dx} * dx + int64_t{dy} * dy));
+namespace detail {
+/// `dx * dx + dy * dy` for components below 2^32 in magnitude, or nothing past `UINT64_MAX`.
+constexpr std::optional<uint64_t> squares(int64_t dx, int64_t dy) {
+    // Each square is below 2^64, so the wrapped unsigned product is exact.
+    const uint64_t xx = static_cast<uint64_t>(dx) * static_cast<uint64_t>(dx);
+    const uint64_t yy = static_cast<uint64_t>(dy) * static_cast<uint64_t>(dy);
+    if (yy > UINT64_MAX - xx) return std::nullopt;
+    return xx + yy;
 }
-/// Euclidean distance between two points, rounded down.
-constexpr int32_t dist(Point a, Point b) { return len(detail::wrap_sub(b.x, a.x), detail::wrap_sub(b.y, a.y)); }
-/// Squared distance (64-bit, no overflow).
+/// Length of a vector whose components are differences of two `int32_t`s, saturating at `INT32_MAX`.
+constexpr int32_t len_wide(int64_t dx, int64_t dy) {
+    const std::optional<uint64_t> n = squares(dx, dy);
+    // Below 2^62 the root is below 2^31; from there on it is past `INT32_MAX`.
+    return n && *n < (uint64_t{1} << 62) ? static_cast<int32_t>(isqrt(static_cast<int64_t>(*n))) : INT32_MAX;
+}
+/// `x + v * t`, saturated to the `int32_t` range. Exact in 64 bits for any `t` in -2^32..2^32.
+constexpr int32_t along(int32_t x, int32_t v, int64_t t) {
+    const int64_t r = int64_t{x} + int64_t{v} * t;
+    return static_cast<int32_t>(r < INT32_MIN ? INT32_MIN : r > INT32_MAX ? INT32_MAX : r);
+}
+}  // namespace detail
+
+/// Length of a vector, rounded down, saturating at `INT32_MAX`.
+constexpr int32_t len(int32_t dx, int32_t dy) { return detail::len_wide(dx, dy); }
+/// Euclidean distance between two points, rounded down, saturating at `INT32_MAX`.
+constexpr int32_t dist(Point a, Point b) { return detail::len_wide(int64_t{b.x} - a.x, int64_t{b.y} - a.y); }
+/// Squared distance, saturating at `INT64_MAX` (only points about 3e9 units apart reach it).
 constexpr int64_t dist2(Point a, Point b) {
-    const int64_t dx = int64_t{b.x} - a.x, dy = int64_t{b.y} - a.y;
-    return dx * dx + dy * dy;
+    const std::optional<uint64_t> n = detail::squares(int64_t{b.x} - a.x, int64_t{b.y} - a.y);
+    return n && *n <= static_cast<uint64_t>(INT64_MAX) ? static_cast<int64_t>(*n) : INT64_MAX;
 }
 
 struct CosSin {
@@ -139,12 +154,14 @@ constexpr Point offset(Point p, int32_t angle, int32_t d) {
 
 /// Where to aim so a bullet of `bullet_speed` (units/tick), leaving after `windup` ticks,
 /// meets a target at `target` moving with constant velocity `vel` (units/tick).
+/// Each coordinate saturates at the `int32_t` range (a very slow bullet aimed at a fast target).
 constexpr Point lead(Point from, Point target, Point vel, int32_t bullet_speed, int32_t windup) {
-    const int32_t speed = bullet_speed > 1 ? bullet_speed : 1;
+    const int64_t speed = bullet_speed > 1 ? bullet_speed : 1;
     Point p = target;
     for (int i = 0; i < 3; ++i) {
-        const int32_t t = windup + (dist(from, p) + speed - 1) / speed;
-        p = {detail::wrap_mul_add(target.x, vel.x, t), detail::wrap_mul_add(target.y, vel.y, t)};
+        // Ticks until impact: windup plus at most `dist`, so within -2^31..2^32.
+        const int64_t t = windup + (dist(from, p) + speed - 1) / speed;
+        p = {detail::along(target.x, vel.x, t), detail::along(target.y, vel.y, t)};
     }
     return p;
 }

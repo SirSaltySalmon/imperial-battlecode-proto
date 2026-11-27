@@ -95,9 +95,15 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   fault at a different tick on another CPU. Test on arm64 (section 4) and, if so, bound it deterministically.
 - [ ] **`memory.copy`/`memory.fill` cost fuel per byte.** Documented for players; consider setting
   `Config::operator_cost` so a 100 KB `memcpy` does not consume a whole tick.
-- [ ] **`lead` and `dist` in the Rust SDK overflow** on extreme inputs (a bullet speed near 1): wraps in
-  release, panics in debug. Clamp or use wider arithmetic in `sdk/rust/src/geom.rs` and mirror it in
-  `sdk/cpp/ibc.h` (the C++ port matches release behaviour on purpose).
+- [x] **`lead` and `dist` in the Rust SDK overflow** on extreme inputs (a bullet speed near 1). Done:
+  `dist`, `len` and `lead` compute in 64 bits and saturate at the i32 range, `dist2` saturates at
+  `i64::MAX`; `sdk/cpp/ibc.h` does the same. `sdk/rust/tests/geom_overflow.rs` checks 1.3 million inputs the
+  old code handled (216,317 of them `lead` calls) for the same answer, and 0.5 million that overflowed
+  against an exact i128 model; the goldens did not move. 3 of the 600 `lead` inputs of
+  `sdk/cpp/tests/geom_test.cpp` had wrapped, so its checksum changed; `sdk/rust/tests/cpp_port.rs` now
+  computes those checksums. The checks cost `rusher` 1.4% more fuel (crossfire, seed 1). Left over, outside
+  these helpers: `cos_sin` (`angle + 16384`) and `offset` (the final addition) still overflow on extreme
+  inputs in a Rust debug build.
 - [ ] **`ibc build --debug`** and bots that print to stdout have never been exercised.
 
 ## 3. Job system and platform
