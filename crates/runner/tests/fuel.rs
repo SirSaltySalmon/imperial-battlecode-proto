@@ -154,8 +154,13 @@ fn spinner_uses_exactly_its_budget_and_resumes() {
     let fuel = &out.summary.teams[0].fuel;
     assert_eq!(fuel.out_of_fuel_turns, fuel.turns);
     assert!(fuel.total >= fuel.granted && fuel.total <= fuel.granted + 5 * SLACK);
-    // Every spinner turn uses its whole budget, and the smallest budget is an action tick's.
-    assert!(fuel.turn_p50 >= per_tick && fuel.turn_p50 <= fuel.turn_p90 && fuel.turn_p90 <= fuel.turn_p99);
+    // Every spinner turn uses its whole budget, less what the turn before ran over (at most one check-free
+    // path), and the smallest budget is an action tick's.
+    assert!(
+        fuel.turn_p50 + SLACK >= per_tick
+            && fuel.turn_p50 <= fuel.turn_p90
+            && fuel.turn_p90 <= fuel.turn_p99
+    );
     assert!(fuel.turn_p99 <= fuel.max_unit_turn, "{fuel:?}");
     let idle = &out.summary.teams[1].fuel;
     assert!(idle.turn_p99 < 100 && idle.turn_p99 <= idle.max_unit_turn, "{idle:?}");

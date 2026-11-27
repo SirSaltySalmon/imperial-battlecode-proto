@@ -86,7 +86,12 @@ it on the current ten-map pool before acting; the numbers below predate the new 
     `mem_write` passes the guest's bytes in place. The first 60 ticks of the `mem_read` mirror took 166
     core-s before and 2.7 after (on a loaded machine, where the plain burner took 3 core-s a match). A
     whole match is 68 core-s, as for any other host call made back to back at 20 fuel (`mem_spam`: 56).
-  - `debug_draw` costs 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB replay, 568 MB peak.
+  - Done (`fix/host-call-fees`): `debug_draw` cost 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB
+    replay, 568 MB peak. Now 140 fuel and 2,048 drawings per team and tick: 33 core-s (84 before, same
+    machine and hour). The rest is storing 4,096 drawings a tick at about 3 µs each; a lower cap is the next
+    lever. WASI `fd_write` (64 iovecs) and `random_get` (4 KiB) were worse, 53 and 242 ns per fuel; now 5 per
+    iovec and 2 per 8 bytes, at the table-read rate. `log` and `fuel_remaining` are no dearer per fuel than a
+    table read and stay free. Fees need the engine patch bump (`docs/release.md`).
   - `count`/`get` and `los` spend about 1.9 ns per fuel, about 5 core-s per game. Partly fixed: reading a
     perceived table row by row redid the visibility pass per row (n passes, now one a tick: 11 times
     faster for 14 of 64 drops), `get` allocated a row buffer per call, and the `los` walk divided at

@@ -25,7 +25,7 @@ Imports come from module `ibc`:
 | `los(x0, y0, x1, y1) -> i32` | 1 if no wall lies between the points (static map only) |
 | `raycast(x, y, angle, max) -> i32` | Distance to the first wall, capped at `max` |
 | `mem_read(scope, off, ptr, len) -> i32`, `mem_write(...)` | Team, draft and buy memory (`MEM_*`; each writable in one phase) |
-| `debug_draw(kind, x0, y0, x1, y1, color) -> i32` | Overlay in the replay viewer; free |
+| `debug_draw(kind, x0, y0, x1, y1, color) -> i32` | Overlay in the replay viewer; each team keeps up to 2,048 a tick |
 | `log(ptr, len) -> i32` | Append to the unit's log |
 
 Only a small WASI preview1 subset exists: `fd_write` to stdout/stderr (captured, size-capped), a deterministic
@@ -86,7 +86,16 @@ clock and random source, empty args and environment. There is no filesystem, net
   balance patches change them without changing the ABI.
 - **Reserved fields.** A field whose meaning is retired keeps its slot, is renamed `_reservedN` and always reads 0,
   so compiled bots keep their layout. `WeaponRules._reserved0` was `move_spread` (movement no longer adds spread).
-- **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed.
+- **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed, paid before its
+  arguments are checked: `debug_draw` 140, `fd_write` 5 per iovec, `random_get` 2 per 8 bytes, and the
+  constants in `crates/abi` for the rest. `end_turn`, `fuel_remaining`, `log` and the other WASI calls are
+  free. An `ibc` call that costs at least what is left of the turn waits for the next turn, so it acts on
+  the tick that pays for it; one that costs a whole turn's budget or more takes what is left and owes the
+  rest, and goes through once the following turns have paid it. A WASI call is paid like an instruction: at
+  once, and what runs past the turn is owed by the next turns. Fees are prices, not layout: they can change
+  with the engine version (`docs/release.md`).
+- **Debug drawings** are kept up to 2,048 per team and tick, in call order; later calls that tick still
+  succeed and are dropped.
 
 ## Additions in v1
 

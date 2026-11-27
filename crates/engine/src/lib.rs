@@ -223,10 +223,12 @@ impl Match {
         self.world.state_hashes()
     }
 
-    /// Debug drawings made since the last call (or the last step, which discards them). Call before `step()`
-    /// to record them; they are not simulation inputs.
+    /// Debug drawings made since the last call (or the last step, which discards them): team A's, then team
+    /// B's, each in call order. Call before `step()` to record them; they are not simulation inputs.
     pub fn take_debug(&mut self) -> Vec<DebugDraw> {
-        std::mem::take(&mut self.world.debug)
+        let [mut a, b] = std::mem::take(&mut self.world.debug);
+        a.extend(b);
+        a
     }
 
     /// The bot of this unit crashed: it idles for the rest of the match.
