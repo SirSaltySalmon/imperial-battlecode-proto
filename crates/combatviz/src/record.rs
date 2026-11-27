@@ -17,6 +17,10 @@ pub struct Lab {
     pub max_hp: i32,
     pub run_speed: i32,
     pub heavy_armor: i32,
+    /// Target armour of the time-to-kill duels, starting with none.
+    pub ttk_armors: Vec<i32>,
+    /// Distances in tiles of the time-to-kill duels.
+    pub ttk_tiles: Vec<i32>,
     pub vision_range: i32,
     pub sense_radius: i32,
     pub ruleset: String,

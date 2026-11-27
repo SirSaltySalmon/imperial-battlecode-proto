@@ -14,22 +14,16 @@ mod setup;
 mod take;
 mod ttk;
 
-use ibc_engine::abi::ITEM_KIND_ARMOR;
 use ibc_engine::combat::{damage_at, fan};
 use ibc_engine::Ruleset;
 use record::{DamageCheck, FanCheck, Lab, WeaponOut};
 
 pub fn build() -> Lab {
     let rules = Ruleset::builtin();
-    let heavy = rules
-        .items
-        .iter()
-        .filter(|item| item.kind == ITEM_KIND_ARMOR)
-        .map(|item| item.value)
-        .max()
-        .unwrap_or(0);
+    let armors = ttk::armors(&rules);
+    let heavy = armors.iter().copied().max().unwrap_or(0);
     let mut cat = record::Catalog::new();
-    ttk::add(&mut cat, heavy);
+    ttk::add(&mut cat, &armors);
     firing::add(&mut cat);
     flight::add(&mut cat);
     handling::add(&mut cat);
@@ -46,6 +40,8 @@ pub fn build() -> Lab {
         max_hp: rules.core.max_hp,
         run_speed: rules.core.run_speed,
         heavy_armor: heavy,
+        ttk_armors: armors,
+        ttk_tiles: ttk::DISTANCES.to_vec(),
         vision_range: rules.core.vision_range,
         sense_radius: rules.core.sense_radius,
         ruleset: format!("{:016x}", rules.hash()),
@@ -162,7 +158,11 @@ mod tests {
     fn ttk_outcomes_are_the_tick_the_target_dies() {
         let lab = build();
         let ttk: Vec<_> = lab.scenes.iter().filter(|s| s.ttk.is_some()).collect();
-        assert_eq!(ttk.len(), lab.weapons.len() * 3 * 2 * 2);
+        assert_eq!(
+            ttk.len(),
+            lab.weapons.len() * lab.ttk_tiles.len() * 2 * lab.ttk_armors.len()
+        );
+        assert_eq!(lab.ttk_armors.len(), 3, "none, light and heavy");
         for s in ttk {
             let died = s
                 .frames
@@ -179,6 +179,20 @@ mod tests {
                 .unwrap_or_else(|| "no kill".to_string());
             assert_eq!(s.outcome, expect, "{}", s.id);
         }
+    }
+
+    #[test]
+    fn ttk_duels_are_the_ones_combat_ttk_tabulates() {
+        let source = include_str!("../../engine/tests/combat_ttk.rs");
+        let declared = format!(
+            "const DISTANCES: [i32; {}] = {:?};",
+            ttk::DISTANCES.len(),
+            ttk::DISTANCES
+        );
+        assert!(
+            source.contains(&declared),
+            "combat_ttk.rs no longer declares `{declared}`: keep the two lists the same"
+        );
     }
 
     #[test]
