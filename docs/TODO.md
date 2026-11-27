@@ -202,13 +202,15 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   need not be kept forever.
 - [x] **Abuse limits.** Done (unit 11): per-token and per-IP request limits, uploads per hour, module size,
   429 with `Retry-After`, suspend/ban for teams and users. Was: Upload rate and size per team, total submissions kept per team, API rate limits.
-- [ ] **Cost prior in the budget governor.** `series_per_batch` falls back to 10 core-seconds per game when it
-  has no measurement; measured cost is about 0.03. Unit 9 made it schedule at least one series per round until
-  games are timed, and devstack uses a 30 s interval; the prior itself is still 10. Measured 2026-11-27
-  with `bots/burner` (every unit spends its whole fuel every tick;
+- [x] **Cost prior in the budget governor.** Done: the prior is 2 core-seconds per game (about twice the
+  longest legal match below, for slower cloud vCPUs) and the floor 0.05 (0.25 held a ladder of today's bots to an eighth
+  of the fleet). Measured 2026-11-27 with `bots/burner` (every unit spends its whole fuel every tick;
   all 14 maps, 4 seeds, both sides, native `ibc` on an i7-12700H): 0.53 core-s per game mean, 0.66 max doing
   nothing, 0.47 / 0.66 on top of `forcer`; the longest legal match projects to about 0.9. Cache-missing code
-  reaches 20 to 31 core-s. The bound only holds once host calls are priced (section 2).
+  reaches 20 to 31 core-s. The bound only holds once host calls are priced (section 2). Was:
+  `series_per_batch` fell back to 10 core-seconds per game when it had no measurement, against a measured
+  cost of about 0.03, with a floor of 0.25; unit 9 made it schedule at least one series per round until games
+  are timed, and devstack uses a 30 s interval.
 - [x] **Plagiarism and duplicate detection.** Decided (2026-11-27): no near-duplicate detection. Teams are
   responsible for keeping their own source private; the platform never shows source, never serves one team's
   compiled module to another (teams list only their own submissions, public replays are redacted per viewer)

@@ -9,8 +9,8 @@
 #   --rounds N    wait until every team has played N ranked series, then print the ladder (default 3)
 #   --exit        stop everything after that; without it the stack keeps running until Ctrl-C
 #   --interval S  seconds between ranked scheduler rounds (default 30; the scheduler sizes each round
-#                 to what the workers can play in one interval, at a 10 core-seconds-per-game prior until
-#                 it has measured games, so a much shorter interval schedules nothing)
+#                 to what the workers can play in one interval, at a 2 core-seconds-per-game prior until
+#                 it has measured games, so a much shorter interval starts with one series a round)
 #
 # Builds natively in debug (honours CARGO_TARGET_DIR). Starts from an empty out/devstack/ every time; logs
 # and the data directory stay there afterwards. Needs bash, curl and the wasm32-wasip1 Rust target.

@@ -269,7 +269,7 @@ async fn the_matchmaker_pairs_free_teams_within_the_budget() {
 async fn the_ranked_budget_follows_the_live_workers() {
     let h = Harness::new(|c| {
         c.ranked_games = 2;
-        c.ranked_series_budget = 5000;
+        c.ranked_series_budget = 50_000;
         c.ranked_interval_ms = 600_000;
     });
     h.league(&["a", "b"]).await;
@@ -280,10 +280,10 @@ async fn the_ranked_budget_follows_the_live_workers() {
             .unwrap()
     };
     assert_eq!(budget(&h), 0, "no workers: the ladder pauses");
-    // One 4-core worker, nothing measured: the prior of 10 core-seconds per game.
+    // One 4-core worker, nothing measured: the prior of 2 core-seconds per game.
     let w = MockWorker::register(&h, "w", true).await;
-    assert_eq!(budget(&h), 4 * 3600 * 7 / 10 / 6 / (2 * 10));
-    // Measured: 40 ms per game, below the 0.25 s floor.
+    assert_eq!(budget(&h), 4 * 3600 * 7 / 10 / 6 / (2 * 2));
+    // Measured: 40 ms per game, below the 0.05 s floor.
     h.admin(
         "POST",
         "/v1/admin/ranked-batch",
@@ -291,7 +291,7 @@ async fn the_ranked_budget_follows_the_live_workers() {
     )
     .await;
     w.drain(&h).await;
-    assert_eq!(budget(&h), (4.0 * 3600.0 * 0.7 / 6.0 / (2.0 * 0.25)) as u32);
+    assert_eq!(budget(&h), (4.0 * 3600.0 * 0.7 / 6.0 / (2.0 * 0.05)) as u32);
 }
 
 #[tokio::test]
