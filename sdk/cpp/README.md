@@ -35,7 +35,7 @@ struct MyBot {
             return;
         }
         if (const auto site = sites().at(0)) {
-            nav.go(me, {site->centre_x, site->centre_y}, core.run_speed);
+            nav.go(me, plant_point(*site), core.run_speed);  // a site tile: plant here
             face(nav.heading);                           // you only see where you look
         }
     }
@@ -49,7 +49,7 @@ IBC_BOT(MyBot)
 
 | Area | API |
 |---|---|
-| Tables | `me()`, `allies()`, `enemies()`, `sounds()`, `projectiles()`, `effects()`, `drops()`, `events()`, `sites()`, `roster()`, `rounds()`, `items()`, `weapons()` (lazy ranges, no allocation); `match_info()`, `map_info()`, `core_rules()`, `weapon(id)`, `ability(id)`, `item(id)`, `kit(id)` |
+| Tables | `me()`, `allies()`, `enemies()`, `sounds()`, `projectiles()`, `effects()`, `drops()`, `events()`, `sites()`, `roster()`, `rounds()`, `items()`, `weapons()` (lazy ranges, no allocation); `match_info()`, `map_info()`, `core_rules()`, `weapon(id)`, `ability(id)`, `item(id)`, `kit(id)`; `plant_point(site)` (a site tile's centre, where the carrier plants; the box centre may be off the site) |
 | Actions | `move_dir`, `move_towards`, `face`, `fire`, `reload`, `plant`, `defuse`, `pickup`, `buy`, `buy_for`, `use_ability`, `swap`, `drop_item`, `draft`, `draft_for`, `cancel`: each returns an `Error` (`ok(e)`, `error_name(e)`) |
 | World | `los(a, b)`, `raycast(p, angle, max)` |
 | Memory | `team_mem_read/write`, `team_mem_get<N>/set<N>` (writes in action phases), `mem_read/write(scope, ...)`, `mem_get<N>/set<N>(scope, ...)` for `MEM_DRAFT` (draft tick) and `MEM_BUY` (buy phase) |

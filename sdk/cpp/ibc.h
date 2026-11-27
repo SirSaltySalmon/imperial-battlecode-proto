@@ -333,6 +333,10 @@ constexpr Point vel(const UnitInfo& u) { return {u.vx, u.vy}; }
 /// Winding up, reloading, planting or defusing.
 constexpr bool busy(const UnitInfo& u) { return has(u, S_WINDUP | S_RELOADING | S_PLANTING | S_DEFUSING); }
 
+/// The plant point: the centre of a tile of this site, so a carrier standing here can plant. Walk here, not
+/// to the bounding-box centre, which on an L-shaped or hollow site is not on the site.
+constexpr Point plant_point(const SiteInfo& s) { return {s.plant_x, s.plant_y}; }
+
 // ---------------------------------------------------------------------------------------------------
 // Actions. One move, one facing and one "hands" action per tick; a later call of a kind replaces the earlier.
 // ---------------------------------------------------------------------------------------------------

@@ -285,6 +285,20 @@ impl UnitExt for UnitInfo {
     }
 }
 
+/// Convenience accessors on `SiteInfo`.
+pub trait SiteExt {
+    /// The plant point: the centre of a tile of this site, so a carrier standing here can plant. Walk here,
+    /// not to the bounding-box centre, which on an L-shaped or hollow site is not on the site.
+    fn plant_point(&self) -> (i32, i32);
+}
+
+impl SiteExt for SiteInfo {
+    #[inline]
+    fn plant_point(&self) -> (i32, i32) {
+        (self.plant_x, self.plant_y)
+    }
+}
+
 // ---- actions ----
 
 /// Raw `act` call for action kinds without a wrapper.

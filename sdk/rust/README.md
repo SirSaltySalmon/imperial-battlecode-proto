@@ -38,7 +38,8 @@ impl Bot for MyBot {
         if let Some(e) = enemies().next() {
             let _ = fire(angle_to(e.x - me.x, e.y - me.y));
         } else if let Some(site) = sites().next() {
-            let _ = self.nav.go(&me, site.centre_x, site.centre_y, self.core.run_speed);
+            let (x, y) = site.plant_point();             // a site tile: plant here
+            let _ = self.nav.go(&me, x, y, self.core.run_speed);
             let _ = face(self.nav.heading);              // you only see where you look
         }
     }
@@ -67,7 +68,7 @@ ticks after `fire` (`windup` plus the unit's unsteadiness), or at once while bra
 |---|---|
 | Entry | `trait Bot { new, turn }`, `bot!(Type)`, `end_turn()`, `fuel_remaining()` |
 | Self and others | `me()`, `allies()`, `enemies()` (visible only), `sounds()`, `projectiles()`, `effects()`, `drops()`, `events()`, `roster()` (both teams: kit, round-start credits, alive), `rounds()` (finished rounds); `UnitExt`: `alive()`, `has(S_*)`, `pos()`, `busy()` |
-| Match and map | `match_info()`, `map_info()`, `sites()`, `map_row(y, buf)`, `Grid::load()` with `tile`, `tile_at`, `is_wall`, `is_blocked`, `can_step`; `tile_of`, `tile_centre` |
+| Match and map | `match_info()`, `map_info()`, `sites()` with `SiteExt::plant_point()` (a site tile's centre, where the carrier plants; the box centre may be off the site), `map_row(y, buf)`, `Grid::load()` with `tile`, `tile_at`, `is_wall`, `is_blocked`, `can_step`; `tile_of`, `tile_centre` |
 | Rules | `core_rules()`, `weapon(id)`, `ability(id)`, `item(id)`, `kit(id)`, `weapons()`, `items()` |
 | Actions (`Result<(), Error>`) | `move_dir(angle, speed)`, `move_towards(x, y, speed)`, `face(angle)`, `face_point(x, y)`, `fire(angle)`, `fire_at(x, y)`, `reload()`, `plant()`, `defuse()`, `pickup()`, `buy(item)`, `buy_for(item, slot)`, `use_ability(slot, x, y)`, `swap(slot)`, `drop_item(kind)`, `draft(kit)`, `draft_for(kit, slot)`, `cancel()`, raw `act(kind, a, b, c)` |
 | World queries | `los(a, b)`, `raycast(x, y, angle, max)` |
