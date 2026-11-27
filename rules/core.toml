@@ -32,5 +32,9 @@ max_ticks = 4000
 round_end_ticks = 2
 # Linear memory of each unit's own wasm instance (8 MiB), its stack included. The runner enforces it.
 memory_bytes = 8388608
+# Deepest call stack a bot may build, in stack units. Each active call costs its function's parameters, locals
+# and largest operand stack height, plus 2. A call that would go deeper traps and the unit faults. Counted in
+# the module, not on the native stack, so the depth is the same on every CPU.
+stack_limit = 65536
 # On detonation every living unit within this distance of the charge dies, both teams, through walls.
 blast_radius = 12288

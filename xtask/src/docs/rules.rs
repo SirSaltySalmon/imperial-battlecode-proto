@@ -159,6 +159,7 @@ fn core(i: &Inputs) -> Result<String> {
     for (key, v) in [
         ("round_end_ticks", i.ruleset.round_end_ticks),
         ("memory_bytes", i.ruleset.memory_bytes),
+        ("stack_limit", i.ruleset.stack_limit),
     ] {
         let doc = ruleset.field(key).map(|f| f.doc.as_str()).unwrap_or("");
         rows.push(vec![

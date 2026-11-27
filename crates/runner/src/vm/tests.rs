@@ -42,9 +42,9 @@ fn unit_vm(wat: &str) -> UnitVm {
     let module = Module::new(&env.engine, wat::parse_str(wat).unwrap()).unwrap();
     let map = Map::parse(include_str!("../../../../maps/crossfire.ibcmap")).unwrap();
     let rules = Ruleset::builtin();
-    let memory = rules.memory_bytes as usize;
+    let (memory, stack) = (rules.memory_bytes as usize, rules.stack_limit as u32);
     let game = Arc::new(Mutex::new(Match::new(rules, map, 1)));
-    UnitVm::new(&env.engine, &env.linker, &module, game, 0, 1, 1 << 10, memory).unwrap()
+    UnitVm::new(&env.engine, &env.linker, &module, game, 0, 1, 1 << 10, memory, stack).unwrap()
 }
 
 /// Runs one turn per budget and checks each against the fuel model (module docs): a turn runs at most one

@@ -51,6 +51,10 @@ pub struct Ruleset {
     /// Most linear memory one unit's wasm instance may have, in bytes: what it declares and what it grows to,
     /// its stack included. Each unit has its own. Enforced by the runner.
     pub memory_bytes: i32,
+    /// Deepest call stack a bot may build, in stack units: each active call costs its function's parameters,
+    /// locals and largest operand stack height, plus 2. Going deeper traps. Enforced by the runner, which
+    /// counts it in the module so that it is the same on every CPU.
+    pub stack_limit: i32,
     pub weapons: Vec<WeaponRules>,
     pub weapon_names: Vec<String>,
     pub abilities: Vec<AbilityRules>,
@@ -239,6 +243,7 @@ impl Ruleset {
             core,
             round_end_ticks: gi(&c, "round_end_ticks", 2).max(1),
             memory_bytes: gi(&c, "memory_bytes", 8 << 20).max(0),
+            stack_limit: gi(&c, "stack_limit", 65536).clamp(1, 1 << 30),
             weapons,
             weapon_names,
             abilities,
@@ -259,6 +264,7 @@ impl Ruleset {
         h.bytes(ibc_abi::bytes_of(&self.core));
         h.i32(self.round_end_ticks);
         h.i32(self.memory_bytes);
+        h.i32(self.stack_limit);
         for w in &self.weapons {
             h.bytes(ibc_abi::bytes_of(w));
         }

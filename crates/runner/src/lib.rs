@@ -1,9 +1,10 @@
 //! Wasmtime host: runs a match between two wasm bots on `ibc-engine` and records the replay.
 //!
 //! Bots are `wasm32-wasip1` command modules. Every unit gets its own instance of its team's module;
-//! `_start` never returns and calls the import `ibc.end_turn` once per tick. See `vm` for the fuel model
-//! and `wasi` for the (deterministic, hand-written) WASI shim.
+//! `_start` never returns and calls the import `ibc.end_turn` once per tick. See `vm` for the fuel model,
+//! `stack` for the recursion limit and `wasi` for the (deterministic, hand-written) WASI shim.
 
+mod stack;
 mod vm;
 mod wasi;
 
@@ -25,6 +26,18 @@ pub use wasi::SUPPORTED as WASI_IMPORTS;
 pub const WASMTIME_VERSION: &str = "51.0.0";
 /// Default cap of a unit's captured log.
 pub const DEFAULT_LOG_LIMIT: usize = 256 << 10;
+/// Largest `stack_limit` a ruleset may set: the native stack below is sized for it. Twice the default rule,
+/// so a balance patch can raise it without a runner change.
+pub const MAX_STACK_UNITS: u32 = 1 << 17;
+/// Native stack per stack unit. Wasmtime traps on its own when wasm frames use more than
+/// `MAX_STACK_UNITS * NATIVE_BYTES_PER_UNIT` bytes, and that must never come before the deterministic
+/// limit. Measured on x64 (`tests/stack.rs`): 8 bytes per unit for thin and i64 frames, at most 15.5 for
+/// v128 frames, whose spill slots are as wide on aarch64. 64 is four times the worst measured, eight times at
+/// the default `stack_limit`. A frame far larger than its stack units (Cranelift keeping many recomputable
+/// values alive across a call) could still exhaust it first; such a bot faults with "call stack exhausted".
+const NATIVE_BYTES_PER_UNIT: usize = 64;
+/// Stack left on a unit's fiber for host calls below its deepest wasm frame (Wasmtime's default margin).
+const HOST_STACK_BYTES: usize = 3 << 19;
 
 pub struct BotSpec {
     pub name: String,
@@ -75,8 +88,8 @@ pub struct MatchOutput {
 struct HostEnv {
     engine: Engine,
     linker: Linker<UnitData>,
-    /// Compiled modules by wasm sha256, shared by every match in this process.
-    modules: Mutex<HashMap<String, Module>>,
+    /// Compiled modules by wasm sha256 and stack limit, shared by every match in this process.
+    modules: Mutex<HashMap<(String, u32), Module>>,
 }
 
 const MODULE_CACHE_ENTRIES: usize = 64;
@@ -94,6 +107,10 @@ fn host() -> Result<&'static HostEnv> {
             c.consume_fuel(true);
             c.cranelift_nan_canonicalization(true);
             c.relaxed_simd_deterministic(true);
+            // Recursion is limited deterministically (`stack`); the native stack only has to be larger.
+            let wasm_stack = MAX_STACK_UNITS as usize * NATIVE_BYTES_PER_UNIT;
+            c.max_wasm_stack(wasm_stack);
+            c.async_stack_size(wasm_stack + HOST_STACK_BYTES);
             // (wasmtime is built without its `threads` feature, so the threads proposal cannot be enabled.)
             // Exception handling, for C++ bots built with exceptions: the standard (exnref) encoding only,
             // Wasmtime cannot compile the legacy one. The coordinator's upload check accepts the same
@@ -145,27 +162,35 @@ fn check_module(module: &Module) -> std::result::Result<(), String> {
     Ok(())
 }
 
+/// Validate a bot module, limit its stack to `stack_limit` units (`stack`), compile it and check its imports
+/// and exports.
+fn compile(env: &HostEnv, wasm: &[u8], stack_limit: u32) -> Result<Module> {
+    wt(Module::validate(&env.engine, wasm)).context("invalid wasm")?;
+    let limited = stack::instrument(wasm, stack_limit).map_err(|e| anyhow!("cannot limit its stack: {e}"))?;
+    let module = wt(Module::new(&env.engine, &limited)).context("invalid wasm after limiting its stack")?;
+    check_module(&module).map_err(|e| anyhow!(e))?;
+    Ok(module)
+}
+
 /// Compile (or fetch from the process-wide cache) and validate a bot module. Returns it with its sha256.
-fn load_module(env: &HostEnv, bot: &BotSpec) -> Result<(Module, String)> {
+fn load_module(env: &HostEnv, bot: &BotSpec, stack_limit: u32) -> Result<(Module, String)> {
     let sha = sha256_hex(&bot.wasm);
-    if let Some(m) = env.modules.lock().unwrap_or_else(|e| e.into_inner()).get(&sha) {
+    let key = (sha.clone(), stack_limit);
+    if let Some(m) = env.modules.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
         return Ok((m.clone(), sha));
     }
-    let module = wt(Module::new(&env.engine, &bot.wasm)).with_context(|| format!("bot `{}`: invalid wasm", bot.name))?;
-    check_module(&module).map_err(|e| anyhow!("bot `{}`: {e}", bot.name))?;
+    let module = compile(env, &bot.wasm, stack_limit).map_err(|e| anyhow!("bot `{}`: {e:#}", bot.name))?;
     let mut cache = env.modules.lock().unwrap_or_else(|e| e.into_inner());
     if cache.len() >= MODULE_CACHE_ENTRIES {
         cache.clear();
     }
-    cache.insert(sha.clone(), module.clone());
+    cache.insert(key, module.clone());
     Ok((module, sha))
 }
 
-/// Validate a bot without running it: compiles and checks imports/exports.
+/// Validate a bot without running it: compiles it as a match would and checks imports/exports.
 pub fn check_wasm(wasm: &[u8]) -> Result<()> {
-    let env = host()?;
-    let module = wt(Module::new(&env.engine, wasm)).context("invalid wasm")?;
-    check_module(&module).map_err(|e| anyhow!(e))
+    compile(host()?, wasm, MAX_STACK_UNITS).map(drop)
 }
 
 fn milli(mult: f64) -> Result<u64> {
@@ -218,12 +243,13 @@ fn load_team_modules(
     bots: &[BotSpec; 2],
     teams: &[i32],
     driven: &[bool],
+    stack_limit: u32,
 ) -> Result<([Option<Module>; 2], [String; 2])> {
     let mut modules = [None, None];
     let mut shas = [String::new(), String::new()];
     for t in 0..2 {
         if (0..teams.len()).any(|u| !driven[u] && teams[u] == t as i32) {
-            let (module, sha) = load_module(env, &bots[t])?;
+            let (module, sha) = load_module(env, &bots[t], stack_limit)?;
             modules[t] = Some(module);
             shas[t] = sha;
         }
@@ -240,6 +266,10 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
     let env = host()?;
     let map = Map::parse(&cfg.map_text).map_err(|e| anyhow!("map: {e}"))?;
     let mults = [milli(cfg.bots[0].fuel_multiplier)?, milli(cfg.bots[1].fuel_multiplier)?];
+    let stack_limit = cfg.rules.stack_limit as u32;
+    if stack_limit > MAX_STACK_UNITS {
+        bail!("rules: stack_limit {stack_limit} is above what this runner supports ({MAX_STACK_UNITS})");
+    }
     let ruleset_hash = hash_hex(cfg.rules.hash());
     let header_rules = HeaderRules::of(&cfg.rules);
     let map_hash = hash_hex(map.hash());
@@ -249,7 +279,7 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
     let n = lock(&game).unit_count();
     let teams: Vec<i32> = (0..n).map(|u| lock(&game).unit_team(u)).collect();
     let driven: Vec<bool> = (0..n).map(|u| driver.drives(u, teams[u as usize])).collect();
-    let (modules, shas) = load_team_modules(env, &cfg.bots, &teams, &driven)?;
+    let (modules, shas) = load_team_modules(env, &cfg.bots, &teams, &driven, stack_limit)?;
 
     let bot_info = |i: usize| BotInfo {
         name: cfg.bots[i].name.clone(),
@@ -326,6 +356,7 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
             cfg.seed,
             cfg.log_limit,
             memory_limit,
+            stack_limit,
         ) {
             Ok(vm) => vms.push(Some(vm)),
             Err(reason) => {

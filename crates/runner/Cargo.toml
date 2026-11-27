@@ -18,6 +18,9 @@ serde_json = { workspace = true }
 # `gc` and `gc-null` are for exception handling only: Wasmtime keeps exception objects in a GC heap (see
 # `host()` in src/lib.rs).
 wasmtime = { version = "=51.0.0", default-features = false, features = ["cranelift", "runtime", "async", "std", "gc", "gc-null"] }
+# The stack limiter (src/stack.rs) reads and writes modules with the versions Wasmtime 51 itself uses.
+wasmparser = "0.263"
+wasm-encoder = "0.263"
 
 [dev-dependencies]
 wat = "1"

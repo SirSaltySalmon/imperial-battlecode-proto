@@ -103,8 +103,19 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   `game.kills`, `game.digest` and `teams[i].fuel.turn_p50/p90/p99`. `ibc-bench` takes plants, kills by weapon
   and exact repeats from the summary; it still re-simulates wasm replays for first contact, kill distance,
   movement, economy, loadouts and shots by weapon. Was: `ibc-bench` re-simulated every replay to get these.
-- [ ] **Stack-overflow depth is probably architecture-dependent.** A bot that recurses until it traps may
-  fault at a different tick on another CPU. Test on arm64 (section 4) and, if so, bound it deterministically.
+- [x] **Stack-overflow depth was architecture-dependent.** Done: the runner counts the stack in the module
+  (`crates/runner/src/stack.rs`, the stack height limiter of Parity's `wasm-instrument`), and a call deeper
+  than `stack_limit` units traps the same way on every CPU. Wasmtime's native stack is sized at 64 bytes per
+  unit for up to `MAX_STACK_UNITS` (twice the rule), four times the widest x64 frame measured. The reference
+  bots need at most 333 units (the squad bots; `rusher` 242, `holder` 249, `utility` 261, bisected on
+  `crossfire` and `spillway`), and it costs them 0.9 to 1.8% fuel per turn (97 wasm games on `crossfire` and
+  `quarry` that stayed identical).
+  Was: a bot that recursed until it trapped faulted where the native stack ran out, which depends on
+  Cranelift's frame layout for the ISA: on x64 16,368 levels of a thin frame, 3,273 with 16 i64 locals and
+  1,818 with 16 v128 locals (`crates/runner/tests/stack.rs`). Left over: run that test on arm64 when
+  `determinism.yml` runs (section 4) to confirm the margin there. A frame that Cranelift makes much larger
+  than its stack units (many recomputable values kept alive across a call) could still run out of native
+  stack first.
 - [x] **`memory.copy`/`memory.fill` cost fuel per byte.** Decided: keep Wasmtime's 1 fuel per byte. Free bulk
   operations would let one tick cost unbounded CPU; Wasmtime's per-byte cost is an integer, so the only options
   are 0 or at least 1; a hand-written copy loop costs about the same. `docs/RULES.md` says that one huge copy is

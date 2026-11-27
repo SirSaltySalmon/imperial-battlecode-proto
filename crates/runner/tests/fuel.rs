@@ -154,9 +154,10 @@ fn host_calls_are_paid_from_the_same_budget() {
         let calls = out.logs[id].len() as u64;
         assert!(out.logs[id].iter().all(|&b| b == b'\n'));
         assert!(calls > 1000, "the bot did get to call the host ({calls} calls)");
-        // wasm + host charges never exceed the budget, in total and (via max_turn) per turn
+        // wasm + host charges never exceed the budget in total, nor per turn (via max_turn) by more than the
+        // wasm between a charge and the next fuel check, which the next turn pays back
         assert!(u.fuel_used <= granted, "used {} granted {granted}", u.fuel_used);
-        assert!(u.max_turn <= 1_000_000);
+        assert!(u.max_turn <= 1_000_000 + SLACK, "max turn {}", u.max_turn);
         // every call was charged in full
         assert!(calls * ibc_abi::FUEL_GET <= u.fuel_used, "{calls} calls for {} fuel", u.fuel_used);
         // and nearly all of the budget was usable (at most one unaffordable call's worth lost per turn)
