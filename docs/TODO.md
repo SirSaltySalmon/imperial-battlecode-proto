@@ -72,6 +72,34 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 
 ## 2. Engine and runner correctness
 
+- [ ] **Fuel does not bound a match's CPU or memory: some host calls cost far more than they charge.**
+  Found 2026-11-27 with the kernels in `bots/burner/examples`, full idle-length games, native `ibc`:
+  - Fixed: `mem_write` stored `Input::MemWrite { data }` in the replay before any check, so refused 1 MiB
+    writes grew the runner by about 23 MB a tick. Now a refused `mem_write` or `act` leaves no input,
+    accepted writes are kept once per team and scope a tick (the bytes they left), and `act` accepts at most
+    `MAX_ACTS` (64) per unit and tick (docs/REPLAY.md, "Inputs"). Mirrors on crossfire: `mem_write` took
+    705 MB after 25 ticks before, 26 MB for the whole match after; looping accepted 64-byte writes took
+    760 MB after 100 ticks before, 16 MB and a 58 KB replay for the whole match after; looping moves took
+    a 7.6 MB replay after 100 ticks before, 2.8 MB for the whole match after.
+  - Fixed: `mem_read` allocated a zeroed buffer of the requested length before the engine refused it. The
+    engine now checks first and lends its bytes, which the runner copies straight into guest memory, and
+    `mem_write` passes the guest's bytes in place. The first 60 ticks of the `mem_read` mirror took 166
+    core-s before and 2.7 after (on a loaded machine, where the plain burner took 3 core-s a match). A
+    whole match is 68 core-s, as for any other host call made back to back at 20 fuel (`mem_spam`: 56).
+  - Done (`fix/host-call-fees`): `debug_draw` cost 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB
+    replay, 568 MB peak. Now 140 fuel and 2,048 drawings per team and tick: 33 core-s (84 before, same
+    machine and hour). The rest is storing 4,096 drawings a tick at about 3 µs each; a lower cap is the next
+    lever. WASI `fd_write` (64 iovecs) and `random_get` (4 KiB) were worse, 53 and 242 ns per fuel; now 5 per
+    iovec and 2 per 8 bytes, at the table-read rate. `log` and `fuel_remaining` are no dearer per fuel than a
+    table read and stay free. Fees need the engine patch bump (`docs/release.md`).
+  - `count`/`get` and `los` spend about 1.9 ns per fuel, about 5 core-s per game. Partly fixed: reading a
+    perceived table row by row redid the visibility pass per row (n passes, now one a tick: 11 times
+    faster for 14 of 64 drops), `get` allocated a row buffer per call, and the `los` walk divided at
+    every step. The `reads` kernel costs 12 to 15% less, `los` about 3% (noise). What is left is mostly
+    the fixed cost of any host call (the charge, the game lock, Wasmtime's async call path).
+  Per unit of fuel, arithmetic costs 0.18 ns, `count`/`get` and `los` about 11 times that, cache-missing
+  loads about 43 times, `mem_read` about 1,600 times, and `debug_draw` is free. Fix these before trusting
+  the cost prior (section 3).
 - [x] **C++ bots that use exceptions are rejected.** Done: the runner enables Wasmtime's exception handling
   in the standard (exnref) encoding, with exception objects in a null-collector GC heap (no collection can
   suspend a bot), and the coordinator's upload check accepts the same proposal; both refuse the legacy
@@ -158,15 +186,24 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 
 ## 3. Job system and platform
 
-- [ ] **Deployment files have never been run.** `deploy/Dockerfile`, `docker-compose.yml`,
-  `ibc-worker.service` and `cloud-init.yaml` are unexecuted. The compose file's coordinator service was written
-  before the coordinator existed, and `cloud-init.yaml` points at a release download that does not exist yet.
-  Done: `docker compose up` brings up a coordinator and two workers that play a ranked batch; a fresh Linux VM
-  booted with the cloud-init file registers and plays.
-- [ ] **Drain on SIGTERM has only been tested through the drain file.** Windows kills the process outright.
-  Test on Linux before relying on it for spot instances.
-- [ ] **`--allow-runner-fetch` and side-by-side runner directories have no test.** This is the path that lets
-  a fleet change patch without redeploying; it downloads and runs native code, so it needs a careful test.
+- [x] **Deployment files have never been run.** Done (2026-11-27, Docker Desktop 28.3 on Windows):
+  `docker compose up` built both images, served the web front end and viewer, registered two trusted workers
+  and played ranked series for four teams. `deploy/cloud-init.yaml` (only its variables filled in) booted a
+  fresh Debian 12 with systemd 252 (an imported WSL distro, not a cloud VM): it downloaded and checked the
+  archive, installed and started `ibc-worker.service` (dynamic user, `LoadCredential`, full hardening),
+  registered with the untrusted token, emptied it, and played 12 matches. Fixed on the way: compose set
+  `IBC_DISTRIBUTION` to an empty string, which the coordinator refuses to start with. Left over: the archive
+  was packed by hand from the image's glibc binaries, not the musl one `cargo xtask dist` makes (section 4);
+  `ibc-coordinator.service` has not run; systemd inside a Docker container cannot test `LoadCredential`.
+- [x] **Drain on SIGTERM has only been tested through the drain file.** Done on Linux: a unit test sends real
+  SIGTERMs to the binary (one drains, two abort), and `docker stop`, `systemctl stop` and the drain file all
+  end in exit 0 with no restart. A job granted by a long poll that was open when the drain began is now
+  released unstarted; an idle worker still takes up to `--poll-ms` (25 s) to exit.
+- [x] **`--allow-runner-fetch` and side-by-side runner directories have no test.** Done:
+  `crates/worker/tests/runners.rs` (Windows and Linux) covers a side-by-side runner, one naming another
+  patch, no download without the flag or for another platform, a single download then reuse, a wrong hash, a
+  fetched binary naming another patch (deleted), and a patch that is not a plain directory name (nothing
+  downloaded or written).
 - [x] **No web platform.** Done: `web/` (unit 13) with email + password accounts, sessions and device-code
   CLI login (unit 8), served by the coordinator at `/` with the viewer at `/viewer/`. Was: There is an HTTP API and nothing for a human: no sign-in, team pages, submission
   upload, ladder, match list or embedded viewer. This is the largest missing piece for an event. The
@@ -190,27 +227,41 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [x] **Language fuel multipliers are self-declared.** Done (unit 12): the server's table decides; `ibc build`
   embeds an `ibc.language` section. Was: Harmless while only Rust and C++ exist (both 1x). Before
   Python arrives the server must decide the multiplier itself, not trust the upload.
-- [ ] **SQLite and local disk only.** Fine for one box. `crates/coordinator` keeps SQL in `src/db/` and blobs
-  behind a trait for a later Postgres and S3 backend. Not needed until a second coordinator or off-box storage
-  is.
+- [ ] **SQLite and local disk only.** Fine for one box, and decided (2026-11-27) to stay for the prototype.
+  `crates/coordinator` keeps SQL in `src/db/` and blobs behind a trait for a later Postgres and S3 backend.
+  Not needed until a second coordinator or off-box storage is.
 - [x] **Backups and retention.** Done: `ibc-coordinator backup`, `prune-replays`, `deploy/backup.sh` (unit 16),
   per-team submission retention (unit 11). Was: Document and automate copying the SQLite file and blobs. Add a replay
   retention policy: replays can be regenerated from (patch, map, bots, seed), so unranked and bench replays
   need not be kept forever.
 - [x] **Abuse limits.** Done (unit 11): per-token and per-IP request limits, uploads per hour, module size,
   429 with `Retry-After`, suspend/ban for teams and users. Was: Upload rate and size per team, total submissions kept per team, API rate limits.
-- [ ] **Cost prior in the budget governor.** `series_per_batch` falls back to 10 core-seconds per game when it
-  has no measurement; measured cost is about 0.03. Unit 9 made it schedule at least one series per round until
-  games are timed, and the fill-up (which uses the same prior) keeps an idle fleet busy regardless; the prior
-  itself is still 10.
-- [ ] **Plagiarism and duplicate detection.** Identical wasm across teams is flagged (unit 11); near duplicates
-  are not.
+- [x] **Cost prior in the budget governor.** Done: the prior is 2 core-seconds per game (about twice the
+  longest legal match below, for slower cloud vCPUs) and the floor 0.05 (0.25 held a ladder of today's bots to an eighth
+  of the fleet). Measured 2026-11-27 with `bots/burner` (every unit spends its whole fuel every tick;
+  all 14 maps, 4 seeds, both sides, native `ibc` on an i7-12700H): 0.53 core-s per game mean, 0.66 max doing
+  nothing, 0.47 / 0.66 on top of `forcer`; the longest legal match projects to about 0.9. Cache-missing code
+  reaches 20 to 31 core-s. The bound only holds once host calls are priced (section 2). Was:
+  `series_per_batch` fell back to 10 core-seconds per game when it had no measurement, against a measured
+  cost of about 0.03, with a floor of 0.25; unit 9 made it schedule at least one series per round until games
+  are timed, and devstack uses a 30 s interval.
+- [x] **Plagiarism and duplicate detection.** Decided (2026-11-27): no near-duplicate detection. Teams are
+  responsible for keeping their own source private; the platform never shows source, never serves one team's
+  compiled module to another (teams list only their own submissions, public replays are redacted per viewer)
+  and runs every match server-side. Identical wasm across teams is still flagged (unit 11).
 - [ ] **Accounts:** emails are not verified, so register the `IBC_ADMIN_EMAILS` accounts before the site is
   public; login throttling is per email only (put per-IP limits in the reverse proxy).
-- [ ] **Any worker token can read any full replay blob** by hash. Fine while workers are trusted.
-- [ ] **Double elimination has no bracket reset** in the grand final (documented in `docs/api/tournaments.md`).
-- [ ] **Docker images have never been built** (no daemon on the dev machine); `docker compose config` accepts
-  the file.
+- [x] **Any worker token can read any blob.** Done: a worker reads only the bots, map and runner of a job it
+  holds a live lease on (anything else is 403: the worker fails the job as retryable) and uploads only while
+  it holds a lease (otherwise 409 `lease_lost`); the admin is unrestricted (`docs/JOBS.md`, `blobs`). Still
+  open: a worker holding any lease can upload any content up to the blob size limit. Was: `GET /v1/blobs`
+  accepted the admin or any worker token for any blob by hash: every team's compiled module, every map
+  (hidden tournament maps too) and unredacted replays.
+- [x] **Double elimination has no bracket reset.** Done: when the losers-bracket champion wins the grand
+  final, a reset between the same two teams decides (`docs/api/tournaments.md`). Was: The grand final was
+  played once, so the winners-bracket champion was out after its first loss.
+- [x] **Docker images have never been built.** Done (2026-11-27): both targets build from a clean export of
+  `HEAD` (coordinator 53 MB, worker 73 MB) and run under compose (above).
 
 ## 4. Never executed
 
@@ -223,7 +274,11 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   was ever fetched.
 - [ ] **Workflow lint.** The YAML was parsed, not linted. Run `actionlint`.
 - [ ] **The three shell wrappers in `tools/`.** (`tools/devstack.sh` has run green.)
-- [ ] **CI did not run on PR 15.** Check why (path filters or a trigger) so job-system changes are covered.
+- [x] **CI on PR 15.** It did run, on both commits, and passed, but the PR was merged 26 s before the last
+  `check` job finished (`main` has no required checks; a private repository needs GitHub Pro for them), and
+  the worker's real-runner tests had skipped: CI never set `IBC_RUNNER`, so `tests/e2e.rs` "passed" in
+  0.00 s. CI now sets it, those tests fail instead of skipping when `CI` is set, and `determinism.yml` also
+  runs them, on all four platforms.
 - [x] **A full workspace test run.** 488 passed on the integration branch.
 
 ## 5. Tests and code health

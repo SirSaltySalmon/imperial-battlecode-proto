@@ -218,13 +218,21 @@ inline constexpr int32_t ITEM_KIND_ABILITY_CHARGE = 3;
 inline constexpr int32_t ITEM_KIND_DEFUSE_KIT = 4;
 
 // ---- fuel charged for host calls (on top of the wasm instructions of the call itself) ----
+// A call pays before its arguments are checked. `end_turn`, `fuel_remaining`, `log` and the WASI calls other
+// than `fd_write` and `random_get` are free.
 inline constexpr uint64_t FUEL_GET = 40;
 inline constexpr uint64_t FUEL_COUNT = 10;
 inline constexpr uint64_t FUEL_ACT = 20;
 inline constexpr uint64_t FUEL_LOS = 60;
 inline constexpr uint64_t FUEL_RAYCAST = 80;
 inline constexpr uint64_t FUEL_MEM = 20;
-inline constexpr uint64_t FUEL_DEBUG = 0;
+/// `debug_draw`, whether the drawing is kept or dropped at the per-team cap.
+inline constexpr uint64_t FUEL_DEBUG = 140;
+/// Per iovec of a WASI `fd_write`, up to the 64 it honours. Paid like an instruction: at once, and a call
+/// that runs past the turn's budget is owed by the next turns.
+inline constexpr uint64_t FUEL_IOV = 5;
+/// Per 8 bytes asked of a WASI `random_get` (rounded up), up to the 4096 it fills. Paid like `FUEL_IOV`.
+inline constexpr uint64_t FUEL_RANDOM = 2;
 
 // ---- records ----
 

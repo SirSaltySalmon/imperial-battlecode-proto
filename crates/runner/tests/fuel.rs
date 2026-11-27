@@ -73,6 +73,32 @@ const MOVER: &str = r#"(module
       (call $end_turn)
       (br $l))))"#;
 
+/// On its first turn (the draft tick) checks what the memory calls return: for a read the engine answers
+/// before the pointer is looked at, for a write the pointer comes first. Then writes draft memory in two
+/// calls and reads it back. Traps if any result is not the expected one.
+const MEMCHECK: &str = r#"(module
+  (import "ibc" "end_turn" (func $end_turn))
+  (import "ibc" "mem_read" (func $read (param i32 i32 i32 i32) (result i32)))
+  (import "ibc" "mem_write" (func $write (param i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (data (i32.const 100) "\01\02\03\04")
+  (func $expect (param $got i32) (param $want i32)
+    (if (i32.ne (local.get $got) (local.get $want)) (then unreachable)))
+  (func (export "_start")
+    ;; 4 GiB from draft memory: out of range, and nothing that size is allocated
+    (call $expect (call $read (i32.const 1) (i32.const 0) (i32.const 0) (i32.const -1)) (i32.const 6))
+    ;; an unknown scope is refused before the bad pointer is noticed
+    (call $expect (call $read (i32.const 7) (i32.const 0) (i32.const -16) (i32.const 16)) (i32.const 1))
+    (call $expect (call $read (i32.const 1) (i32.const 0) (i32.const -16) (i32.const 16)) (i32.const 8))
+    (call $expect (call $write (i32.const 7) (i32.const 0) (i32.const -16) (i32.const 16)) (i32.const 8))
+    ;; team memory is not writable in the draft
+    (call $expect (call $write (i32.const 0) (i32.const 0) (i32.const 100) (i32.const 4)) (i32.const 4))
+    (call $expect (call $write (i32.const 1) (i32.const 4) (i32.const 100) (i32.const 2)) (i32.const 0))
+    (call $expect (call $write (i32.const 1) (i32.const 6) (i32.const 102) (i32.const 2)) (i32.const 0))
+    (call $expect (call $read (i32.const 1) (i32.const 4) (i32.const 200) (i32.const 4)) (i32.const 0))
+    (call $expect (i32.load (i32.const 200)) (i32.const 0x04030201))
+    (loop $l (call $end_turn) (br $l))))"#;
+
 fn bot(name: &str, wat: &str) -> BotSpec {
     BotSpec { name: name.into(), wasm: wat::parse_str(wat).unwrap(), fuel_multiplier: 1.0 }
 }
@@ -128,8 +154,13 @@ fn spinner_uses_exactly_its_budget_and_resumes() {
     let fuel = &out.summary.teams[0].fuel;
     assert_eq!(fuel.out_of_fuel_turns, fuel.turns);
     assert!(fuel.total >= fuel.granted && fuel.total <= fuel.granted + 5 * SLACK);
-    // Every spinner turn uses its whole budget, and the smallest budget is an action tick's.
-    assert!(fuel.turn_p50 >= per_tick && fuel.turn_p50 <= fuel.turn_p90 && fuel.turn_p90 <= fuel.turn_p99);
+    // Every spinner turn uses its whole budget, less what the turn before ran over (at most one check-free
+    // path), and the smallest budget is an action tick's.
+    assert!(
+        fuel.turn_p50 + SLACK >= per_tick
+            && fuel.turn_p50 <= fuel.turn_p90
+            && fuel.turn_p90 <= fuel.turn_p99
+    );
     assert!(fuel.turn_p99 <= fuel.max_unit_turn, "{fuel:?}");
     let idle = &out.summary.teams[1].fuel;
     assert!(idle.turn_p99 < 100 && idle.turn_p99 <= idle.max_unit_turn, "{idle:?}");
@@ -163,6 +194,31 @@ fn host_calls_are_paid_from_the_same_budget() {
         // and nearly all of the budget was usable (at most one unaffordable call's worth lost per turn)
         assert!(u.fuel_used + TICKS as u64 * 64 >= granted, "used {} granted {granted}", u.fuel_used);
         assert_eq!(u.out_of_fuel_turns, TICKS as u64);
+    }
+}
+
+/// On its first turn: a map row into a 1-byte buffer (refused), `T_SELF` written past the end of memory
+/// (refused), then `T_SELF` into a big enough buffer. Logs the three results, then ends turns forever.
+const READER: &str = r#"(module
+  (import "ibc" "end_turn" (func $end_turn))
+  (import "ibc" "get" (func $get (param i32 i32 i32 i32) (result i32)))
+  (import "ibc" "log" (func $log (param i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (func (export "_start")
+    (i32.store (i32.const 0) (call $get (i32.const 9) (i32.const 0) (i32.const 1024) (i32.const 1)))
+    (i32.store (i32.const 4) (call $get (i32.const 1) (i32.const 0) (i32.const 65532) (i32.const 512)))
+    (i32.store (i32.const 8) (call $get (i32.const 1) (i32.const 0) (i32.const 1024) (i32.const 512)))
+    (drop (call $log (i32.const 0) (i32.const 12)))
+    (loop $l (call $end_turn) (br $l))))"#;
+
+#[test]
+fn a_refused_get_leaves_nothing_behind_for_the_next() {
+    let out = run(bot("reader", READER), bot("idle", IDLE));
+    let row = std::mem::size_of::<ibc_abi::UnitInfo>() as i32;
+    let expected = [-ibc_abi::ERR_BUFFER_TOO_SMALL, -ibc_abi::ERR_BAD_PTR, row];
+    for (id, _) in out.units.iter().enumerate().filter(|(_, u)| u.team == 0) {
+        let got: Vec<i32> = out.logs[id][..12].chunks(4).map(|c| i32::from_le_bytes(c.try_into().unwrap())).collect();
+        assert_eq!(got, expected, "unit {id}");
     }
 }
 
@@ -280,4 +336,24 @@ fn log_is_capped_but_writes_succeed() {
         let log = String::from_utf8_lossy(&out.logs[id]);
         assert!(log.starts_with(&"\n".repeat(100)) && log.contains("log truncated at 100 bytes"), "{log:?}");
     }
+}
+
+#[test]
+fn memory_calls_check_first_and_the_replay_keeps_one_write_per_team() {
+    let out = run(bot("memcheck", MEMCHECK), bot("memcheck", MEMCHECK));
+    assert!(out.summary.faults.is_empty(), "{:?}", out.summary.faults);
+    let r = &out.replay;
+    let writes: Vec<(usize, usize, u32, u32, Vec<u8>)> = (r.ticks.iter().enumerate())
+        .flat_map(|(i, t)| t.events.iter().map(move |e| (i, e)))
+        .filter_map(|(i, e)| match e {
+            ibc_replay::Event::Input(ibc_engine::Input::MemWrite { unit, scope, off, data }) => {
+                Some((i, r.header.unit_team(*unit), *scope, *off, data.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    // Ten units made two accepted writes each and two refused ones: one input per team is left.
+    let draft = |team| (0, team, ibc_abi::MEM_DRAFT, 4, vec![1, 2, 3, 4]);
+    assert_eq!(writes, [draft(0), draft(1)]);
+    ibc_replay::verify(r).unwrap();
 }

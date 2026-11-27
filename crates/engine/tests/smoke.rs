@@ -142,6 +142,18 @@ fn fog_hides_enemies_behind_walls_and_outside_the_cone() {
 }
 
 #[test]
+fn a_map_row_past_the_last_is_out_of_range_however_far() {
+    let m = Match::new(Ruleset::builtin(), Map::parse(OPEN).unwrap(), 1);
+    let height = m.count(0, T_MAP_ROW) as u32;
+    let mut row = Vec::new();
+    assert_eq!(m.get(0, T_MAP_ROW, height - 1, &mut row), m.world.map.width);
+    // An index read as a negative i32 (a bot's `y - 1` at y = 0) included.
+    for index in [height, 1 << 31, u32::MAX] {
+        assert_eq!(m.get(0, T_MAP_ROW, index, &mut Vec::new()), -ERR_OUT_OF_RANGE, "row {index}");
+    }
+}
+
+#[test]
 fn summary_lists_plants_and_kills_and_its_digest_leaves_out_the_seed() {
     let summary = |m: &Match| -> serde_json::Value { serde_json::from_str(&m.summary_json()).unwrap() };
     let sum = |s: &serde_json::Value, key: &str| -> i64 {
@@ -176,4 +188,37 @@ fn summary_lists_plants_and_kills_and_its_digest_leaves_out_the_seed() {
     assert_ne!(s["final_hash"], t["final_hash"]);
     assert_eq!(s["digest"], t["digest"]);
     assert_ne!(s["digest"], p["digest"]);
+}
+
+#[test]
+fn each_team_keeps_its_own_debug_drawings() {
+    let mut m = Match::new(Ruleset::builtin(), Map::parse(OPEN).unwrap(), 1);
+    let (a, b) = (0, m.unit_count() - 1);
+    assert_eq!((m.unit_team(a), m.unit_team(b)), (0, 1));
+    // Team A draws far past its cap first; team B's few drawings are all kept, and every call succeeds.
+    for i in 0..10_000 {
+        assert_eq!(m.debug_draw(a, DEBUG_DOT, i, 0, 0, 0, 0xff0000), OK);
+    }
+    for i in 0..10 {
+        assert_eq!(m.debug_draw(b, DEBUG_LINE, i, 0, 1, 1, 0x00ff00), OK);
+    }
+    assert_eq!(
+        m.debug_draw(m.unit_count(), DEBUG_DOT, 0, 0, 0, 0, 0),
+        ERR_BAD_ARG
+    );
+    let kept = m.take_debug();
+    let (of_a, of_b): (Vec<&ibc_engine::DebugDraw>, Vec<_>) = kept.iter().partition(|d| d.0 == a);
+    assert_eq!((of_a.len(), of_b.len()), (2048, 10));
+    assert!(
+        of_a.iter().enumerate().all(|(i, d)| d.2 == i as i32),
+        "the first calls are kept, in order"
+    );
+    // A step discards what was not taken; the cap starts again every tick.
+    m.debug_draw(a, DEBUG_DOT, 0, 0, 0, 0, 0);
+    m.step();
+    assert!(m.take_debug().is_empty());
+    for _ in 0..3000 {
+        m.debug_draw(a, DEBUG_DOT, 0, 0, 0, 0, 0);
+    }
+    assert_eq!(m.take_debug().len(), 2048);
 }

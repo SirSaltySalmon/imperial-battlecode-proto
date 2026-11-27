@@ -10,6 +10,8 @@ use crate::error::{ApiError, ApiResult};
 use axum::extract::State;
 use axum::Json;
 use serde_json::Value;
+use std::fmt::Display;
+use std::io;
 use std::path::Path;
 
 pub async fn distribution(State(app): AppState) -> ApiResult<Json<Value>> {
@@ -25,14 +27,22 @@ pub async fn distribution(State(app): AppState) -> ApiResult<Json<Value>> {
     Ok(Json(doc))
 }
 
-/// Read and check the file: a `version` string and an `artifacts` list of `{target, url, sha256}`.
+/// Read and check the file: a `version` string and an `artifacts` list of `{target, url, sha256}`. A file
+/// that is not there yet is a 404, like no file configured; one that cannot be read or is malformed is a
+/// 500, for the operator to fix.
 pub fn load(path: &Path) -> ApiResult<Value> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| ApiError::internal(format!("IBC_DISTRIBUTION {}: {e}", path.display())))?;
-    let doc: Value = serde_json::from_str(&text)
-        .map_err(|e| ApiError::internal(format!("IBC_DISTRIBUTION {}: {e}", path.display())))?;
-    check(&doc)
-        .map_err(|e| ApiError::internal(format!("IBC_DISTRIBUTION {}: {e}", path.display())))?;
+    let broken =
+        |e: &dyn Display| ApiError::internal(format!("IBC_DISTRIBUTION {}: {e}", path.display()));
+    let text = std::fs::read_to_string(path).map_err(|e| match e.kind() {
+        io::ErrorKind::NotFound => ApiError::not_found(format!(
+            "this server publishes no distribution: IBC_DISTRIBUTION names {}, which does not exist; put \
+             the distribution.json written by `cargo xtask dist` there",
+            path.display()
+        )),
+        _ => broken(&e),
+    })?;
+    let doc: Value = serde_json::from_str(&text).map_err(|e| broken(&e))?;
+    check(&doc).map_err(|e| broken(&e))?;
     Ok(doc)
 }
 

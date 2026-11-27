@@ -1,7 +1,10 @@
 //! End to end: the real coordinator (in-process, real HTTP) and real `ibc-worker` processes running real
 //! matches with the real runner. One worker is killed mid-run; its leases expire and the other finishes.
 //!
-//! Needs `IBC_RUNNER=/path/to/ibc` (a built `ibc` binary), like `tests/worker.rs`; skipped without it.
+//! Needs `IBC_RUNNER=/path/to/ibc` (a built `ibc` binary), like `tests/worker.rs`; skipped without it,
+//! or failed when `CI` is set.
+
+mod common;
 
 use ibc_coordinator::config::Config;
 use ibc_coordinator::App;
@@ -25,7 +28,7 @@ impl Coordinator {
     fn start(tag: &str) -> Coordinator {
         let dir = std::env::temp_dir().join(format!("ibc-e2e-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let cfg = Config {
+        let mut cfg = Config {
             admin_token: ADMIN.into(),
             registration_token: REG.into(),
             trusted_registration_token: Some(TRUSTED_REG.into()),
@@ -38,6 +41,8 @@ impl Coordinator {
             ranked_interval_ms: 0,
             ..Config::default()
         };
+        // The test polls the public `/metrics` every 20 ms, far past the per-IP limit meant for browsers.
+        cfg.moderation.public_per_minute = u32::MAX;
         let app = App::open(cfg, &dir.join("data")).expect("coordinator data dir");
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -189,11 +194,7 @@ fn build_bot(runner: &Path, root: &Path, bot: &str) -> Vec<u8> {
 
 #[test]
 fn real_coordinator_and_workers_play_a_ranked_league_and_survive_a_killed_worker() {
-    let Some(runner) = std::env::var_os("IBC_RUNNER")
-        .map(PathBuf::from)
-        .filter(|p| p.is_file())
-    else {
-        eprintln!("SKIPPED: set IBC_RUNNER to a built `ibc` binary to run the end-to-end test");
+    let Some(runner) = common::runner("the end-to-end test") else {
         return;
     };
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -312,7 +313,9 @@ fn real_coordinator_and_workers_play_a_ranked_league_and_survive_a_killed_worker
                 ["a", "b", "draw"].contains(&m["outcome"].as_str().unwrap()),
                 "{m}"
             );
-            let (status, replay) = c.call("GET", m["replay_url"].as_str().unwrap(), None, None);
+            // The default view is redacted and names the teams; the organisers' full view is the stored blob.
+            let url = format!("{}?view=full", m["replay_url"].as_str().unwrap());
+            let (status, replay) = c.call("GET", &url, Some(ADMIN), None);
             assert_eq!(status, 200);
             assert_eq!(
                 &ibc_worker::sha256_hex(&replay),

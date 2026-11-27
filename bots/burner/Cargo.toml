@@ -1,0 +1,23 @@
+[package]
+name = "burner"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Reference bot: spends the whole fuel budget of every tick. A load generator for measuring what a game costs."
+
+# Standalone: build with `cargo build --release --target wasm32-wasip1`.
+# `ibc build bots/burner` builds `src/main.rs` (does nothing, burns everything). The variants in `examples/`
+# (a real strategy plus burning, other ways to spend fuel) are built with
+# `cargo build --release --target wasm32-wasip1 --examples` and run as .wasm files.
+[workspace]
+
+[dependencies]
+ibc = { path = "../../sdk/rust" }
+squad = { path = "../squad" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

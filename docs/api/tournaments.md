@@ -10,7 +10,7 @@ one automatically. Code: `crates/coordinator/src/{api,db}/tournaments.rs`, brack
 |---|---|---|
 | Draft | `POST /v1/admin/tournaments` | Stored with `status: "draft"`. Nothing else changes |
 | Lock | `POST /v1/admin/tournaments/{id}/lock` | Field resolved to teams, each entrant's live submission and ladder seed snapshotted, map hashes fixed, ranked matchmaking paused. `status: "locked"` |
-| Start | `POST /v1/admin/tournaments/{id}/start` | Bracket built, first pairings queued. `status: "running"`, then `"finished"` when the last pairing is decided |
+| Start | `POST /v1/admin/tournaments/{id}/start` | Bracket built, first pairings queued. `status: "running"`, then `"finished"` when the champion is decided |
 | Reveal | `POST /v1/admin/tournaments/{id}/reveal` | Maps become public on the tournament and join the ranked pool. Any status; once |
 | Resume ranked | `POST /v1/admin/tournaments/{id}/resume-ranked` | Lifts the ranked pause now (the pause is global) |
 
@@ -49,8 +49,13 @@ POST /v1/admin/tournaments
 
 - **Bracket**: padded to the next power of two, standard seeding (1 v N, 2 v N-1, ... placed so 1 and 2 meet
   only in the final), byes for the missing seeds. Double elimination adds a losers bracket of `2(k-1)` rounds
-  and a grand final, **without a bracket reset**: every pairing already plays every map, and a reset is a
-  conditional match a fixed bracket cannot express. With two entrants double elimination is one match.
+  and a grand final: the winners-bracket champion (seat `a`) against the losers-bracket champion (seat `b`).
+  With two entrants double elimination is one match.
+- **Bracket reset**: the winners-bracket champion has not lost yet. If it wins the grand final, it is champion
+  and the tournament ends. If the losers-bracket champion wins, both teams have lost once and the reset, a
+  second grand final between the same two teams in the same seats, is queued; its winner is champion and its
+  loser second. The reset is in `rounds` from the start (`"Grand final reset"`, stage `final`, round 2):
+  `waiting` until the grand final is decided, then `running` and `done`, or `empty` if it was not needed.
 - **A pairing** is one `tournament` series: one game per tournament map, in map order, with the locked
   submissions; engine slots alternate from a coin flip on the series id. Tournament series are never rated.
 - **Deciding a pairing** when its series closes: more maps won (a drawn map is half to each); if level, more
@@ -102,4 +107,6 @@ organisers inspect a pairing's games through `GET /v1/admin/jobs/{id}`.
 ```
 
 `a`/`b` are team ids (`null` for a seat not known yet or a bye); `seed_*` are 1-based. `rounds` is empty before
-start. A `bye` pairing has a `winner` and no series; an `empty` one is a losers-bracket slot nobody reached.
+start. A `bye` pairing has a `winner` and no series; an `empty` one is a slot nobody reached: a losers-bracket
+slot emptied by byes, or a bracket reset the winners-bracket champion made unnecessary by winning the grand
+final.

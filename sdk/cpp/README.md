@@ -119,7 +119,8 @@ and the bot is paused mid-turn and resumes next tick, one tick late on everythin
   about to overwrite. (`T v{}` of a large struct is a `memset`.)
 - **Memory is capped at `memory_bytes` (8 MiB) per unit**, the 1 MiB stack included. Past it `malloc` returns
   null and `new` aborts, which faults the unit.
-- **Host calls have a fixed price** (`FUEL_GET` 40, `FUEL_LOS` 60, `FUEL_RAYCAST` 80, ...). Fetch `me()` and
+- **Host calls have a price** (`FUEL_GET` 40, `FUEL_LOS` 60, `FUEL_RAYCAST` 80, `FUEL_DEBUG` 140, ...; `log`
+  is free, `fd_write` costs 5 per iovec). Fetch `me()` and
   `match_info()` once per tick; cache `core_rules()` and weapon rules, which never change during a match.
 - **No heap in the turn loop.** `malloc`, `std::vector` growth, `std::string` and `std::function` all cost
   instructions and usually a `memcpy`. The SDK allocates only once per buffer (the grid, six distance

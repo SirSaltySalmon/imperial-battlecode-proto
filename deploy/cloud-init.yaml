@@ -14,10 +14,10 @@ write_files:
   - path: /etc/ibc-worker/bootstrap.env
     permissions: "0600"
     content: |
-      IBC_COORDINATOR=https://coordinator.example.org
-      IBC_REGISTRATION_TOKEN=paste-a-short-lived-registration-token
-      RELEASE_URL=https://github.com/SirSaltySalmon/imperial-battlecode-proto/releases/download/v0.1.0/ibc-0.1.0-x86_64-unknown-linux-musl.tar.gz
-      RELEASE_SHA256=
+      IBC_COORDINATOR='https://coordinator.example.org'
+      IBC_REGISTRATION_TOKEN='paste-a-short-lived-registration-token'
+      RELEASE_URL='https://github.com/SirSaltySalmon/imperial-battlecode-proto/releases/download/v<version>/ibc-<version>-x86_64-unknown-linux-musl.tar.gz'
+      RELEASE_SHA256=''
 
   # Turns a cloud interruption notice into a drain: the worker stops leasing and finishes what it runs.
   # AWS spot gives 120 s of notice, GCP and Azure spot about 30 s; a match takes well under a second.
@@ -56,6 +56,10 @@ runcmd:
   - |
     set -eu
     . /etc/ibc-worker/bootstrap.env
+    case "$RELEASE_URL$IBC_COORDINATOR$IBC_REGISTRATION_TOKEN" in
+      *"<version>"*|*coordinator.example.org*|*paste-a-short-lived*)
+        echo "ibc-worker bootstrap: fill in the variables in /etc/ibc-worker/bootstrap.env" >&2; exit 1 ;;
+    esac
     tmp=$(mktemp -d)
     curl -fsSL --retry 5 -o "$tmp/release.tar.gz" "$RELEASE_URL"
     if [ -n "${RELEASE_SHA256:-}" ]; then
