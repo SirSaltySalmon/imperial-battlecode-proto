@@ -256,7 +256,11 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   was ever fetched.
 - [ ] **Workflow lint.** The YAML was parsed, not linted. Run `actionlint`.
 - [ ] **The three shell wrappers in `tools/`.** (`tools/devstack.sh` has run green.)
-- [ ] **CI did not run on PR 15.** Check why (path filters or a trigger) so job-system changes are covered.
+- [x] **CI on PR 15.** It did run, on both commits, and passed, but the PR was merged 26 s before the last
+  `check` job finished (`main` has no required checks; a private repository needs GitHub Pro for them), and
+  the worker's real-runner tests had skipped: CI never set `IBC_RUNNER`, so `tests/e2e.rs` "passed" in
+  0.00 s. CI now sets it, those tests fail instead of skipping when `CI` is set, and `determinism.yml` also
+  runs them, on all four platforms.
 - [x] **A full workspace test run.** 488 passed on the integration branch.
 
 ## 5. Tests and code health
