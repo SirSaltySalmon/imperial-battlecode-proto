@@ -25,12 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Is there a viewer?
         id: viewer
         run: |
           if [ -f viewer/package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "viewer/package.json not found: nothing to build"; fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.viewer.outputs.present == 'true'
         with:
           node-version: 22
