@@ -163,6 +163,10 @@ side from the same cause). Largest buy-phase turn 387,912 of 400,000 (`steppe`).
 Elo before and after, metered: `rusher` 77 [22, 129] and 88 [41, 131], `utility` -81 [-132, -33] and -75
 [-127, -19]; native: `rusher` 77 [22, 130] and 89 [43, 133]. Inside the noise.
 
+With the SDK's cheaper pathfinding as well (same day, ruleset `76bad4d5dc0354b6`, the 10-tile pistol): the same
+league, 3,024 games, had no out-of-fuel turn, no fault and no failed game for any of the nine bots. Largest
+single unit turn 164,154, so in a buy or draft tick (an action tick allows 100,000).
+
 Fuel, wasm runner (measured before the timing change): 40 matches (every pair of the five squad bots on `agora`, `longwatch`, `tunnels` and
 `warrens`, seed 11) had no out-of-fuel turn and no fault; the largest single turn was 297,188 of the
 400,000 a buy tick allows. Native and wasm gave the same final state hash for `sapper` against `retaker`
