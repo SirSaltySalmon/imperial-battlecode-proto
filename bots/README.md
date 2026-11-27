@@ -219,3 +219,15 @@ Fuel, wasm runner (measured before the timing change): 40 matches (every pair of
 `warrens`, seed 11) had no out-of-fuel turn and no fault; the largest single turn was 297,188 of the
 400,000 a buy tick allows. Native and wasm gave the same final state hash for `sapper` against `retaker`
 on `crossfire`, seed 1, and that replay was produced twice byte-identical and verified.
+
+### `holder` writes its site in the action phase (2026-11-27, ruleset `b884be2eabbb7c1e`)
+
+`holder` used to write the attack site to team memory while planning on the first buy tick, where team
+memory is read-only, so every attacker's write was refused every round. The first attacker to act on the
+first action tick now writes it, and the others read it there. Every attacker computes the same site
+from the seed and the round, so the games did not change. The native league (14 maps, 3 seeds, 3,024 games,
+672 per bot) is identical before and after: `holder` wins 28.7% [25.4, 32.3] of matches and 43.7% of its
+attacking rounds. On the wasm runner, where the extra memory calls cost fuel, `ibc replay dump` prints the
+same state on every tick (team memory aside) for `holder` against `rusher` on `tunnels`, seed 1, both ways
+round, and the goldens kept every score and length. Only the team memory part of the state hash moved. The
+`holder`-first replay now holds 6 accepted site writes where it held 18 refused ones.

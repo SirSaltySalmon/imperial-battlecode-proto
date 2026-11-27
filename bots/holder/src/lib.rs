@@ -31,7 +31,8 @@ const FIELD_STEPS: u8 = 3;
 // Team memory layout (little-endian i32s).
 /// [tick + 1, x, y] of the last enemy any teammate saw.
 const MEM_SIGHT: u32 = 0;
-/// [round + 1, site index] chosen by the attackers this round.
+/// [round + 1, site index] the attackers go for this round, written by the first of them to act in the action
+/// phase (see `agree_site`).
 const MEM_SITE: u32 = 12;
 
 pub struct Holder {
@@ -46,6 +47,8 @@ pub struct Holder {
     site: usize,
     /// This unit's place among the teammates at its site (picks which post it takes).
     rank: usize,
+    /// An attacker that has not yet checked its site against team memory this round.
+    agree_pending: bool,
     /// Where this unit stands, and the point it watches from there.
     post: (i32, i32),
     watch: (i32, i32),
@@ -79,6 +82,7 @@ impl Bot for Holder {
             plan_for: (-1, -1),
             site: 0,
             rank: 0,
+            agree_pending: false,
             post: (0, 0),
             watch: (0, 0),
             posts: Vec::new(),
@@ -105,7 +109,12 @@ impl Bot for Holder {
                 // Last in the turn: if it runs out of fuel, nothing after it is lost.
                 self.survey(&info);
             }
-            PHASE_ACTION | PHASE_PLANTED => self.fight(&me, &info),
+            PHASE_ACTION | PHASE_PLANTED => {
+                if self.agree_pending {
+                    self.agree_site(&info);
+                }
+                self.fight(&me, &info)
+            }
             _ => {}
         }
     }
@@ -128,22 +137,33 @@ impl Holder {
             self.posts = vec![None; n];
         }
         let slot = info.unit_slot.max(0) as usize;
-        self.rank = if info.my_side == SIDE_ATTACK {
-            // The first attacker to run this round picks the site; the rest read it.
-            let [stamp, chosen] = team_mem_get::<2>(MEM_SITE);
-            self.site = if stamp == info.round + 1 {
-                chosen.max(0) as usize % n
-            } else {
-                let pick = (info.seed_lo.unsigned_abs() as usize + info.round.max(0) as usize) % n;
-                let _ = team_mem_set(MEM_SITE, [info.round + 1, pick as i32]);
-                pick
-            };
+        self.agree_pending = info.my_side == SIDE_ATTACK;
+        self.rank = if self.agree_pending {
+            // Team memory is zeroed at round start and read-only until the action phase, so every attacker
+            // picks here, all of them the same way; `agree_site` shares the pick once memory is writable.
+            self.site = (info.seed_lo.unsigned_abs() as usize + info.round.max(0) as usize) % n;
             slot
         } else {
             self.site = slot % n;
             slot / n
         };
         self.stand();
+    }
+
+    /// On an attacker's first action tick, the first phase in which team memory is writable: the first
+    /// attacker to act this round writes its site, and the others go to the site written there.
+    fn agree_site(&mut self, info: &MatchInfo) {
+        self.agree_pending = false;
+        let [stamp, chosen] = team_mem_get::<2>(MEM_SITE);
+        if stamp != info.round + 1 {
+            let _ = team_mem_set(MEM_SITE, [info.round + 1, self.site as i32]);
+            return;
+        }
+        let site = chosen.max(0) as usize % self.sites.len();
+        if site != self.site {
+            self.site = site;
+            self.stand();
+        }
     }
 
     /// Take the post worked out for the current site. Until it is known, stand on the site.
