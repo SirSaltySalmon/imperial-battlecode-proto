@@ -42,7 +42,8 @@ impl Bot for Idle {
 /// `bots/forcer`: the strongest bot of the reference pool, so a real strategy to burn beside.
 pub struct Forcer(Squad);
 
-const FORCER: Style = Style { attack: Attack::Execute, defence: Defence::Push, buy: Buy::Force, mixed_arms: false };
+const FORCER: Style =
+    Style { attack: Attack::Execute, defence: Defence::Push, buy: Buy::Force, mixed_arms: false, loadout: None };
 
 impl Bot for Forcer {
     fn new() -> Self {
