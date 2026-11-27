@@ -82,8 +82,13 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   runner process per slot. Find the contention in `crates/cli/src/batch.rs` / `crates/runner` (likely the
   shared module cache lock or allocator) before sizing a fleet.
 - [ ] **The `unsafe` in the fuel logic.** `crates/runner/src/vm.rs` reaches the store through a raw pointer to
-  re-arm a suspended bot's fuel each turn. It is tested, but it relies on Wasmtime 51 internals. Re-check on
-  every Wasmtime bump, and ask upstream whether a safe API exists.
+  re-arm a suspended bot's fuel each turn. Checked against the Wasmtime 51 source on 2026-11-27: no safe API
+  can do it. When a fuel slice runs out, Wasmtime refuels and yields without calling the embedder, and runs
+  nothing on resume, so neither host calls, call hooks nor epoch callbacks can read or re-arm fuel there. The
+  SAFETY argument on `UnitVm::store_mut` now names the three Wasmtime behaviours relied on,
+  `crates/runner/src/vm/tests.rs` pins them turn by turn, and the pin in `crates/runner/Cargo.toml` says to
+  re-check both on a bump. Left over: ask upstream for an out-of-fuel callback with store access (like
+  `epoch_deadline_callback`), then drop the `unsafe`.
 - [x] **Bot debug drawings never reach the viewer.** Done in replay format 2 (docs/REPLAY.md). `frame.debug` is empty on re-simulation: `debug_draw`
   calls are not recorded as replay inputs and `World::step` clears them. Record them in the replay as
   non-simulation events (they must not affect the state hash).

@@ -328,7 +328,8 @@ type StartCall = Pin<Box<dyn Future<Output = wasmtime::Result<()>>>>;
 
 /// A unit's instance with its `_start` call in flight.
 pub(crate) struct UnitVm {
-    /// Heap-allocated store, owned by this struct (freed in `Drop`).
+    /// Heap-allocated store, owned by this struct (freed in `Drop`). A raw pointer because `call` holds a
+    /// `&mut` to it for as long as the bot runs.
     store: NonNull<Store<UnitData>>,
     /// The suspended `_start` call. It holds a `&mut Store` derived from `store`; see `store_mut`.
     call: Option<StartCall>,
@@ -386,7 +387,8 @@ impl UnitVm {
 
         let store = NonNull::from(Box::leak(store));
         let call: StartCall = Box::pin(async move {
-            // SAFETY: see `store_mut`. This reference is only used while the future is being polled.
+            // SAFETY: the store outlives this future (`Drop` drops the future first). This `&mut` stays live
+            // while the call is suspended and `store_mut` aliases it between polls; see there.
             let store = unsafe { &mut *store.as_ptr() };
             start.call_async(store, ()).await
         });
@@ -395,14 +397,31 @@ impl UnitVm {
 
     /// The store, for use between polls of `call`.
     ///
-    /// SAFETY argument: the store is heap allocated and outlives `call` (`Drop` drops the call first). The
-    /// call future also holds a `&mut Store`, but it only touches it while it is being polled, and it is only
-    /// polled inside `run_turn`, which does not use the reference returned here across the poll. Access is
-    /// therefore strictly alternating on one thread. While suspended, Wasmtime has parked the fiber in a
-    /// host call or in its out-of-fuel hook; generated code spills its fuel counter to the store before
-    /// either and reloads it afterwards, which is what makes reading and re-arming fuel from here exact
-    /// (covered by the tests in `tests/fuel.rs`).
+    /// SAFETY argument. A suspended call keeps the `&mut Store` made in `new` alive, and so does Wasmtime
+    /// (the `StoreContextMut` of `call_async`, the `&mut StoreOpaque` of its fiber future). The `&mut` made
+    /// here aliases them. Rust's aliasing rules do not allow that, and Wasmtime 51 has no safe way to reach
+    /// the store of a suspended async call (docs/TODO.md). It works because:
+    ///
+    /// * Access is on one thread and strictly alternates. The store is boxed and outlives `call`, and
+    ///   `UnitVm` is neither `Send` nor `Sync`. `call` is polled only in `run_turn`, and a reference from
+    ///   here cannot be held across that poll because both borrow `self` mutably. Between polls the call's
+    ///   fiber is parked (`StoreFiberYield::KeepStore`) in one of our host calls or in Wasmtime's
+    ///   `out_of_gas` libcall, and nothing runs on it.
+    /// * Nothing parked on that fiber holds fuel or `UnitData` across the suspension. Our host calls read
+    ///   both again through `Caller` when they resume. For the rest this relies on three things Wasmtime 51
+    ///   does (re-check them on every bump; `vm::tests` fails if a change to one miscounts fuel):
+    ///   1. Generated code keeps fuel in a local, stores it to `VMStoreContext::fuel_consumed` before every
+    ///      call and libcall and reloads it after (`fuel_before_op`, `fuel_after_op`, `fuel_check` in
+    ///      wasmtime-internal-cranelift's `func_environ.rs`). So `get_fuel` here counts all the wasm that
+    ///      ran, and resumed code runs on the fuel set here.
+    ///   2. `out_of_gas` (`runtime/vm/libcalls.rs`) refuels the slice from the reserve before `yield_now`
+    ///      and returns straight to wasm after it. Resuming a fiber (`FiberResumeState`, `runtime/fiber.rs`)
+    ///      restores TLS, MPK mask, stack limit, guard range and executor, not fuel.
+    ///   3. `fuel_async_yield_interval` splits the fuel at once into an active slice of at most the interval
+    ///      and a reserve (`set_fuel(get_fuel())` in `runtime/store.rs`), so the next poll suspends at the
+    ///      first fuel check at or past the new floor.
     fn store_mut(&mut self) -> &mut Store<UnitData> {
+        // SAFETY: see above.
         unsafe { &mut *self.store.as_ptr() }
     }
 
@@ -486,3 +505,6 @@ impl Drop for UnitVm {
 fn root(e: &wasmtime::Error) -> String {
     e.root_cause().to_string()
 }
+
+#[cfg(test)]
+mod tests;
