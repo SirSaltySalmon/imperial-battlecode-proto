@@ -88,7 +88,9 @@ cargo run --release -p ibc-sim -- league --maps maps --seeds 3
 ```
 
 `ibc_sim::run_custom` takes a closure that builds any `ibc::Bot`, so you can test your bot against the
-reference bots with a normal debugger. Fuel is not modelled natively (`fuel_remaining()` is `i64::MAX`).
+reference bots with a normal debugger. Fuel is not modelled natively (`fuel_remaining()` is `i64::MAX`): a
+native run is unmetered, so a bot that overruns its budget plays better here than in a match. Judge your
+bot by its wasm build (`ibc run`), which is metered exactly as in a match.
 
 ## Fuel tips
 

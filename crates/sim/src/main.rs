@@ -1,5 +1,8 @@
 //! `ibc-sim run --a rusher --b holder --map maps/x.ibcmap --seed 1 [--frames out.jsonl]`
 //! `ibc-sim league --maps maps --seeds 3 [--bots idle,rusher,holder]`
+//!
+//! The native, unmetered harness: bots have unlimited fuel. For iteration and debugging; results that
+//! get reported come from `ibc-bench` on the wasm backend.
 
 use ibc_sim::{attacker_rounds, run, run_with, SimResult, BOTS, DEFAULT_MAX_TICKS};
 use std::collections::HashMap;
@@ -9,7 +12,13 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   ibc-sim run --a <bot> --b <bot> --map <file.ibcmap> [--seed N] [--frames out.jsonl] [--max-ticks N]
   ibc-sim league --maps <dir> [--seeds N] [--bots a,b,c] [--max-ticks N]
-bots: idle, rusher, holder, utility, sapper, retaker, lurker, saver, forcer";
+bots: idle, rusher, holder, utility, sapper, retaker, lurker, saver, forcer
+Bots run natively and UNMETERED (unlimited fuel): for fast iteration and debugging. Results that get
+reported come from ibc-bench, which plays the wasm builds under the fuel budget (docs/hillclimb.md).";
+
+/// Printed by every command, so a number copied from this output carries its caveat.
+const UNMETERED: &str =
+    "note: native and UNMETERED (unlimited fuel); report results from ibc-bench (wasm, fuel metered)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -79,6 +88,7 @@ fn cmd_run(flags: &HashMap<String, String>) -> Result<(), String> {
         "winner={winner} score={}-{} ticks={} hash={:016x} act_errors: A {}/{} B {}/{}",
         r.score[0], r.score[1], r.ticks, r.final_hash, r.acts[0].errors, r.acts[0].calls, r.acts[1].errors, r.acts[1].calls
     );
+    println!("{UNMETERED}");
     if r.finished {
         Ok(())
     } else {
@@ -170,6 +180,7 @@ fn cmd_league(flags: &HashMap<String, String>) -> Result<(), String> {
     }
 
     let pct = |n: u64, d: u64| if d == 0 { "   n/a".to_string() } else { format!("{:5.1}%", n as f64 * 100.0 / d as f64) };
+    println!("{UNMETERED}");
     println!("maps: {}  seeds: {seeds}", maps.iter().map(|m| m.0.as_str()).collect::<Vec<_>>().join(", "));
     println!("{:<10} {:>5} {:>5} {:>7} {:>12} {:>10} {:>11}", "bot", "games", "wins", "win%", "atk-rounds%", "mean-ticks", "act-errors");
     for (name, row) in bots.iter().zip(&rows) {
