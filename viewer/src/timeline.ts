@@ -2,7 +2,7 @@
 // and the public events (kills, plant, defuse, detonation). Everything else is read from frames on demand.
 
 import type { FrameStore } from "./engine";
-import { EVENT_DAMAGE, EVENT_PLANT, EVENT_ROUND_END, type EventFrame } from "./types";
+import { EVENT_DAMAGE, EVENT_EFFECT, EVENT_PLANT, EVENT_ROUND_END, type EventFrame } from "./types";
 
 export interface RoundSpan {
   round: number;
@@ -27,7 +27,7 @@ export interface TimedEvent extends EventFrame {
 export interface Timeline {
   frames: number;
   rounds: RoundSpan[];
-  /** All events except damage, in frame order. */
+  /** All events except hits (damage, effects acting on units), in frame order. */
   events: TimedEvent[];
 }
 
@@ -43,7 +43,7 @@ export function buildTimeline(store: FrameStore): Timeline {
     }
     span.end = i;
     for (const e of f.events) {
-      if (e.kind === EVENT_DAMAGE) continue;
+      if (e.kind === EVENT_DAMAGE || e.kind === EVENT_EFFECT) continue;
       events.push({ ...e, frame: i, round: f.round });
       if (e.kind === EVENT_PLANT && span.plant < 0) span.plant = i;
       if (e.kind === EVENT_ROUND_END) {
