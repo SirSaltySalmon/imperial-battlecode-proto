@@ -13,8 +13,9 @@ anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # Pinned exactly: the wasmtime version is part of the patch identity (fuel accounting is version specific).
-# Keep WASMTIME_VERSION in src/lib.rs in sync.
-wasmtime = { version = "=51.0.0", default-features = false, features = ["cranelift", "runtime", "async", "std"] }
+# Keep WASMTIME_VERSION in src/lib.rs in sync. `gc` and `gc-null` are for exception handling only: Wasmtime
+# keeps exception objects in a GC heap (see `host()` in src/lib.rs).
+wasmtime = { version = "=51.0.0", default-features = false, features = ["cranelift", "runtime", "async", "std", "gc", "gc-null"] }
 
 [dev-dependencies]
 wat = "1"

@@ -16,7 +16,7 @@ use ibc_replay::{
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use vm::{lock, TurnEnd, UnitData, UnitVm};
-use wasmtime::{Config, Engine, ExternType, Linker, Module};
+use wasmtime::{Collector, Config, Engine, ExternType, Linker, Module};
 
 pub use vm::IBC_IMPORTS;
 pub use wasi::SUPPORTED as WASI_IMPORTS;
@@ -97,6 +97,18 @@ fn host() -> Result<&'static HostEnv> {
             c.cranelift_nan_canonicalization(true);
             c.relaxed_simd_deterministic(true);
             // (wasmtime is built without its `threads` feature, so the threads proposal cannot be enabled.)
+            // Exception handling, for C++ bots built with exceptions: the standard (exnref) encoding only,
+            // Wasmtime cannot compile the legacy one. The coordinator's upload check accepts the same
+            // (`ibc_coordinator::wasmcheck::FEATURES`). `throw` and `try_table` cost 1 fuel like any
+            // instruction; unwinding and the catch are free. Exception objects live in a per-store GC heap
+            // with the null collector: a throw is a bump allocation, nothing is ever collected, so no
+            // collection can suspend the bot mid-turn (the driver would take that for running out of fuel).
+            // The heap grows within the store's memory limit (`MEMORY_LIMIT_BYTES`, like linear memory): at
+            // 24 bytes per throw that is about 2.8M throws per unit per match, then a throw traps
+            // ("allocation size too large"). The GC proposal itself (structs, arrays) stays off.
+            c.wasm_exceptions(true);
+            c.wasm_gc(false);
+            c.collector(Collector::Null);
             let engine = Engine::new(&c)?;
             let mut linker = Linker::new(&engine);
             vm::add_to_linker(&mut linker)?;
