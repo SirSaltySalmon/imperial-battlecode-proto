@@ -35,6 +35,7 @@ unsteady_max = 4
 startup_per_point = 25
 
 # All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
+# Fires at the pistol's rate, slower than the smg and a braced lmg.
 [[weapon]]
 name = "rifle"
 slot = 0
@@ -60,19 +61,20 @@ unsteady_decay = 2
 unsteady_max = 12
 startup_per_point = 25
 
-# Run-and-gun: running barely unsteadies it and it carries at full speed, but short reach and steep falloff.
+# Run-and-gun: the fastest fire rate (a pull every tick) with small hits that armour soaks. Running barely
+# unsteadies it and it carries at full speed, but short reach and steep falloff.
 [[weapon]]
 name = "smg"
 slot = 0
 price = 1500
-damage = 17
+damage = 12
 pellets = 2
 spread = 200
 recoil_spread = 100
 recoil_per_shot = 2
 recoil_recovery = 1
 windup = 1
-cooldown = 1
+cooldown = 0
 magazine = 15
 reload_ticks = 3
 bullet_speed = 9216
@@ -141,20 +143,20 @@ unsteady_decay = 2
 unsteady_max = 16
 startup_per_point = 25
 
-# Heavy and slow: a five-bullet wall every pull, a deep magazine and almost no recoil, for holding a lane.
+# Fast once braced: a five-bullet wall every tick from a deep magazine, for holding a lane against a group.
 # Slow to carry, very slow to start firing after moving and very slow to reload.
 [[weapon]]
 name = "lmg"
 slot = 0
 price = 2300
-damage = 16
+damage = 13
 pellets = 5
 spread = 300
 recoil_spread = 60
 recoil_per_shot = 2
 recoil_recovery = 1
 windup = 2
-cooldown = 2
+cooldown = 0
 magazine = 20
 reload_ticks = 7
 bullet_speed = 12288

@@ -186,7 +186,7 @@ Values, straight from `rules/weapons.toml`:
 | `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |
 | `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |
 | `windup` | 1 | 1 | 1 | 1 | 2 | 2 |
-| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 |
+| `cooldown` | 1 | 1 | 0 | 3 | 4 | 0 |
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
@@ -210,7 +210,7 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 10.0 | 8.0 | 24 + 3 |
 | rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
-| smg | 1 / 1 / 1 | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
+| smg | 1 / 1 / 1 | 1 | 24 / 8 | 200 | 700 | 16.0 | 9.0 | 16 + 3 |
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
 | marksman | 2 / 6 / 6 | 5 | 74 / 63 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
 | lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
@@ -221,18 +221,21 @@ Roles:
 - **pistol**: the free sidearm. Exact single shots and a short startup even after running, but short reach:
   it is spent at 10 tiles and loses damage from 4. Four hits kill out to about 5 tiles, eight at the edge of
   its reach, so a team on pistols has to close the distance.
-- **smg**: cheap run-and-gun. Running barely unsteadies it, so it starts as fast off a run as standing, and
-  it carries at full speed; short reach, and its two-pellet fan opens fast under sustained fire.
+- **smg**: cheap run-and-gun with the fastest fire rate, a pull every tick, and small hits. Running barely
+  unsteadies it, so it starts as fast off a run as standing, and it carries at full speed; short reach, its
+  two-pellet fan opens fast under sustained fire, and armour soaks many of its small hits.
 - **shotgun**: seven pellets in a wide fan. One pull kills an unarmoured unit inside about three tiles and
   the fan is hard to sidestep; nearly harmless past six tiles. Slow pump, small magazine.
 - **rifle**: the all-rounder. A tight three-bullet burst that kills in two pulls while all three land and
-  still reaches across the map, if you stand still and pace your fire.
+  still reaches across the map, if you stand still and pace your fire. It fires at the pistol's rate, slower
+  than the smg and a braced lmg; its damage per pull is what sets it apart.
 - **marksman**: one fast bullet out to 30 tiles, six past its own sight, so its longest shots need a teammate's
   spot. Two hits kill a bare or light-armoured unit and three a heavy-armoured one, anywhere in its reach: its
   shallow falloff never crosses a breakpoint. Slow to cycle, and a two-tick startup that the target can see,
   which grows the most of any weapon after moving.
-- **lmg**: heavy and slow. Five bullets a pull, a magazine that lasts sixty ticks and no recoil build-up, for
-  holding a lane; slow to carry, very slow to start after moving, and above all slow to reload.
+- **lmg**: fast once braced. Five bullets a pull and, once it is firing, a pull every tick from a twenty-pull
+  magazine, for holding a lane against a group; the fan opens as it keeps firing. Slow to carry, very slow to
+  start after moving, and above all slow to reload.
 
 ## Time to kill
 
