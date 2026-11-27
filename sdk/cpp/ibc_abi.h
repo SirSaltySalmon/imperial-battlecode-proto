@@ -71,7 +71,8 @@ inline constexpr uint32_t T_DROPS = 15;
 inline constexpr uint32_t T_KIT = 16;
 /// `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight;
 /// kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the
-/// team does not know the position. See docs/ABI.md for each kind.
+/// team does not know the position. Teammates read the same rows, except that only the unit an event happened
+/// to reads where it came from (`dir`, `src_x`, `src_y`). See docs/ABI.md for each kind.
 inline constexpr uint32_t T_EVENTS = 17;
 /// `RosterInfo` per unit of both teams, in unit id order. Readable in every phase.
 inline constexpr uint32_t T_ROSTER = 18;
@@ -177,11 +178,19 @@ inline constexpr int32_t EVENT_PLANT = 2;
 inline constexpr int32_t EVENT_DEFUSE = 3;
 inline constexpr int32_t EVENT_DETONATE = 4;
 inline constexpr int32_t EVENT_ROUND_END = 5;
+/// actor = attacker, or -1 (none, or not on the reader's team); target = victim; value = amount. The victim
+/// alone also reads where it came from (`EventInfo.dir`).
 inline constexpr int32_t EVENT_DAMAGE = 6;
+/// An effect gave a unit a status (blinded, slowed, revealed). actor = the effect's owner, or -1 when not on
+/// the reader's team; target = the unit; value = `EFFECT_*` kind. The unit alone also reads the effect's centre
+/// (`EventInfo.dir`, `src_x`, `src_y`). Delivered like `EVENT_DAMAGE`.
+inline constexpr int32_t EVENT_EFFECT = 7;
 
 /// `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real
-/// position: check for it before using the coordinates.
+/// position: check for it before using the coordinates. Also `src_x` and `src_y` when the reader is not told.
 inline constexpr int32_t POS_HIDDEN = -2147483648;
+/// `EventInfo.dir` when the reader is not told where the event came from. Never a real angle (0..65535).
+inline constexpr int32_t DIR_HIDDEN = -1;
 
 inline constexpr int32_t ROUND_WIN_ELIMINATION = 1;
 inline constexpr int32_t ROUND_WIN_DETONATION = 2;
@@ -354,7 +363,8 @@ static_assert(sizeof(DropInfo) == 16);
 
 struct EventInfo {
     int32_t kind;
-    /// Acting unit id or -1.
+    /// Acting unit id or -1. For `EVENT_DAMAGE` and `EVENT_EFFECT`, -1 unless the actor is on the reader's
+    /// team: a unit never learns which enemy hit it.
     int32_t actor;
     /// Target unit id or -1.
     int32_t target;
@@ -362,8 +372,16 @@ struct EventInfo {
     int32_t x;
     int32_t y;
     int32_t value;
+    /// Only for the unit the event happened to (`target`, reading its own `EVENT_DAMAGE` or `EVENT_EFFECT`):
+    /// the angle from it towards where the hit came from. A bullet: back along the bullet's flight. An
+    /// effect (fire, flash, ...): towards the effect's centre. `DIR_HIDDEN` for every other reader and kind.
+    int32_t dir;
+    /// Only for the target, like `dir`: the centre of the effect that hit it. `POS_HIDDEN` in both for a
+    /// bullet (the shooter's position is never told), for every other reader and every other kind.
+    int32_t src_x;
+    int32_t src_y;
 };
-static_assert(sizeof(EventInfo) == 24);
+static_assert(sizeof(EventInfo) == 36);
 
 struct CoreRules {
     int32_t team_size;

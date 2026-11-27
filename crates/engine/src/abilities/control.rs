@@ -1,7 +1,8 @@
 //! Area denial and information: the trap, the sonar pulse and the concussion. Called from `effects::step` for
 //! active effects only. Like every ability these do not pick sides: they act on teammates and on the user too.
+//! Every unit one of them acts on learns where it was (`affected`).
 
-use super::{geom, open_between};
+use super::{affected, geom, open_between};
 use crate::combat;
 use crate::fixed;
 use crate::world::{Effect, World};
@@ -16,9 +17,9 @@ fn status_turns(r: &AbilityRules) -> i32 {
 /// path from where the unit was at the end of the last tick to where it is now (so a runner or a dash cannot
 /// step over it). Each one is slowed and revealed for `power` turns, and the trap is spent.
 pub(super) fn spring(w: &mut World, i: usize, r: &AbilityRules) {
-    let e = w.effects[i].info;
-    let at = (e.x, e.y);
-    let r2 = e.radius as i64 * e.radius as i64;
+    let trap = w.effects[i];
+    let at = (trap.info.x, trap.info.y);
+    let r2 = trap.info.radius as i64 * trap.info.radius as i64;
     let caught: Vec<usize> = (0..w.units.len())
         .filter(|&j| {
             let u = &w.units[j];
@@ -33,6 +34,7 @@ pub(super) fn spring(w: &mut World, i: usize, r: &AbilityRules) {
         let u = &mut w.units[j];
         u.slowed = u.slowed.max(turns);
         u.revealed = u.revealed.max(turns);
+        affected(w, &trap, j);
     }
     w.effects[i].info.ticks_left = 0;
 }
@@ -44,8 +46,12 @@ pub(super) fn sonar(w: &mut World, e: &Effect, r: &AbilityRules) {
     let at = (e.info.x, e.info.y);
     let r2 = e.info.radius as i64 * e.info.radius as i64;
     let turns = status_turns(r);
-    for u in w.units.iter_mut().filter(|u| u.alive && fixed::dist2(u.pos, at) <= r2) {
-        u.revealed = u.revealed.max(turns);
+    for j in 0..w.units.len() {
+        let u = &mut w.units[j];
+        if u.alive && fixed::dist2(u.pos, at) <= r2 {
+            u.revealed = u.revealed.max(turns);
+            affected(w, e, j);
+        }
     }
 }
 
@@ -68,5 +74,6 @@ pub(super) fn concuss(w: &mut World, e: &Effect, r: &AbilityRules) {
         super::cast::cancel(w, j);
         let u = &mut w.units[j];
         u.slowed = u.slowed.max(turns);
+        affected(w, e, j);
     }
 }

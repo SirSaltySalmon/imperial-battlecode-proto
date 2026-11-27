@@ -228,7 +228,7 @@ impl Host for Match {
             T_ITEM => row!(w.rules.items),
             T_KIT => row!(w.rules.kits),
             T_SITES => row!(w.map.sites),
-            T_EVENTS => row!(w.views[w.units[me].team as usize].events),
+            T_EVENTS => push_row(out, w.event_row(me, ix)),
             T_ROSTER => push_row(out, teamplay::roster_row(w, ix)),
             T_ROUNDS => push_row(out, teamplay::round_row(w, ix)),
             _ => -ERR_UNSUPPORTED,
@@ -414,7 +414,8 @@ pub fn frame_json(w: &World) -> String {
             "ticks_left": e.info.ticks_left, "x2": e.info.x2, "y2": e.info.y2 })).collect::<Vec<_>>(),
         "drops": w.drops.iter().map(|d| json!({ "kind": d.kind, "x": d.x, "y": d.y, "item": d.item })).collect::<Vec<_>>(),
         "events": w.events.iter().map(|e| json!({
-            "kind": e.kind, "actor": e.actor, "target": e.target, "x": e.x, "y": e.y, "value": e.value })).collect::<Vec<_>>(),
+            "kind": e.kind, "actor": e.actor, "target": e.target, "x": e.x, "y": e.y, "value": e.value,
+            "dir": e.dir, "src_x": e.src_x, "src_y": e.src_y })).collect::<Vec<_>>(),
         "debug": w.debug.iter().map(|d| json!([d.0, d.1, d.2, d.3, d.4, d.5, d.6])).collect::<Vec<_>>(),
         "winner": w.winner,
     })

@@ -4,6 +4,7 @@
 
 use crate::fixed;
 use crate::fixed::V2;
+use crate::vision::HitFrom;
 use crate::world::{Projectile, World};
 use crate::{abilities, combat};
 
@@ -73,10 +74,11 @@ impl World {
             }
         }
         self.projectiles = keep;
-        // Apply all hits of this substep together so simultaneous shots trade.
+        // Apply all hits of this substep together so simultaneous shots trade. The victim learns the bullet's
+        // heading, not where its shooter stands.
         for (j, p) in hits {
             let dmg = combat::bullet_damage(self, &p);
-            self.damage(j, dmg, Some(p.owner as usize), p.weapon);
+            self.damage_from(j, dmg, Some(p.owner as usize), p.weapon, HitFrom::Bullet(p.vel));
         }
         // Abilities unit: tell the effect what it stopped (barriers have hit points).
         if !blocked.is_empty() {

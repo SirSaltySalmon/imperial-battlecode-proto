@@ -201,7 +201,8 @@ pub fn drops() -> Rows<DropInfo> {
     rows(T_DROPS)
 }
 /// Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN`
-/// when the team did not see it. Damage arrives only when seen.
+/// when the team did not see it. Damage and effects (`EVENT_EFFECT`) arrive only when seen or when they hit
+/// the team, without the enemy who did it. Only the unit hit reads where it came from (`dir`, `src_x`, `src_y`).
 pub fn events() -> Rows<EventInfo> {
     rows(T_EVENTS)
 }

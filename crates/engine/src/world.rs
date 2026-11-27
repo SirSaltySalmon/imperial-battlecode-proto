@@ -11,7 +11,7 @@
 //! All units' intents come from the same start-of-tick snapshot, so nobody acts "first".
 
 use crate::fixed::{self, V2};
-use crate::vision::TeamView;
+use crate::vision::{HitFrom, TeamView};
 use crate::{abilities, combat, economy, Map, Ruleset};
 use ibc_abi::*;
 
@@ -261,8 +261,11 @@ impl World {
         self.units.iter().filter(|u| u.team == team && u.alive).count() as i32
     }
 
+    /// Record an event that comes from nowhere in particular (`dir` and `src` hidden). A hit is `emit_hit`.
     pub fn emit_event(&mut self, kind: i32, actor: i32, target: i32, pos: V2, value: i32) {
-        self.events.push(EventInfo { kind, actor, target, x: pos.0, y: pos.1, value });
+        let (x, y) = pos;
+        let (dir, src_x, src_y) = (DIR_HIDDEN, POS_HIDDEN, POS_HIDDEN);
+        self.events.push(EventInfo { kind, actor, target, x, y, value, dir, src_x, src_y });
     }
 
     /// Static line of sight plus dynamic blockers (smoke, barriers).
@@ -580,8 +583,14 @@ impl World {
         self.map.circle_blocked(p, r) || abilities::blocks_move(self, p, r)
     }
 
-    /// Apply damage to a unit. `attacker` is the unit index credited, if any.
+    /// Apply damage to a unit from nowhere in particular (tools and tests). See `damage_from`.
     pub fn damage(&mut self, target: usize, amount: i32, attacker: Option<usize>, weapon: i32) {
+        self.damage_from(target, amount, attacker, weapon, HitFrom::Unknown);
+    }
+
+    /// Apply damage to a unit. `attacker` is the unit index credited, if any; `from` is what the target learns
+    /// of where the hit came from (`EVENT_DAMAGE`, `vision.rs`).
+    pub fn damage_from(&mut self, target: usize, amount: i32, attacker: Option<usize>, weapon: i32, from: HitFrom) {
         if amount <= 0 || !self.units[target].alive {
             return;
         }
@@ -591,11 +600,10 @@ impl World {
         t.armor -= absorbed;
         let was_alive = t.alive;
         t.hp -= amount - absorbed;
-        let pos = t.pos;
         if let Some(a) = attacker {
             self.units[a].stats.damage += amount;
         }
-        self.emit_event(EVENT_DAMAGE, attacker.map_or(-1, |a| a as i32), target as i32, pos, amount);
+        self.emit_hit(EVENT_DAMAGE, attacker, target, amount, from);
         if was_alive && self.units[target].hp <= 0 {
             self.kill(target, attacker, weapon);
         }

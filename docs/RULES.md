@@ -61,9 +61,16 @@ the earlier one.
 - Running (speed above `walk_speed`) makes footsteps that enemies within `step_sound_radius` hear. Shots are heard
   within `shot_sound_radius`. Plant and defuse starts are audible. Heard positions are snapped to the tile centre.
   **Hearing is shared too:** a sound reaches the whole team when any living unit of it is in range.
-- **Events follow the fog.** Damage is reported only where the team sees it (or to the unit's own team). Kills
-  are always reported, with the position hidden when the team did not see it. Plant, defuse, detonation and
-  round end are always reported. Fog is applied to what bots read; replays record everything.
+- **Events follow the fog.** Damage, and an effect giving a unit a status (blinded, slowed, revealed), are
+  reported only where the team sees it (or to the unit's own team). Kills are always reported, with the position
+  hidden when the team did not see it. Plant, defuse, detonation and round end are always reported. Fog is
+  applied to what bots read; replays record everything.
+- **A hit does not name who did it.** Damage and effect reports name the unit responsible only to that unit's
+  own team; a kill names its killer to both teams.
+- **The unit hit learns where it came from, and only that unit** (not its teammates, not the enemy who sees the
+  hit). A bullet tells the direction back along its flight, never where the shooter stands. Fire, a flash, a
+  concussion, a trap, a sonar pulse or a recon beacon tells the direction to its centre and the centre itself,
+  never the thrower. This is the one thing teammates do not share.
 
 ## What a team knows
 
