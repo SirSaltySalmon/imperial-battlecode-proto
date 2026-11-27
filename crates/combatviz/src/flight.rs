@@ -34,9 +34,10 @@ pub fn add(cat: &mut Catalog) {
     walls(cat, rifle);
     for name in ["pistol", "marksman"] {
         let id = weapon_id(name);
-        dodge(cat, id, name, 15, "stand");
-        dodge(cat, id, name, 15, "strafe");
-        dodge(cat, id, name, 15, "lead");
+        let tiles = dodge_tiles(name);
+        dodge(cat, id, name, tiles, "stand");
+        dodge(cat, id, name, tiles, "strafe");
+        dodge(cat, id, name, tiles, "lead");
     }
     trade(cat, pistol);
 }
@@ -188,6 +189,13 @@ fn aimed(cat: &mut Catalog, id: i32, lane: Lane) {
             &format!("dealt {dealt}"),
         ),
     );
+}
+
+/// Distance of the dodge scenes: three quarters of the weapon's reach, which the 34-tile arena caps at 20 tiles
+/// (one of the distances `combat_ballistics` checks).
+pub fn dodge_tiles(name: &str) -> i32 {
+    let range = ibc_engine::Ruleset::builtin().weapons[weapon_id(name) as usize].range;
+    (range / TILE).min(20) * 3 / 4
 }
 
 fn dodge(cat: &mut Catalog, id: i32, name: &str, tiles: i32, kind: &str) {
