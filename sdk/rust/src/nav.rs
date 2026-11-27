@@ -1,6 +1,49 @@
 //! Wall grid, cached distance-field pathfinder and a stuck-proof `Navigator`.
+//!
+//! **This is expensive, and it is meant as a starting point.** These helpers answer the general question
+//! (exact 8-connected shortest paths, tile by tile, over the whole map) and a path search is the largest
+//! fuel cost most bots have. If you want the fuel for something else, copy this module and cut it down, or
+//! write your own: a coarser grid, a graph of a few waypoints between the spawns and the sites, or routes
+//! worked out once and kept for the match.
+//!
+//! Fuel measured with the wasm runner on the map pool (the probe is `sdk/rust/examples/nav_fuel.rs` in the
+//! platform repository). With the current rules a unit gets 100,000 per tick (`fuel_per_tick`), four times
+//! that on a buy tick and ten times on its first tick (the draft, where `Bot::new` runs):
+//!
+//! | Call | Fuel |
+//! |---|---|
+//! | `Navigator::new`, `Grid::load` | about 70 per map tile |
+//! | A whole field: `complete`, or `path_len` to a new goal from afar | about 200 per floor tile |
+//! | `next_waypoint`, `go` towards a new goal | up to 45,000 a call (160 tiles) until the field reaches you |
+//! | `path_len`, `next_waypoint`, `go` once the field reaches you | about 210, 500 and 850 |
+//! | `tactics::approach_point` | a field search towards the origin, then 3,000 to 5,000 |
+//! | `tactics::hold_spot`, radius 3 | 11,000 to 38,000 (two `los` and a `raycast` per tile) |
+//!
+//! | Map | Tiles (floor) | `Navigator::new` | Whole field | First `go` to a new goal |
+//! |---|---:|---:|---:|---:|
+//! | `tunnels` | 312 (208) | 22,500 | 45,800 | 35,700 |
+//! | `crossfire` | 544 (396) | 37,500 | 80,900 | 39,100 |
+//! | `delta` | 1,221 (850) | 82,500 | 152,800 | 41,900 |
+//! | `steppe` | 1,496 (856) | 99,300 | 158,500 | 42,300 |
+//!
+//! When to call what:
+//!
+//! - **First tick (draft):** `Navigator::new`, then `complete` the goals you will use all match (site
+//!   centres, spawns). They are kept and never evicted, so every later question about them is a lookup.
+//!   On `steppe`, the largest map in the pool, the grid and five whole fields take about 890,000.
+//! - **Buy ticks:** `path_len`, `approach_point` and `hold_spot` for anything new, or `complete` with a
+//!   budget of tiles, a slice per tick.
+//! - **Action ticks:** `go` and `next_waypoint` towards goals whose field already reaches you. A new goal
+//!   costs up to 45,000 on its first call and `go` walks straight at it until the field arrives.
+//!
+//! A `Pathfinder` keeps 6 fields, replacing the oldest when a seventh goal comes, plus every field it was
+//! asked to `complete`; each takes 4 bytes per map tile. Aim at a few stable goals (a site centre), not a
+//! new tile every tick.
 use crate::geom::{angle_to, dist};
 use crate::{sys, Error, UnitInfo, TILE, TILE_FLOOR, TILE_WALL, T_MAP_ROW};
+
+mod field;
+use field::{Field, UNREACHABLE};
 
 /// Tile containing a world position.
 #[inline]
@@ -40,7 +83,7 @@ pub struct Grid {
 }
 
 impl Grid {
-    /// Load every map row from the host.
+    /// Load every map row from the host: about 70 fuel per map tile (99,000 on `steppe`). Once per match.
     pub fn load() -> Grid {
         let info = crate::map_info();
         let (w, h) = (info.width.max(0), info.height.max(0));
@@ -55,19 +98,8 @@ impl Grid {
     /// Build from raw `TILE_*` values, row by row.
     pub fn from_tiles(width: i32, height: i32, tiles: Vec<u8>) -> Grid {
         assert_eq!(tiles.len(), (width * height) as usize);
-        let mut grid = Grid { width, height, tiles, steps: Vec::new() };
-        let mut steps = Vec::with_capacity(grid.tiles.len());
-        for ty in 0..height {
-            for tx in 0..width {
-                let mut bits = 0u8;
-                for (d, &(dx, dy, _)) in NEIGHBOURS.iter().enumerate() {
-                    bits |= (grid.can_step(tx, ty, dx, dy) as u8) << d;
-                }
-                steps.push(bits);
-            }
-        }
-        grid.steps = steps;
-        grid
+        let steps = step_masks(width.max(0) as usize, height.max(0) as usize, &tiles);
+        Grid { width, height, tiles, steps }
     }
 
     /// `TILE_*` value of a tile; anything outside the map is a wall.
@@ -117,85 +149,75 @@ impl Grid {
     }
 }
 
-const UNREACHABLE: u32 = u32::MAX;
-/// Distance fields kept; the oldest is evicted first.
-const CACHE: usize = 6;
-/// Tiles a single `next_waypoint` call may settle (roughly 200 wasm instructions each).
-const EXPAND_PER_CALL: u32 = 160;
-
-/// Shortest-path costs from every tile to one goal tile, grown outwards from the goal on demand
-/// (Dijkstra with a bucket queue: steps cost 5 or 7, so 8 buckets are enough).
-struct Field {
-    goal: usize,
-    cost: Vec<u32>,
-    buckets: [Vec<u32>; 8],
-    /// Cost level being drained; every tile with `cost <= level` is final.
-    level: u32,
-    queued: usize,
-}
-
-impl Field {
-    fn new(grid: &Grid, goal: usize) -> Field {
-        let mut field =
-            Field { goal, cost: vec![UNREACHABLE; grid.tiles.len()], buckets: Default::default(), level: 0, queued: 1 };
-        field.cost[goal] = 0;
-        field.buckets[0].push(goal as u32);
-        field
+/// `Grid::steps` for every tile: a 3x3 block of floor flags slides along each row (a copy with a blocked
+/// border, since outside the map is wall) and indexes `STEP_LUT`.
+fn step_masks(w: usize, h: usize, tiles: &[u8]) -> Vec<u8> {
+    let mut steps = vec![0u8; w * h];
+    if w == 0 {
+        return steps;
     }
-
-    /// Grow the field until the cost of `tile` is final, settling at most `budget` tiles.
-    /// Returns false if the budget ran out first.
-    fn settle(&mut self, grid: &Grid, tile: usize, mut budget: u32) -> bool {
-        let offsets = NEIGHBOURS.map(|(dx, dy, _)| dy * grid.width + dx);
-        loop {
-            if self.cost[tile] <= self.level || self.queued == 0 {
-                return true;
-            }
-            let Some(at) = self.buckets[(self.level & 7) as usize].pop() else {
-                self.level += 1;
-                continue;
-            };
-            self.queued -= 1;
-            let at = at as usize;
-            if self.cost[at] != self.level {
-                continue; // stale entry: this tile was reached more cheaply already
-            }
-            if budget == 0 {
-                self.buckets[(self.level & 7) as usize].push(at as u32);
-                self.queued += 1;
-                return false;
-            }
-            budget -= 1;
-            // Stepping is symmetric between floor tiles, so the goal-outwards search can use the forward
-            // step masks. A blocked goal still seeds its orthogonal neighbours ("as close as possible").
-            let mut bits = grid.steps[at];
-            if at == self.goal && grid.tiles[at] != TILE_FLOOR {
-                bits &= ORTH_BITS;
-            }
-            for d in 0..8 {
-                if bits & (1 << d) == 0 {
-                    continue;
-                }
-                let n = (at as i32 + offsets[d]) as usize;
-                let c = self.level + NEIGHBOURS[d].2;
-                if c < self.cost[n] {
-                    self.cost[n] = c;
-                    self.buckets[(c & 7) as usize].push(n as u32);
-                    self.queued += 1;
-                }
-            }
+    let pw = w + 2;
+    let mut open = vec![0u8; pw * (h + 2)];
+    for (row, src) in open.chunks_exact_mut(pw).skip(1).zip(tiles.chunks_exact(w)) {
+        for (o, &t) in row[1..].iter_mut().zip(src) {
+            *o = (t == TILE_FLOOR) as u8;
         }
     }
+    let column = |u: u8, m: u8, d: u8| (u | m << 1 | d << 2) as usize;
+    for (out, rows) in steps.chunks_exact_mut(w).zip(open.windows(3 * pw).step_by(pw)) {
+        let (up, rest) = rows.split_at(pw);
+        let (mid, down) = rest.split_at(pw);
+        let mut block = column(up[0], mid[0], down[0]) << 3 | column(up[1], mid[1], down[1]) << 6;
+        let next = up[2..].iter().zip(&mid[2..]).zip(&down[2..]);
+        for (s, ((&u, &m), &d)) in out.iter_mut().zip(next) {
+            block = block >> 3 | column(u, m, d) << 6;
+            *s = STEP_LUT[block & 511];
+        }
+    }
+    steps
 }
 
+/// The step mask of the centre of a 3x3 block of floor flags, where bit `3 * (dx + 1) + (dy + 1)` is the
+/// tile at (dx, dy): `Grid::can_step` for every direction.
+static STEP_LUT: [u8; 512] = step_lut();
+
+const fn step_lut() -> [u8; 512] {
+    let mut lut = [0u8; 512];
+    let mut block = 0;
+    while block < 512 {
+        let mut d = 0;
+        while d < 8 {
+            let (dx, dy, _) = NEIGHBOURS[d];
+            let can =
+                floor_in(block, dx, dy) && (dx == 0 || dy == 0 || (floor_in(block, dx, 0) && floor_in(block, 0, dy)));
+            lut[block] |= (can as u8) << d;
+            d += 1;
+        }
+        block += 1;
+    }
+    lut
+}
+
+const fn floor_in(block: usize, dx: i32, dy: i32) -> bool {
+    (block >> (3 * (dx + 1) + dy + 1)) & 1 == 1
+}
+
+/// Distance fields kept; the oldest is evicted first.
+const CACHE: usize = 6;
+/// Tiles a single `next_waypoint` call may settle.
+const EXPAND_PER_CALL: u32 = 160;
+
 /// 8-connected shortest paths over the wall grid, without cutting corners. Each distinct goal tile
-/// gets a cached distance field that is grown lazily from the goal until it covers the asking unit,
-/// so a query for a known goal costs a handful of array reads and a new goal costs at most
-/// `EXPAND_PER_CALL` settled tiles per `next_waypoint` call.
+/// gets a distance field that is grown lazily from the goal until it covers the asking unit (about 200
+/// fuel per floor tile it settles), so a query for a known goal costs a handful of array reads and a new
+/// goal costs at most 160 settled tiles per `next_waypoint` call. Keeps 6 fields, the oldest replaced
+/// first, plus every field `complete` built. Costs per call and per map are in the module comment.
 #[derive(Default)]
 pub struct Pathfinder {
     fields: Vec<Field>,
     evict: usize,
+    /// Fields `complete` was asked for: kept for the match, never evicted.
+    kept: Vec<Field>,
 }
 
 impl Pathfinder {
@@ -205,23 +227,27 @@ impl Pathfinder {
 
     fn field(&mut self, grid: &Grid, goal: (i32, i32)) -> &mut Field {
         let g = grid.index(goal.0, goal.1);
+        if let Some(i) = self.kept.iter().position(|f| f.goal == g) {
+            return &mut self.kept[i];
+        }
         if let Some(i) = self.fields.iter().position(|f| f.goal == g) {
             return &mut self.fields[i];
         }
-        let field = Field::new(grid, g);
         if self.fields.len() < CACHE {
-            self.fields.push(field);
+            self.fields.push(Field::new(grid, g));
             self.fields.last_mut().unwrap()
         } else {
             self.evict = (self.evict + 1) % CACHE;
-            self.fields[self.evict] = field;
-            &mut self.fields[self.evict]
+            let field = &mut self.fields[self.evict];
+            field.reset(grid, g);
+            field
         }
     }
 
     /// Path length in world units from `from` to `goal` (tile resolution), or `None` if unreachable.
-    /// Always exact, so on a goal that is new and far away it does the whole search in this call
-    /// (about 200 wasm instructions per map tile): use it in the buy phase, not mid-fight.
+    /// Always exact, so on a goal that is new and far away it does the whole search in this call: about 200
+    /// fuel per floor tile, 80,000 on `crossfire` and 160,000 on `steppe`. About 210 once the field reaches
+    /// `from`. Use it in the draft or the buy phase for new goals, not mid-fight.
     pub fn path_len(&mut self, grid: &Grid, from: (i32, i32), goal: (i32, i32)) -> Option<i32> {
         let (f, g) = (tile_of(from.0, from.1), tile_of(goal.0, goal.1));
         if !grid.inside(g.0, g.1) || grid.is_blocked(f.0, f.1) {
@@ -236,7 +262,8 @@ impl Pathfinder {
     /// The point to walk towards right now to get from `from` to `goal`: the goal itself when it is in
     /// this tile or the next one, otherwise the centre of the next tile on a shortest path.
     /// `None` if there is no path, or if the search for a new goal needs more calls to reach `from`
-    /// (work per call is capped so a turn never blows its fuel; ask again next tick).
+    /// (work per call is capped so a turn never blows its fuel; ask again next tick). A call settles at
+    /// most 160 tiles, up to 45,000 fuel; about 500 once the field reaches `from`.
     pub fn next_waypoint(&mut self, grid: &Grid, from: (i32, i32), goal: (i32, i32)) -> Option<(i32, i32)> {
         let (f, g) = (tile_of(from.0, from.1), tile_of(goal.0, goal.1));
         if !grid.inside(g.0, g.1) || grid.is_blocked(f.0, f.1) {
@@ -249,19 +276,45 @@ impl Pathfinder {
         if !field.settle(grid, tile, EXPAND_PER_CALL) || field.cost[tile] == UNREACHABLE {
             return None;
         }
-        // Every neighbour that is cheaper than this tile is already final.
-        let here = field.cost[tile];
+        // Every neighbour that is cheaper than this tile is already final. The cheapest wins, the first
+        // in `NEIGHBOURS` order on a tie.
+        let (here, mask) = (field.cost[tile], grid.steps[tile]);
         let mut best = (here, f);
         for (d, &(dx, dy, step)) in NEIGHBOURS.iter().enumerate() {
-            if grid.steps[tile] & (1 << d) == 0 {
-                continue;
-            }
-            let c = field.cost[grid.index(f.0 + dx, f.1 + dy)];
-            if c != UNREACHABLE && c + step <= here && c < best.0 {
-                best = (c, (f.0 + dx, f.1 + dy));
+            if mask & (1 << d) != 0 {
+                let c = field.cost[(tile as i32 + dy * grid.width + dx) as usize];
+                if c < best.0 && c + step <= here {
+                    best = (c, (f.0 + dx, f.1 + dy));
+                }
             }
         }
         Some(if best.1 == g { goal } else { tile_centre(best.1 .0, best.1 .1) })
+    }
+
+    /// Build the whole distance field to `goal` and keep it for the rest of the match: it is never
+    /// evicted, so `path_len`, `next_waypoint` and `Navigator::go` to this goal tile are lookups from
+    /// anywhere. Settles at most `budget` tiles in this call (`u32::MAX` for all, about 200 fuel each:
+    /// 46,000 on `tunnels`, 160,000 on `steppe`) and returns true once the field is whole; false if the
+    /// budget ran out (call again, it carries on). Made for the first tick: site centres and spawns.
+    pub fn complete(&mut self, grid: &Grid, goal: (i32, i32), budget: u32) -> bool {
+        let g = tile_of(goal.0, goal.1);
+        if !grid.inside(g.0, g.1) {
+            return true;
+        }
+        let g = grid.index(g.0, g.1);
+        let i = match self.kept.iter().position(|f| f.goal == g) {
+            Some(i) => i,
+            None => {
+                // Keep the work already done for this goal; its cache slot stays empty until it is reused.
+                let field = match self.fields.iter().position(|f| f.goal == g) {
+                    Some(j) => std::mem::replace(&mut self.fields[j], Field::vacant()),
+                    None => Field::new(grid, g),
+                };
+                self.kept.push(field);
+                self.kept.len() - 1
+            }
+        };
+        self.kept[i].settle(grid, usize::MAX, budget)
     }
 }
 
@@ -286,7 +339,7 @@ pub struct Navigator {
 }
 
 impl Navigator {
-    /// Loads the map grid from the host.
+    /// Loads the map grid from the host (`Grid::load`, about 70 fuel per map tile): once, in `Bot::new`.
     pub fn new() -> Navigator {
         Navigator {
             grid: Grid::load(),
@@ -302,7 +355,9 @@ impl Navigator {
     }
 
     /// Walk towards (x, y) around walls at `speed` (capped at the run speed). Returns `Ok(true)` once there (no move issued),
-    /// `Ok(false)` while travelling. If no path exists it walks straight at the goal.
+    /// `Ok(false)` while travelling. If no path exists it walks straight at the goal, and so it does while
+    /// the field of a new goal is still growing towards it (`next_waypoint`: up to 45,000 fuel a call).
+    /// About 850 fuel a call once the field reaches the unit.
     pub fn go(&mut self, me: &UnitInfo, x: i32, y: i32, speed: i32) -> Result<bool, Error> {
         let pos = (me.x, me.y);
         let left = dist(pos, (x, y));
@@ -339,6 +394,12 @@ impl Navigator {
     pub fn path_len(&mut self, from: (i32, i32), goal: (i32, i32)) -> Option<i32> {
         self.paths.path_len(&self.grid, from, goal)
     }
+
+    /// `Pathfinder::complete` on this navigator's grid and pathfinder: `go` and `path_len` to `goal` become
+    /// lookups for the rest of the match.
+    pub fn complete(&mut self, goal: (i32, i32), budget: u32) -> bool {
+        self.paths.complete(&self.grid, goal, budget)
+    }
 }
 
 impl Default for Navigator {
@@ -350,6 +411,22 @@ impl Default for Navigator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TILE_LOW;
+
+    /// A `w` x `h` grid with about a fifth of the tiles wall and a sixteenth low cover, fixed by `seed`.
+    pub(super) fn random_grid(w: i32, h: i32, mut seed: u64) -> Grid {
+        let tiles = (0..w * h)
+            .map(|_| {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                match seed >> 60 {
+                    0..=2 => TILE_WALL,
+                    3 => TILE_LOW,
+                    _ => TILE_FLOOR,
+                }
+            })
+            .collect();
+        Grid::from_tiles(w, h, tiles)
+    }
 
     fn grid(rows: &[&str]) -> Grid {
         let tiles = rows.iter().flat_map(|r| r.bytes().map(|b| if b == b'#' { 1 } else { 0 })).collect();
@@ -421,6 +498,39 @@ mod tests {
         let want = Some(((30 * DIAG + 29 * ORTH) as i64 * TILE as i64 / ORTH as i64) as i32);
         assert_eq!(lazy.path_len(&g, from, goal), want);
         assert_eq!(Pathfinder::new().path_len(&g, from, goal), want);
+    }
+
+    #[test]
+    fn step_masks_follow_can_step() {
+        for (w, h, seed) in [(17, 11, 1), (1, 1, 2), (1, 6, 3), (6, 1, 4), (2, 2, 5)] {
+            let g = random_grid(w, h, seed);
+            for (t, &mask) in g.steps.iter().enumerate() {
+                let (tx, ty) = (t as i32 % w, t as i32 / w);
+                for (d, &(dx, dy, _)) in NEIGHBOURS.iter().enumerate() {
+                    assert_eq!(mask & (1 << d) != 0, g.can_step(tx, ty, dx, dy), "{w}x{h} tile {t} dir {d}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn complete_fields_are_whole_and_kept() {
+        let g = random_grid(60, 40, 7);
+        let centre = |t: i32| tile_centre(t % 60, t / 60);
+        let goal = (0..2400).map(centre).find(|&p| g.tile_at(p.0, p.1) == TILE_FLOOR).unwrap();
+        let mut kept = Pathfinder::new();
+        let slices = (1..).find(|_| kept.complete(&g, goal, 100)).unwrap();
+        assert!(slices > 5, "a 2400-tile field should not fit in 100 tiles ({slices})");
+        // Other goals cycle through the cache; the kept field stays whole.
+        for t in 0..20 {
+            let _ = kept.path_len(&g, centre(t), centre(2399 - t));
+        }
+        let mut fresh = Pathfinder::new();
+        for from in (0..2400).map(centre) {
+            assert_eq!(kept.path_len(&g, from, goal), fresh.path_len(&g, from, goal));
+            assert_eq!(kept.next_waypoint(&g, from, goal), fresh.next_waypoint(&g, from, goal));
+        }
+        assert!(kept.complete(&g, goal, 0), "already whole");
     }
 
     #[test]
