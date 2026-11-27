@@ -18,6 +18,7 @@ mod geom;
 mod thrown;
 
 use crate::fixed::{self, V2};
+use crate::vision::HitFrom;
 use crate::world::{Effect, Projectile, World};
 use crate::{combat, Fnv};
 use ibc_abi::*;
@@ -101,6 +102,14 @@ fn ends(e: &Effect) -> (V2, V2) {
 
 fn active_barriers(w: &World) -> impl Iterator<Item = (usize, &Effect)> {
     w.effects.iter().enumerate().filter(move |(_, e)| e.info.kind == EFFECT_BARRIER && is_active(e))
+}
+
+/// Effect `e` has just given unit `j` a status (blinded, slowed, revealed): tell it with an `EVENT_EFFECT` that
+/// points it, and only it, at the effect's centre, never at the thrower. Every effect that gives a status calls
+/// this where it gives it, so a recon beacon reports each tick it marks, like fire reports each tick it burns.
+fn affected(w: &mut World, e: &Effect, j: usize) {
+    let centre = (e.info.x, e.info.y);
+    w.emit_hit(EVENT_EFFECT, Some(e.owner as usize), j, e.info.kind, HitFrom::Area(centre));
 }
 
 /// No wall and no barrier between the points (smoke does not count).

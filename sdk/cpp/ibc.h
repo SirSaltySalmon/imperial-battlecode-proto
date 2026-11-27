@@ -319,7 +319,8 @@ inline Rows<ProjectileInfo> projectiles() { return Rows<ProjectileInfo>(T_PROJEC
 inline Rows<EffectInfo> effects() { return Rows<EffectInfo>(T_EFFECTS); }
 inline Rows<DropInfo> drops() { return Rows<DropInfo>(T_DROPS); }
 /// Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN`
-/// when the team did not see it. Damage arrives only when seen.
+/// when the team did not see it. Damage and effects (`EVENT_EFFECT`) arrive only when seen or when they hit
+/// the team, without the enemy who did it. Only the unit hit reads where it came from (`dir`, `src_x`, `src_y`).
 inline Rows<EventInfo> events() { return Rows<EventInfo>(T_EVENTS); }
 inline Rows<SiteInfo> sites() { return Rows<SiteInfo>(T_SITES); }
 /// Every unit of both teams, by id: kit, credits at the start of this round's buy phase, alive.

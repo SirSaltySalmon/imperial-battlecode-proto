@@ -254,6 +254,16 @@ fn consequences(m: &Match, unit: usize) -> Vec<String> {
             .cloned()
             .unwrap_or_else(|| "something".into())
     };
+    let effect = |kind: i32| {
+        w.rules
+            .abilities
+            .iter()
+            .position(|a| a.effect == kind)
+            .map_or_else(
+                || format!("effect {kind}"),
+                |i| w.rules.ability_names[i].clone(),
+            )
+    };
     let mut out = Vec::new();
     for e in &w.events {
         match e.kind {
@@ -262,6 +272,12 @@ fn consequences(m: &Match, unit: usize) -> Vec<String> {
                 e.value, e.actor, w.units[unit].hp
             )),
             EVENT_DAMAGE if e.actor == me => out.push(format!("hit #{} for {}", e.target, e.value)),
+            EVENT_EFFECT if e.target == me => {
+                out.push(format!("CAUGHT by the {} of #{}", effect(e.value), e.actor))
+            }
+            EVENT_EFFECT if e.actor == me => {
+                out.push(format!("{} caught #{}", effect(e.value), e.target))
+            }
             EVENT_KILL if e.target == me && e.actor < 0 => {
                 out.push("KILLED by the detonation blast".into())
             }

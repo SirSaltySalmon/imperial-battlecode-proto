@@ -1,8 +1,9 @@
 //! What active effects do each tick. Runs once per action tick, after movement and before the core counts the
 //! unit statuses (`blind`, `revealed`) down, so a status meant to last n bot turns is set to n + 1.
 
-use super::{aux_of, clear_line, control, is_active, max_hp, open_between, rules_of};
+use super::{affected, aux_of, clear_line, control, is_active, max_hp, open_between, rules_of};
 use crate::fixed::{self, V2};
+use crate::vision::HitFrom;
 use crate::world::{Effect, World};
 use ibc_abi::*;
 
@@ -50,7 +51,8 @@ fn within(a: V2, b: V2, radius: i32) -> bool {
 }
 
 /// Incendiary: `power` damage to every unit in the circle that a wall or barrier does not shelter.
-/// Fire does not pick sides; only damage to enemies is credited to the thrower.
+/// Fire does not pick sides; only damage to enemies is credited to the thrower. Each victim learns the
+/// fire's centre.
 fn burn(w: &mut World, e: &Effect, r: &AbilityRules) {
     let at = centre(e);
     let victims: Vec<usize> = (0..w.units.len())
@@ -58,12 +60,13 @@ fn burn(w: &mut World, e: &Effect, r: &AbilityRules) {
         .collect();
     for j in victims {
         let attacker = (w.units[j].team != e.info.team).then_some(e.owner as usize);
-        w.damage(j, r.power, attacker, -1);
+        w.damage_from(j, r.power, attacker, -1, HitFrom::Area(at));
     }
 }
 
 /// Flash: blinds every unit, friend or foe, that has the pop inside its vision cone with a clear line to it.
 /// Facing it head-on blinds for `duration` turns, falling linearly to `power` percent at the cone's edge.
+/// Each blinded unit learns where the pop was (`affected`).
 fn pop(w: &mut World, e: &Effect, r: &AbilityRules) {
     let at = centre(e);
     let fov = w.rules.core.fov_half.max(1) as i64;
@@ -85,6 +88,7 @@ fn pop(w: &mut World, e: &Effect, r: &AbilityRules) {
         let turns = (r.duration as i64 * pct / 100).max(1) as i32;
         let u = &mut w.units[j];
         u.blind = u.blind.max(turns + 1);
+        affected(w, e, j);
     }
 }
 
@@ -96,6 +100,7 @@ fn ping(w: &mut World, e: &Effect, r: &AbilityRules) {
         if u.alive && u.team != e.info.team && within(u.pos, at, e.info.radius) && clear_line(w, at, u.pos) {
             let u = &mut w.units[j];
             u.revealed = u.revealed.max(r.power.max(0) + 1);
+            affected(w, e, j);
         }
     }
 }

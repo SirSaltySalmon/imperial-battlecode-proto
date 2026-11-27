@@ -62,6 +62,8 @@ export const EVENT_DEFUSE = 3;
 export const EVENT_DETONATE = 4;
 export const EVENT_ROUND_END = 5;
 export const EVENT_DAMAGE = 6;
+/** An effect gave a unit a status (blinded, slowed, revealed); `value` is the `EFFECT_*` kind. */
+export const EVENT_EFFECT = 7;
 
 export const ROUND_WIN_REASONS: Record<number, string> = {
   1: "elimination",
@@ -134,11 +136,20 @@ export interface DropFrame {
 
 export interface EventFrame {
   kind: number;
+  /** The true actor: frames are not fogged, so it is set even where bots read -1. */
   actor: number;
   target: number;
   x: number;
   y: number;
   value: number;
+  /**
+   * What the target alone learned of where a hit came from (`EVENT_DAMAGE`, `EVENT_EFFECT`): the angle from it
+   * back along a bullet or towards an effect's centre, else -1. Absent from older engine builds.
+   */
+  dir?: number;
+  /** The effect's centre for an effect's hit, else -2147483648 (a bullet never tells where its shooter is). */
+  src_x?: number;
+  src_y?: number;
 }
 
 /**

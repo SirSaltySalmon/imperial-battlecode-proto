@@ -137,7 +137,7 @@ fn a_damage_event_behind_a_wall_is_not_delivered() {
     assert!(a.iter().all(|e| e.kind != EVENT_DAMAGE), "team A does not learn of the hit: {a:?}");
     let b: Vec<EventInfo> = table(&m, 3, T_EVENTS);
     let hit = b.iter().find(|e| e.kind == EVENT_DAMAGE).expect("the victim's team knows it was hit");
-    assert_eq!((hit.actor, hit.target, (hit.x, hit.y)), (0, 2, m.world.units[2].pos));
+    assert_eq!((hit.actor, hit.target, (hit.x, hit.y)), (-1, 2, m.world.units[2].pos), "but not by whom");
     assert!(hit.value > 0, "damage keeps its amount");
 }
 
