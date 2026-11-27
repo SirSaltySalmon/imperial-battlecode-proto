@@ -146,7 +146,7 @@ describe("validation", () => {
     width: 5,
     height: 3,
     team_size: 1,
-    sites: Array.from({ length: sites }, (_, id) => ({ id, min_tx: 0, min_ty: 0, max_tx: 1, max_ty: 1, centre_x: 0, centre_y: 0 })),
+    sites: Array.from({ length: sites }, (_, id) => ({ id, min_tx: 0, min_ty: 0, max_tx: 1, max_ty: 1, centre_x: 0, centre_y: 0, plant_x: 0, plant_y: 0 })),
     spawns: [1, 1],
     hash: "0",
   });
