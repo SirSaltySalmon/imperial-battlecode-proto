@@ -305,7 +305,9 @@ fn a_strafing_target_at_range_dodges_a_shot_aimed_where_it_stood() {
     let singles: Vec<&WeaponRules> = r.weapons.iter().filter(|w| w.pellets == 1).collect();
     assert!(singles.len() >= 2);
     for w in singles {
-        for tiles in [10, 15, 19] {
+        // Half, three quarters and just inside the weapon's reach, which the 34-tile arena caps at 20 tiles.
+        let reach = (w.range / TILE).min(20);
+        for tiles in [reach / 2, reach * 3 / 4, reach - 1] {
             assert!(tiles * TILE < w.range);
             let at_it = |_: &Match| 0;
             assert!(
