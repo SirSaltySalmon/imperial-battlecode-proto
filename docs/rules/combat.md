@@ -208,7 +208,7 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 <!-- generated:derived -->
 | weapon | startup (steady / walked / ran) | ticks per braced shot | damage per pull (close / at range) | full fan width | top speed | range (tiles) | bullet (tiles/tick) | ticks to empty + reload |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 10.0 | 8.0 | 24 + 3 |
+| pistol | 1 / 1 / 2 | 2 | 26 / 22 | 0 | 700 | 15.0 | 8.0 | 24 + 3 |
 | rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
 | smg | 1 / 1 / 1 | 1 | 24 / 8 | 200 | 700 | 16.0 | 9.0 | 16 + 3 |
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
@@ -218,9 +218,10 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 
 Roles:
 
-- **pistol**: the free sidearm. Exact single shots and a short startup even after running, but short reach:
-  it is spent at 10 tiles and loses damage from 4. Four hits kill out to about 5 tiles, eight at the edge of
-  its reach, so a team on pistols has to close the distance.
+- **pistol**: the free sidearm, and a real gun. Exact single shots and a short startup even after running.
+  It reaches 15 tiles and loses damage only from 12: four hits kill an unarmoured unit, five a light-armoured
+  one and six a heavy one out to about 12.5 tiles, one more hit each at the edge of its reach. The bought
+  guns earn their price by killing faster where they are meant to fight, not by out-ranging it.
 - **smg**: cheap run-and-gun with the fastest fire rate, a pull every tick, and small hits. Running barely
   unsteadies it, so it starts as fast off a run as standing, and it carries at full speed; short reach, its
   two-pellet fan opens fast under sustained fire, and armour soaks many of its small hits.
