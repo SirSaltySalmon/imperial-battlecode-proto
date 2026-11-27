@@ -227,9 +227,10 @@ Roles:
   the fan is hard to sidestep; nearly harmless past six tiles. Slow pump, small magazine.
 - **rifle**: the all-rounder. A tight three-bullet burst that kills in two pulls while all three land and
   still reaches across the map, if you stand still and pace your fire.
-- **marksman**: one fast bullet. Two hits kill a bare or light-armoured unit and three a heavy-armoured one,
-  anywhere in its reach: its shallow falloff never crosses a breakpoint. Slow to cycle, and a two-tick startup
-  that the target can see, which grows the most of any weapon after moving.
+- **marksman**: one fast bullet out to 30 tiles, six past its own sight, so its longest shots need a teammate's
+  spot. Two hits kill a bare or light-armoured unit and three a heavy-armoured one, anywhere in its reach: its
+  shallow falloff never crosses a breakpoint. Slow to cycle, and a two-tick startup that the target can see,
+  which grows the most of any weapon after moving.
 - **lmg**: heavy and slow. Five bullets a pull, a magazine that lasts sixty ticks and no recoil build-up, for
   holding a lane; slow to carry, very slow to start after moving, and above all slow to reload.
 
