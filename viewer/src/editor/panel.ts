@@ -36,7 +36,7 @@ export function renderCheck(verdict: HTMLElement, summaryBox: HTMLElement, list:
     ["Spawn tiles", `a ${s.spawns[0]}, d ${s.spawns[1]}`],
     ...s.sites.map((site): [string, string] => [
       `Site ${siteName(site.id)}`,
-      `${site.max_tx - site.min_tx} × ${site.max_ty - site.min_ty} box, plant at (${(site.centre_x / TILE).toFixed(1)}, ${(site.centre_y / TILE).toFixed(1)})`,
+      `${site.max_tx - site.min_tx} × ${site.max_ty - site.min_ty} box, plant at (${(site.plant_x / TILE).toFixed(1)}, ${(site.plant_y / TILE).toFixed(1)})`,
     ]),
     ["Map hash", s.hash],
   ];

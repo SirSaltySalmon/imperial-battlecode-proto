@@ -3,7 +3,7 @@
 
 use crate::backend::{run_games, Run, RunOpts};
 use crate::model::{round_robin_schedule, Bot, GameResult, MapEntry};
-use crate::report::{est_num, md_table, pct};
+use crate::report::{backend_label, est_num, md_table, pct};
 use crate::stats::{bradley_terry, percentile, Est, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -267,8 +267,8 @@ pub fn table(bots: &[String], results: &[GameResult], mut warnings: Vec<String>)
 
 pub fn render_markdown(r: &LeagueReport) -> String {
     let mut s = format!(
-        "# League\n\n- backend `{}`, ruleset `{}`, maps: {}, seeds: {}\n- {} games ({} distinct, {} failed)\n\n",
-        r.backend,
+        "# League\n\n- backend: {}; ruleset `{}`, maps: {}, seeds: {}\n- {} games ({} distinct, {} failed)\n\n",
+        backend_label(&r.backend),
         r.ruleset_hash,
         r.maps.join(", "),
         r.seeds.len(),

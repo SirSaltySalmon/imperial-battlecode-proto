@@ -88,7 +88,7 @@ pub fn write_output(out_dir: &Path, out: &ibc_runner::MatchOutput) -> Result<(Pa
     std::fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
     let replay_path = out_dir.join("replay.ibcr");
     let summary_path = out_dir.join("summary.json");
-    write(&replay_path, &out.replay.encode())?;
+    write(&replay_path, &out.replay_bytes)?;
     write(&summary_path, out.summary.to_json().as_bytes())?;
     for (team, file) in ["team-a.log", "team-b.log"].iter().enumerate() {
         let mut log = Vec::new();

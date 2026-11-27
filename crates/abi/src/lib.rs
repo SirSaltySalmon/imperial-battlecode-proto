@@ -81,7 +81,8 @@ pub const T_DROPS: u32 = 15;
 pub const T_KIT: u32 = 16;
 /// `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight;
 /// kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the
-/// team does not know the position. See docs/ABI.md for each kind.
+/// team does not know the position. Teammates read the same rows, except that only the unit an event happened
+/// to reads where it came from (`dir`, `src_x`, `src_y`). See docs/ABI.md for each kind.
 pub const T_EVENTS: u32 = 17;
 /// `RosterInfo` per unit of both teams, in unit id order. Readable in every phase.
 pub const T_ROSTER: u32 = 18;
@@ -191,11 +192,19 @@ pub const EVENT_PLANT: i32 = 2;
 pub const EVENT_DEFUSE: i32 = 3;
 pub const EVENT_DETONATE: i32 = 4;
 pub const EVENT_ROUND_END: i32 = 5;
+/// actor = attacker, or -1 (none, or not on the reader's team); target = victim; value = amount. The victim
+/// alone also reads where it came from (`EventInfo.dir`).
 pub const EVENT_DAMAGE: i32 = 6;
+/// An effect gave a unit a status (blinded, slowed, revealed). actor = the effect's owner, or -1 when not on
+/// the reader's team; target = the unit; value = `EFFECT_*` kind. The unit alone also reads the effect's centre
+/// (`EventInfo.dir`, `src_x`, `src_y`). Delivered like `EVENT_DAMAGE`.
+pub const EVENT_EFFECT: i32 = 7;
 
 /// `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real
-/// position: check for it before using the coordinates.
+/// position: check for it before using the coordinates. Also `src_x` and `src_y` when the reader is not told.
 pub const POS_HIDDEN: i32 = -2147483648;
+/// `EventInfo.dir` when the reader is not told where the event came from. Never a real angle (0..65535).
+pub const DIR_HIDDEN: i32 = -1;
 
 pub const ROUND_WIN_ELIMINATION: i32 = 1;
 pub const ROUND_WIN_DETONATION: i32 = 2;
@@ -361,8 +370,14 @@ pub struct SiteInfo {
     pub min_ty: i32,
     pub max_tx: i32,
     pub max_ty: i32,
+    /// Centre of the bounding box. Not necessarily on the site (an L-shaped or hollow site): walk to
+    /// `plant_x`, `plant_y` to plant.
     pub centre_x: i32,
     pub centre_y: i32,
+    /// The plant point: the centre of the site tile whose centre is nearest the box centre, ties to the first
+    /// in row-major order (lowest `ty`, then lowest `tx`). A unit standing here is on the site.
+    pub plant_x: i32,
+    pub plant_y: i32,
 }
 
 #[repr(C)]
@@ -378,7 +393,8 @@ pub struct DropInfo {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct EventInfo {
     pub kind: i32,
-    /// Acting unit id or -1.
+    /// Acting unit id or -1. For `EVENT_DAMAGE` and `EVENT_EFFECT`, -1 unless the actor is on the reader's
+    /// team: a unit never learns which enemy hit it.
     pub actor: i32,
     /// Target unit id or -1.
     pub target: i32,
@@ -386,6 +402,14 @@ pub struct EventInfo {
     pub x: i32,
     pub y: i32,
     pub value: i32,
+    /// Only for the unit the event happened to (`target`, reading its own `EVENT_DAMAGE` or `EVENT_EFFECT`):
+    /// the angle from it towards where the hit came from. A bullet: back along the bullet's flight. An
+    /// effect (fire, flash, ...): towards the effect's centre. `DIR_HIDDEN` for every other reader and kind.
+    pub dir: i32,
+    /// Only for the target, like `dir`: the centre of the effect that hit it. `POS_HIDDEN` in both for a
+    /// bullet (the shooter's position is never told), for every other reader and every other kind.
+    pub src_x: i32,
+    pub src_y: i32,
 }
 
 #[repr(C)]

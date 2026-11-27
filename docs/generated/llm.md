@@ -116,6 +116,9 @@ Radiant. Display only; matchmaking ignores it.
 
 **Ranked.** A series the platform schedules itself between live submissions, which changes ratings.
 
+**Series cap.** The most ranked series a team starts per cap window (5 per 15 minutes). A team at its cap can
+still be drawn as an opponent, a few series past it, when everyone near its rating is capped too.
+
 **Scrim** (unranked series). A series a team requests against another team, from a daily quota. It does not
 change ratings. It uses the opponent's live submission, or exactly the submission they fielded in an earlier
 series against you.
@@ -285,9 +288,16 @@ the earlier one.
 - Running (speed above `walk_speed`) makes footsteps that enemies within `step_sound_radius` hear. Shots are heard
   within `shot_sound_radius`. Plant and defuse starts are audible. Heard positions are snapped to the tile centre.
   **Hearing is shared too:** a sound reaches the whole team when any living unit of it is in range.
-- **Events follow the fog.** Damage is reported only where the team sees it (or to the unit's own team). Kills
-  are always reported, with the position hidden when the team did not see it. Plant, defuse, detonation and
-  round end are always reported. Fog is applied to what bots read; replays record everything.
+- **Events follow the fog.** Damage, and an effect giving a unit a status (blinded, slowed, revealed), are
+  reported only where the team sees it (or to the unit's own team). Kills are always reported, with the position
+  hidden when the team did not see it. Plant, defuse, detonation and round end are always reported. Fog is
+  applied to what bots read; replays record everything.
+- **A hit does not name who did it.** Damage and effect reports name the unit responsible only to that unit's
+  own team; a kill names its killer to both teams.
+- **The unit hit learns where it came from, and only that unit** (not its teammates, not the enemy who sees the
+  hit). A bullet tells the direction back along its flight, never where the shooter stands. Fire, a flash, a
+  concussion, a trap, a sonar pulse or a recon beacon tells the direction to its centre and the centre itself,
+  never the thrower. This is the one thing teammates do not share.
 
 ## What a team knows
 
@@ -331,6 +341,10 @@ the earlier one.
 - `A_PLANT` works for the carrier standing on a site and takes `plant_ticks`. `A_DEFUSE` works for a defender
   within `interact_reach` of the planted charge and takes `defuse_ticks` (`defuse_kit_ticks` with a kit).
   Moving, firing or `A_CANCEL` interrupts either channel.
+- "Standing on a site" means the unit's centre is on a tile of that site; a site can have any shape. Bots see
+  each site as a bounding box (`SiteInfo`), whose centre need not be on the site, and a **plant point**
+  (`SiteInfo.plant_x`, `plant_y`): the centre of the site tile nearest the box centre, ties going to the first
+  tile in row-major order (top row first, then leftmost). A carrier standing on the plant point is on the site.
 - **Detonation blast.** When the fuse runs out, every living unit within `blast_radius` (12 tiles) of the charge
   dies, attackers and defenders alike. It is a plain distance: walls do not shield anyone. The attackers win
   the round even if the blast kills them. Blast deaths are ordinary deaths (weapons drop, the loadout is lost)
@@ -578,8 +592,8 @@ Values, straight from `rules/weapons.toml`:
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
-| `range` | 20480 | 30720 | 16384 | 9216 | 40960 | 28672 |
-| `falloff_start` | 8192 | 16384 | 6144 | 3072 | 40960 | 14336 |
+| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |
+| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 |
 | `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |
@@ -596,7 +610,7 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 <!-- generated:derived -->
 | weapon | startup (steady / walked / ran) | ticks per braced shot | damage per pull (close / at range) | full fan width | top speed | range (tiles) | bullet (tiles/tick) | ticks to empty + reload |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 20.0 | 8.0 | 24 + 3 |
+| pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 10.0 | 8.0 | 24 + 3 |
 | rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
 | smg | 1 / 1 / 1 | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
@@ -606,7 +620,9 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 
 Roles:
 
-- **pistol**: the free sidearm. Exact single shots and a short startup even after running; falls off quickly.
+- **pistol**: the free sidearm. Exact single shots and a short startup even after running, but short reach:
+  it is spent at 10 tiles and loses damage from 4. Four hits kill out to about 5 tiles, eight at the edge of
+  its reach, so a team on pistols has to close the distance.
 - **smg**: cheap run-and-gun. Running barely unsteadies it, so it starts as fast off a run as standing, and
   it carries at full speed; short reach, and its two-pellet fan opens fast under sustained fire.
 - **shotgun**: seven pellets in a wide fan. One pull kills an unarmoured unit inside about three tiles and
@@ -631,7 +647,7 @@ Target with 100 health and no armour:
 <!-- generated:ttk -->
 | weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|
-| pistol | 8 | 9 | 11 | 12 | 18 | 19 |
+| pistol | 8 | 9 | 17 | 18 | no kill | no kill |
 | rifle | 6 | 9 | 6 | 9 | 11 | 14 |
 | smg | 6 | 6 | 9 | 9 | no kill | no kill |
 | shotgun | 6 | 8 | no kill | no kill | no kill | no kill |
@@ -644,7 +660,7 @@ Target with 100 health and the heaviest armour in the shop:
 <!-- generated:ttk-armor -->
 | weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
 |---|---:|---:|---:|---:|---:|---:|
-| pistol | 12 | 13 | 15 | 16 | 26 | 27 |
+| pistol | 12 | 13 | 23 | 24 | no kill | no kill |
 | rifle | 10 | 13 | 10 | 13 | 17 | 20 |
 | smg | 10 | 10 | 15 | 15 | no kill | no kill |
 | shotgun | 10 | 12 | no kill | no kill | no kill | no kill |
@@ -929,6 +945,13 @@ it has left. All effects and devices in flight are removed when a round starts.
 centre, a barrier's first end, the unit being healed). An enemy **trap** is listed only when you can see it and
 it is within `sense_radius` of you: further away it is hidden even in plain view.
 
+**Being hit.** Every time an effect gives a unit a status (a flash blinds it, a concussion or a trap slows it, a
+trap, a sonar pulse or a recon beacon reveals it), that unit's team gets an `EVENT_EFFECT` with the effect kind
+in `value`, and so does the other team if it sees the unit. Fire reports its damage as `EVENT_DAMAGE` instead.
+Only the unit hit reads where it came from: the angle to the effect's centre and the centre itself (`dir`,
+`src_x`, `src_y`), never the thrower's position. The thrower is named (`actor`) only to its own team. A recon
+beacon reports each tick it marks the unit, fire each tick it burns. See `docs/ABI.md`.
+
 ## The abilities
 
 ### Smoke
@@ -946,7 +969,8 @@ clear of walls, smoke and barriers. A unit facing it head-on is blinded for `dur
 linearly with the angle to `power` percent of that at the edge of the cone (rounded down, at least 1 turn).
 A unit with the pop outside its cone is not affected at all, however close. A blinded unit (`S_BLINDED`,
 `UnitInfo.blind` = turns left) sees only within `sense_radius`. A second flash does not add: the longer of the
-two applies.
+two applies. Each unit blinded gets an `EVENT_EFFECT` (`value` = `EFFECT_FLASH`) that tells it alone where the
+flash popped, not who threw it (see **Being hit** above).
 *Counters:* turn away. The thrower is visible casting (`S_CASTING`) and the device in flight
 (`T_PROJECTILES`), and `turn_rate` is enough to put it outside the cone in one tick; the price is a tick spent
 not looking at the fight. Smoke or a barrier in between also works.
@@ -963,7 +987,7 @@ A beacon that scans for `duration` ticks. Each tick, every enemy within `radius`
 beacon has a clear line to (no wall, smoke or barrier) is marked `S_REVEALED` for `power` turns. A revealed
 unit appears in `T_ENEMIES` of every unit of the other team, wherever they are and wherever they look.
 *Counters:* break the line to the beacon: walls, smoke, a barrier. The marked unit sees `S_REVEALED` in its own
-state and knows it is being watched.
+state and an `EVENT_EFFECT` pointing at the beacon, so it knows it is being watched and from where.
 
 ### Barrier
 A straight wall segment placed `range` in front of the user (nearer if the target point is nearer, and never
@@ -1094,15 +1118,17 @@ clock and random source, empty args and environment. There is no filesystem, net
   stand; use `los` before shooting. Enemy rows hide `hp`, `armor`, credits, ammo, charges, cooldowns, blindness
   and the defuse kit; the weapon in hand is shown. Fog applies to what bots read, not to what replays record.
   An enemy trap (`EFFECT_TRAP`) is listed only to a unit of the team within `sense_radius` of it (`docs/rules/abilities.md`).
-- **Events follow the fog.** `T_EVENTS` is filtered per team. A position is *known* to a team when one of its
-  living units sees it, when the event happened to one of its own units, or when it is the charge's position and
-  the team knows where the charge lies (both teams once it is planted, attackers when it is dropped). An event delivered
-  with an unknown position carries `POS_HIDDEN` (`i32::MIN`) in both `x` and `y`, never `(0, 0)`.
+- **Events follow the fog.** `T_EVENTS` is filtered per team (and where a hit came from, per unit: below). A
+  position is *known* to a team when one of its living units sees it, when the event happened to one of its own
+  units, or when it is the charge's position and the team knows where the charge lies (both teams once it is
+  planted, attackers when it is dropped). An event delivered with an unknown position carries `POS_HIDDEN`
+  (`i32::MIN`) in both `x` and `y`, never `(0, 0)`.
 
   | Event | Delivered to a team | Position |
   |---|---|---|
   | `EVENT_KILL` (actor killer or -1, target victim, value weapon) | Always, both teams | `POS_HIDDEN` unless known |
   | `EVENT_DAMAGE` (actor attacker or -1, target, value amount) | Only when the position is known | Always real |
+  | `EVENT_EFFECT` (actor the effect's owner, target, value `EFFECT_*`) | Only when the position is known | Always real |
   | `EVENT_PLANT` (actor planter, value site) | Always | Real (the planted charge is public) |
   | `EVENT_DEFUSE` (actor defuser) | Always | Real |
   | `EVENT_DETONATE` | Always | Real |
@@ -1110,6 +1136,23 @@ clock and random source, empty args and environment. There is no filesystem, net
   | Any later kind | Only when the position is known | Always real |
 
   Sounds are separate from events: a shot heard through a wall is a `T_SOUNDS` row, not a damage event.
+- **Nobody learns who hit them.** In `EVENT_DAMAGE` and `EVENT_EFFECT` the actor reads -1 unless it is on the
+  reader's team: your own hits keep your unit's id, an enemy's hit on you never names the enemy. `EVENT_KILL`
+  keeps its killer for both teams.
+- **Only the unit hit learns where it came from.** This is the one per-unit piece of `T_EVENTS`: teammates read
+  the same rows, but `EventInfo.dir`, `src_x` and `src_y` are filled only in the row of an `EVENT_DAMAGE` or
+  `EVENT_EFFECT` read by its own `target`. Everyone else, and every other kind, reads `DIR_HIDDEN` (-1) and
+  `POS_HIDDEN`.
+
+  | What hit the unit | `dir` | `src_x`, `src_y` |
+  |---|---|---|
+  | A bullet | Angle from the unit back along the bullet's flight (a free angle, not the shooter's bearing) | `POS_HIDDEN`: the shooter's position is never told |
+  | Fire (`EVENT_DAMAGE`), or an effect giving a status (`EVENT_EFFECT`) | Angle from the unit to the effect's centre (0 on the centre itself) | The effect's centre, never the thrower |
+
+  `EVENT_EFFECT` reports every status an effect gives a unit, where it gives it: a flash that blinds it, a
+  concussion or trap that slows it, a trap, sonar pulse or recon beacon that reveals it (a beacon each tick it
+  marks the unit, as fire each tick it burns). Nothing more: how long a blindness lasts is in the unit's own
+  `UnitInfo.blind`, as before.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
   resolves with everyone else's when the tick is stepped. One move, one facing and one primary action per tick.
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;
@@ -1141,6 +1184,15 @@ still loads and reads the prefix of each record it knows; what changed is what s
   `kind` = ability id + 1 and `weapon` = -1. Devices hit nobody; they land at a wall, a barrier or their range.
 - `EFFECT_TRAP` (9), `EFFECT_SONAR` (10), `EFFECT_CONCUSSION` (11); abilities 8-10 and kits 7-9 in the
   ruleset. Every ability has one charge.
+- What a hit tells (after engine 0.2.0): `EventInfo.dir`, `src_x`, `src_y` (the record grows from 24 to 36 bytes), `DIR_HIDDEN`
+  (-1), `EVENT_EFFECT` (7). The actor of `EVENT_DAMAGE` reads -1 for the victim's team, where it used to name
+  the shooter. `T_EVENTS` is no longer identical for teammates: only an event's target reads where it came
+  from (see Conventions).
+- `SiteInfo.plant_x`, `plant_y` (after engine 0.2.0): the plant point, the centre of one tile of the site. It
+  is the site tile whose centre is nearest the bounding-box centre; ties go to the first in row-major order
+  (lowest `ty`, then lowest `tx`). A unit there is on the site, which the box centre need not be: sites may be
+  any shape (L-shaped, hollow). On a filled rectangle with odd sides it equals `centre_x`, `centre_y`. A bot
+  that reads only the first 28 bytes of the record sees no change.
 
 ## For engine and SDK authors
 
@@ -1157,7 +1209,7 @@ still loads and reads the prefix of each record it knows; what changed is what s
 
 # Ruleset reference
 
-Ruleset hash `b884be2eabbb7c1e`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -1235,8 +1287,8 @@ On detonation every living unit within this distance of the charge dies, both te
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |  |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |  |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | Units per tick. |
-| `range` | 20480 | 30720 | 16384 | 9216 | 40960 | 28672 |  |
-| `falloff_start` | 8192 | 16384 | 6144 | 3072 | 40960 | 14336 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
+| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |  |
+| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
 | `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |  |
 | `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | Percent of max run speed while holding this weapon. |
 | `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |  |
@@ -1259,7 +1311,8 @@ unsteady_max. Movement adds no spread. Formulas, a table of these values and mea
 in docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
 
 (above [[weapon]] "pistol")
-Free sidearm everyone carries: exact single shots and a short startup even off a run, weak at range.
+Free sidearm everyone carries: exact single shots and a short startup even off a run, but it reaches only ten
+tiles and loses damage from four.
 
 (above [[weapon]] "rifle")
 All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
@@ -1504,7 +1557,7 @@ The `table` argument of `count` and `get`.
 | `T_SITES` | `14` | `u32` | `SiteInfo` per plant site. |
 | `T_DROPS` | `15` | `u32` | `DropInfo` per dropped item seen by this unit's team (the charge is always visible to attackers). |
 | `T_KIT` | `16` | `u32` | `KitRules` per kit id. |
-| `T_EVENTS` | `17` | `u32` | `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight; kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the team does not know the position. See docs/ABI.md for each kind. |
+| `T_EVENTS` | `17` | `u32` | `EventInfo` per event of the previous tick that this unit's team receives. Events follow the team's sight; kills, plant, defuse, detonation and round end always arrive, with `x`/`y` set to `POS_HIDDEN` when the team does not know the position. Teammates read the same rows, except that only the unit an event happened to reads where it came from (`dir`, `src_x`, `src_y`). See docs/ABI.md for each kind. |
 | `T_ROSTER` | `18` | `u32` | `RosterInfo` per unit of both teams, in unit id order. Readable in every phase. |
 | `T_ROUNDS` | `19` | `u32` | `RoundInfo` per finished round of the match, oldest first. |
 
@@ -1652,7 +1705,8 @@ Bits of `UnitInfo.state`.
 | `EVENT_DEFUSE` | `3` | `i32` |  |
 | `EVENT_DETONATE` | `4` | `i32` |  |
 | `EVENT_ROUND_END` | `5` | `i32` |  |
-| `EVENT_DAMAGE` | `6` | `i32` |  |
+| `EVENT_DAMAGE` | `6` | `i32` | actor = attacker, or -1 (none, or not on the reader's team); target = victim; value = amount. The victim alone also reads where it came from (`EventInfo.dir`). |
+| `EVENT_EFFECT` | `7` | `i32` | An effect gave a unit a status (blinded, slowed, revealed). actor = the effect's owner, or -1 when not on the reader's team; target = the unit; value = `EFFECT_*` kind. The unit alone also reads the effect's centre (`EventInfo.dir`, `src_x`, `src_y`). Delivered like `EVENT_DAMAGE`. |
 
 ### Round win reasons
 
@@ -1701,7 +1755,8 @@ Charged on top of the WebAssembly instructions the call itself runs.
 
 | Name | Value | Type | Meaning |
 | --- | --- | --- | --- |
-| `POS_HIDDEN` | `-2147483648` | `i32` | `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real position: check for it before using the coordinates. |
+| `POS_HIDDEN` | `-2147483648` | `i32` | `EventInfo.x` and `.y` of an event whose position the receiving team does not know. Never a real position: check for it before using the coordinates. Also `src_x` and `src_y` when the reader is not told. |
+| `DIR_HIDDEN` | `-1` | `i32` | `EventInfo.dir` when the reader is not told where the event came from. Never a real angle (0..65535). |
 
 ## Records
 
@@ -1824,7 +1879,7 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 
 ### SiteInfo
 
-28 bytes, 7 fields.
+36 bytes, 9 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -1833,8 +1888,10 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 | 8 | `min_ty` | `i32` | 4 |  |
 | 12 | `max_tx` | `i32` | 4 |  |
 | 16 | `max_ty` | `i32` | 4 |  |
-| 20 | `centre_x` | `i32` | 4 |  |
+| 20 | `centre_x` | `i32` | 4 | Centre of the bounding box. Not necessarily on the site (an L-shaped or hollow site): walk to `plant_x`, `plant_y` to plant. |
 | 24 | `centre_y` | `i32` | 4 |  |
+| 28 | `plant_x` | `i32` | 4 | The plant point: the centre of the site tile whose centre is nearest the box centre, ties to the first in row-major order (lowest `ty`, then lowest `tx`). A unit standing here is on the site. |
+| 32 | `plant_y` | `i32` | 4 |  |
 
 ### DropInfo
 
@@ -1849,16 +1906,19 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 
 ### EventInfo
 
-24 bytes, 6 fields.
+36 bytes, 9 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
 | 0 | `kind` | `i32` | 4 |  |
-| 4 | `actor` | `i32` | 4 | Acting unit id or -1. |
+| 4 | `actor` | `i32` | 4 | Acting unit id or -1. For `EVENT_DAMAGE` and `EVENT_EFFECT`, -1 unless the actor is on the reader's team: a unit never learns which enemy hit it. |
 | 8 | `target` | `i32` | 4 | Target unit id or -1. |
 | 12 | `x` | `i32` | 4 | Where it happened, or `POS_HIDDEN` in both `x` and `y` when the receiving team does not know. |
 | 16 | `y` | `i32` | 4 |  |
 | 20 | `value` | `i32` | 4 |  |
+| 24 | `dir` | `i32` | 4 | Only for the unit the event happened to (`target`, reading its own `EVENT_DAMAGE` or `EVENT_EFFECT`): the angle from it towards where the hit came from. A bullet: back along the bullet's flight. An effect (fire, flash, ...): towards the effect's centre. `DIR_HIDDEN` for every other reader and kind. |
+| 28 | `src_x` | `i32` | 4 | Only for the target, like `dir`: the centre of the effect that hit it. `POS_HIDDEN` in both for a bullet (the shooter's position is never told), for every other reader and every other kind. |
+| 32 | `src_y` | `i32` | 4 |  |
 
 ### CoreRules
 
@@ -2114,7 +2174,7 @@ Every constant and record of the frozen ABI (`ibc-abi`) is re-exported at the cr
 - `pub fn projectiles() -> Rows<ProjectileInfo>`
 - `pub fn effects() -> Rows<EffectInfo>`
 - `pub fn drops() -> Rows<DropInfo>`
-- `pub fn events() -> Rows<EventInfo>`: Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN` when the team did not see it. Damage arrives only when seen.
+- `pub fn events() -> Rows<EventInfo>`: Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN` when the team did not see it. Damage and effects (`EVENT_EFFECT`) arrive only when seen or when they hit the team, without the enemy who did it. Only the unit hit reads where it came from (`dir`, `src_x`, `src_y`).
 - `pub fn sites() -> Rows<SiteInfo>`
 - `pub fn roster() -> Rows<RosterInfo>`: Every unit of both teams, by id: kit, credits at the start of this round's buy phase, alive.
 - `pub fn rounds() -> Rows<RoundInfo>`: Every finished round so far, oldest first: winner, how it ended, who attacked, score after it.
@@ -2133,6 +2193,8 @@ Every constant and record of the frozen ABI (`ibc-abi`) is re-exported at the cr
 - `fn alive(&self) -> bool` (`UnitExt`)
 - `fn pos(&self) -> (i32, i32)` (`UnitExt`)
 - `fn busy(&self) -> bool` (`UnitExt`): Winding up, reloading, planting, defusing or in an ability's startup.
+- `pub trait SiteExt`: Convenience accessors on `SiteInfo`.
+- `fn plant_point(&self) -> (i32, i32)` (`SiteExt`): The plant point: the centre of a tile of this site, so a carrier standing here can plant. Walk here, not to the bounding-box centre, which on an L-shaped or hollow site is not on the site.
 - `pub fn act(kind: u32, a: i32, b: i32, c: i32) -> Result<(), Error>`: Raw `act` call for action kinds without a wrapper.
 - `pub fn move_dir(angle: i32, speed: i32) -> Result<(), Error>`: Move in direction `angle` at `speed` units/tick (clamped). Above `walk_speed` is a noisy run.
 - `pub fn move_towards(x: i32, y: i32, speed: i32) -> Result<(), Error>`: Move straight towards a point (no pathfinding; see `Navigator`). Costs one extra `me()` call.
@@ -2188,24 +2250,66 @@ Deterministic, float-free geometry. Angles are 0..65535 per turn, 0 = +x, increa
 
 Wall grid, cached distance-field pathfinder and a stuck-proof `Navigator`.
 
+**This is expensive, and it is meant as a starting point.** These helpers answer the general question
+(exact 8-connected shortest paths, tile by tile, over the whole map) and a path search is the largest
+fuel cost most bots have. If you want the fuel for something else, copy this module and cut it down, or
+write your own: a coarser grid, a graph of a few waypoints between the spawns and the sites, or routes
+worked out once and kept for the match.
+
+Fuel measured with the wasm runner on the map pool (the probe is `sdk/rust/examples/nav_fuel.rs` in the
+platform repository). With the current rules a unit gets 100,000 per tick (`fuel_per_tick`), four times
+that on a buy tick and ten times on its first tick (the draft, where `Bot::new` runs):
+
+| Call | Fuel |
+|---|---|
+| `Navigator::new`, `Grid::load` | about 70 per map tile |
+| A whole field: `complete`, or `path_len` to a new goal from afar | about 200 per floor tile |
+| `next_waypoint`, `go` towards a new goal | up to 45,000 a call (160 tiles) until the field reaches you |
+| `path_len`, `next_waypoint`, `go` once the field reaches you | about 210, 500 and 850 |
+| `tactics::approach_point` | a field search towards the origin, then 3,000 to 5,000 |
+| `tactics::hold_spot`, radius 3 | 11,000 to 38,000 (two `los` and a `raycast` per tile) |
+
+| Map | Tiles (floor) | `Navigator::new` | Whole field | First `go` to a new goal |
+|---|---:|---:|---:|---:|
+| `tunnels` | 312 (208) | 22,500 | 45,800 | 35,700 |
+| `crossfire` | 544 (396) | 37,500 | 80,900 | 39,100 |
+| `delta` | 1,221 (850) | 82,500 | 152,800 | 41,900 |
+| `steppe` | 1,496 (856) | 99,300 | 158,500 | 42,300 |
+
+When to call what:
+
+- **First tick (draft):** `Navigator::new`, then `complete` the goals you will use all match (site
+  centres, spawns). They are kept and never evicted, so every later question about them is a lookup.
+  On `steppe`, the largest map in the pool, the grid and five whole fields take about 890,000.
+- **Buy ticks:** `path_len`, `approach_point` and `hold_spot` for anything new, or `complete` with a
+  budget of tiles, a slice per tick.
+- **Action ticks:** `go` and `next_waypoint` towards goals whose field already reaches you. A new goal
+  costs up to 45,000 on its first call and `go` walks straight at it until the field arrives.
+
+A `Pathfinder` keeps 6 fields, replacing the oldest when a seventh goal comes, plus every field it was
+asked to `complete`; each takes 4 bytes per map tile. Aim at a few stable goals (a site centre), not a
+new tile every tick.
+
 - `pub fn tile_of(x: i32, y: i32) -> (i32, i32)`: Tile containing a world position.
 - `pub fn tile_centre(tx: i32, ty: i32) -> (i32, i32)`: World position of a tile's centre.
 - `pub struct Grid`: The whole tile grid, fetched once (`height` host calls). Walls never change during a match.
-- `pub fn load() -> Grid` (`Grid`): Load every map row from the host.
+- `pub fn load() -> Grid` (`Grid`): Load every map row from the host: about 70 fuel per map tile (99,000 on `steppe`). Once per match.
 - `pub fn from_tiles(width: i32, height: i32, tiles: Vec<u8>) -> Grid` (`Grid`): Build from raw `TILE_*` values, row by row.
 - `pub fn tile(&self, tx: i32, ty: i32) -> u8` (`Grid`): `TILE_*` value of a tile; anything outside the map is a wall.
 - `pub fn tile_at(&self, x: i32, y: i32) -> u8` (`Grid`): `TILE_*` value under a world position.
 - `pub fn is_wall(&self, tx: i32, ty: i32) -> bool` (`Grid`): Blocks vision and bullets (full wall).
 - `pub fn is_blocked(&self, tx: i32, ty: i32) -> bool` (`Grid`): Blocks movement (wall or low cover).
 - `pub fn can_step(&self, tx: i32, ty: i32, dx: i32, dy: i32) -> bool` (`Grid`): Can a unit step from tile (tx, ty) to the neighbour at (dx, dy)? Diagonals may not cut corners.
-- `pub struct Pathfinder`: 8-connected shortest paths over the wall grid, without cutting corners. Each distinct goal tile gets a cached distance field that is grown lazily from the goal until it covers the asking unit, so a query for a known goal costs a handful of array reads and a new goal costs at most `EXPAND_PER_CALL` settled tiles per `next_waypoint` call.
+- `pub struct Pathfinder`: 8-connected shortest paths over the wall grid, without cutting corners. Each distinct goal tile gets a distance field that is grown lazily from the goal until it covers the asking unit (about 200 fuel per floor tile it settles), so a query for a known goal costs a handful of array reads and a new goal costs at most 160 settled tiles per `next_waypoint` call. Keeps 6 fields, the oldest replaced first, plus every field `complete` built. Costs per call and per map are in the module comment.
 - `pub fn new() -> Pathfinder` (`Pathfinder`)
-- `pub fn path_len(&mut self, grid: &Grid, from: (i32, i32), goal: (i32, i32)) -> Option<i32>` (`Pathfinder`): Path length in world units from `from` to `goal` (tile resolution), or `None` if unreachable. Always exact, so on a goal that is new and far away it does the whole search in this call (about 200 wasm instructions per map tile): use it in the buy phase, not mid-fight.
-- `pub fn next_waypoint(&mut self, grid: &Grid, from: (i32, i32), goal: (i32, i32)) -> Option<(i32, i32)>` (`Pathfinder`): The point to walk towards right now to get from `from` to `goal`: the goal itself when it is in this tile or the next one, otherwise the centre of the next tile on a shortest path. `None` if there is no path, or if the search for a new goal needs more calls to reach `from` (work per call is capped so a turn never blows its fuel; ask again next tick).
+- `pub fn path_len(&mut self, grid: &Grid, from: (i32, i32), goal: (i32, i32)) -> Option<i32>` (`Pathfinder`): Path length in world units from `from` to `goal` (tile resolution), or `None` if unreachable. Always exact, so on a goal that is new and far away it does the whole search in this call: about 200 fuel per floor tile, 80,000 on `crossfire` and 160,000 on `steppe`. About 210 once the field reaches `from`. Use it in the draft or the buy phase for new goals, not mid-fight.
+- `pub fn next_waypoint(&mut self, grid: &Grid, from: (i32, i32), goal: (i32, i32)) -> Option<(i32, i32)>` (`Pathfinder`): The point to walk towards right now to get from `from` to `goal`: the goal itself when it is in this tile or the next one, otherwise the centre of the next tile on a shortest path. `None` if there is no path, or if the search for a new goal needs more calls to reach `from` (work per call is capped so a turn never blows its fuel; ask again next tick). A call settles at most 160 tiles, up to 45,000 fuel; about 500 once the field reaches `from`.
+- `pub fn complete(&mut self, grid: &Grid, goal: (i32, i32), budget: u32) -> bool` (`Pathfinder`): Build the whole distance field to `goal` and keep it for the rest of the match: it is never evicted, so `path_len`, `next_waypoint` and `Navigator::go` to this goal tile are lookups from anywhere. Settles at most `budget` tiles in this call (`u32::MAX` for all, about 200 fuel each: 46,000 on `tunnels`, 160,000 on `steppe`) and returns true once the field is whole; false if the budget ran out (call again, it carries on). Made for the first tick: site centres and spawns.
 - `pub struct Navigator`: Grid + pathfinder + stuck detection: call `go` every tick you want to travel somewhere.
-- `pub fn new() -> Navigator` (`Navigator`): Loads the map grid from the host.
-- `pub fn go(&mut self, me: &UnitInfo, x: i32, y: i32, speed: i32) -> Result<bool, Error>` (`Navigator`): Walk towards (x, y) around walls at `speed` (capped at the run speed). Returns `Ok(true)` once there (no move issued), `Ok(false)` while travelling. If no path exists it walks straight at the goal.
+- `pub fn new() -> Navigator` (`Navigator`): Loads the map grid from the host (`Grid::load`, about 70 fuel per map tile): once, in `Bot::new`.
+- `pub fn go(&mut self, me: &UnitInfo, x: i32, y: i32, speed: i32) -> Result<bool, Error>` (`Navigator`): Walk towards (x, y) around walls at `speed` (capped at the run speed). Returns `Ok(true)` once there (no move issued), `Ok(false)` while travelling. If no path exists it walks straight at the goal, and so it does while the field of a new goal is still growing towards it (`next_waypoint`: up to 45,000 fuel a call). About 850 fuel a call once the field reaches the unit.
 - `pub fn path_len(&mut self, from: (i32, i32), goal: (i32, i32)) -> Option<i32>` (`Navigator`): Path length in world units, or `None` if unreachable.
+- `pub fn complete(&mut self, goal: (i32, i32), budget: u32) -> bool` (`Navigator`): `Pathfinder::complete` on this navigator's grid and pathfinder: `go` and `path_len` to `goal` become lookups for the rest of the match.
 
 ## `sdk/rust/src/tactics.rs`
 
@@ -2221,6 +2325,6 @@ Nothing here is privileged: it is all written against the public SDK, copy and c
 - `pub fn engage(&mut self, me: &UnitInfo) -> Option<Shot>` (`Gunner`): Face the nearest enemy in sight with no wall in between and shoot it whenever the weapon is ready and the enemy in range (reload if it is empty). `T_ENEMIES` is the team's sight, so an enemy only a teammate sees behind a wall is skipped: there is no shot at it from here. Returns `None` when there is no such enemy. Shooting roots the unit: while `Shot::hold` is set, do not move.
 - `pub fn top_up(&mut self, me: &UnitInfo)` (`Gunner`): Call when no enemy is in sight: reloads once the magazine is at most half full.
 - `pub fn shop(me: &UnitInfo) -> Option<i32>`: Buy one thing: the most expensive affordable weapon better than the one held, else the best affordable armour, else (defenders) a defuse kit. Returns the item bought. Call once per buy tick.
-- `pub fn approach_point(nav: &mut Navigator, site: (i32, i32), origin: (i32, i32)) -> (i32, i32)`: Where will someone walking from `origin` come into view of `site`? Walks the shortest path from `site` towards `origin` and returns the last point on it that `site` still has line of sight to. A unit standing near `site` should watch this point. Runs a full path search: call it in the buy phase.
-- `pub fn hold_spot(nav: &Navigator, anchor: (i32, i32), watch: (i32, i32), radius_tiles: i32, skip: usize) -> (i32, i32)`: The tile centre within `radius_tiles` of `anchor` with the longest clear line through `watch`, i.e. a spot to hold an angle from. `skip` picks the n-th best so teammates spread out.
+- `pub fn approach_point(nav: &mut Navigator, site: (i32, i32), origin: (i32, i32)) -> (i32, i32)`: Where will someone walking from `origin` come into view of `site`? Walks the shortest path from `site` towards `origin` and returns the last point on it that `site` still has line of sight to. A unit standing near `site` should watch this point. Grows the field towards `origin` until it reaches `site` (about 200 fuel per floor tile, up to 81,000 from a spawn on the pool's maps; nothing more if `Navigator::complete` built it), then 3,000 to 5,000 for the walk: call it in the draft or buy phase.
+- `pub fn hold_spot(nav: &Navigator, anchor: (i32, i32), watch: (i32, i32), radius_tiles: i32, skip: usize) -> (i32, i32)`: The tile centre within `radius_tiles` of `anchor` with the longest clear line through `watch`, i.e. a spot to hold an angle from. `skip` picks the n-th best so teammates spread out. Two `los` and a `raycast` per tile of the square: 11,000 to 38,000 fuel at radius 3, so call it in the buy phase.
 - `pub fn ticks_to_effect(a: &AbilityRules, from: (i32, i32), target: (i32, i32)) -> i32`: Ticks from using ability `a` at `from` towards `target` until it takes effect: its startup, then for a thrown device the flight (it acts in the tick it lands). Walls on the way only make it sooner.

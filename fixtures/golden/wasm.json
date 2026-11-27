@@ -1,14 +1,14 @@
 {
   "patch": {
     "engine": "0.2.0",
-    "ruleset_hash": "b884be2eabbb7c1e",
+    "ruleset_hash": "76bad4d5dc0354b6",
     "wasmtime": "51.0.0",
     "abi": 1
   },
   "bots": {
-    "holder": "fd8883629d531991a6361d1a0520b2d654a309faa5db434c994ea68c581c0616",
-    "idle": "7cfdee7b32bb4c00d9a61267d8bf15e01e2e335453c7a53c355d47ce5fa89bcc",
-    "rusher": "e1254c48dca1f6be7942e9cccf532469ad0c1fa84f5d95e7a23532dd828092e5"
+    "holder": "12a40eccdf9c3fec59cd949230e7aacfc28156f9cb916190abe532595aa691ff",
+    "idle": "0e7140f9ce2975afa7e688099f8939f85aef7e22f16c52d71bd0a01669f7fef8",
+    "rusher": "46d98be5db44c79e9f9e1bc4f9ce117e712924881263b11ada1d70cfb9d1cb68"
   },
   "cases": [
     {
@@ -18,14 +18,14 @@
       "a": "rusher",
       "b": "holder",
       "finished": true,
-      "winner": 0,
+      "winner": 1,
       "score": [
-        7,
-        0
+        6,
+        8
       ],
-      "ticks": 592,
-      "final_state_hash": "58facedd899908c4",
-      "replay_sha256": "709f57cbb075375898fff23bf30ced29b0ba885e240acc2e8115154c4377a8c3"
+      "ticks": 939,
+      "final_state_hash": "d5507c594468e994",
+      "replay_sha256": "93e000cb464d3c0b64e0fbd339c33d2f99a3ecc6b3fa801f842dc65fc1390f7d"
     },
     {
       "name": "tunnels-holder-rusher-s2",
@@ -36,12 +36,12 @@
       "finished": true,
       "winner": 1,
       "score": [
-        2,
-        7
+        9,
+        9
       ],
-      "ticks": 418,
-      "final_state_hash": "72bef8f11d08da9f",
-      "replay_sha256": "5c8a4184008dd878b3b120cd5d6d457f57c9cb4c5868403c050fb2aeb0abc08d"
+      "ticks": 1174,
+      "final_state_hash": "18ec6c4340a29471",
+      "replay_sha256": "d0b9eb14e89b8a3098ccea1ddfe81a1caeca1a6c776e1f56d85eafcdb0840016"
     },
     {
       "name": "crossfire-idle-rusher-s5",
@@ -55,9 +55,9 @@
         0,
         7
       ],
-      "ticks": 456,
-      "final_state_hash": "c359034dffe2f63d",
-      "replay_sha256": "6f40c1c1f2c4b1dbaf214b1cd2924b7c15d98b7f0960a7bff1346ab798868ec4"
+      "ticks": 463,
+      "final_state_hash": "04b7154a6b5e695c",
+      "replay_sha256": "84c07baff71ae79c5868c8196189bbf24a94deab6680f683c1fe584131d499fe"
     }
   ]
 }

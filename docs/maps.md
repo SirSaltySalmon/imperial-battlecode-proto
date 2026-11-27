@@ -35,9 +35,13 @@ and the size limit is 128x128. One tile is 1024 world units; a unit is a circle 
 
 Two facts of the engine that shape maps:
 
-- `SiteInfo.centre` is the centre of the site's **bounding box**, and the reference bots walk to it and
-  plant there. It must be a standable point on the site (lint checks this), so keep sites rectangular or
-  at least keep their middle on the site.
+- A site can have **any shape** as long as it is one connected region: L-shaped, a corridor that bends,
+  a ring round a pillar or round a patch of low cover. Bots see each site as its bounding box
+  (`SiteInfo.min_tx` to `max_ty`, with its centre in `centre_x`, `centre_y`) and a **plant point**
+  (`plant_x`, `plant_y`): the centre of the site tile nearest the box centre, ties to the first in
+  row-major order. The reference bots walk to the plant point and plant there, so the box centre may be
+  floor, cover or wall. On a filled rectangle with odd sides the two points are the same; along an even
+  side the plant point is half a tile up or left of the box centre.
 - With a radius under half a tile, a unit fits any 1-tile corridor, but two blocked tiles that touch only
   at a corner leave a zero-width gap: units cannot pass, while a sightline or bullet can graze through.
   Lint warns about these (`diagonal-pinch`); close them or open them properly.
@@ -74,7 +78,6 @@ Structural checks; exits non-zero on any error (`--strict`: on warnings too).
 | `spawn-unreachable` | error | A spawn tile cannot be reached from the others |
 | `pocket` | error | Floor nobody can reach |
 | `site-unreachable`, `site-small` | error | A site is cut off, or has fewer than 4 tiles |
-| `site-centre` | error | The bounding-box centre is blocked or not on the site, so bots cannot plant |
 | `spawn-sightline` | error | An attacker and a defender spawn tile see each other at round start |
 | `blast-escape` | error | From some plant tile no reachable tile lies outside `blast_radius` (12 tiles) of a charge anywhere on that tile: a lost retake would cost everyone near the site their gun |
 | `diagonal-pinch` | warning | Two floor tiles touch only at a corner between blocked tiles |
@@ -93,16 +96,16 @@ about 1% of it; it is not an 8-connected step count. Times are ticks at `run_spe
 
 | Number | How it is measured |
 |---|---|
-| Attacker / defender time to site | Fastest used spawn tile to the site centre |
+| Attacker / defender time to site | Fastest used spawn tile to the site's plant point |
 | Timing advantage | Attacker ticks minus defender ticks: how long defenders are on site before first contact |
 | Spawn to spawn | Ticks until the teams meet if both run at the other spawn |
-| Rotation | Site centre to site centre |
-| Retake | From each other site and from the defender spawn: run to within `interact_reach` of a charge on the centre, plus `defuse_ticks`, against `fuse_ticks` |
+| Rotation | Plant point to plant point |
+| Retake | From each other site and from the defender spawn: run to within `interact_reach` of a charge on the plant point, plus `defuse_ticks`, against `fuse_ticks` |
 | Routes, chokepoints, widths | Minimum tile cut (max-flow) between the start of the attack and the site. Each cluster of cut tiles is one route; its size is that choke's width |
 | Longest sightlines | Longest clear lines between standable tile centres, near-duplicates removed, with their end tiles |
 | Hold positions | Off-site tiles near the site that a defender reaches before any attacker; for each, the share of site tiles it sees. Best and mean are reported |
 | Cover density | Walls and low cover among the tiles around the site |
-| Post-plant | Tiles that can watch a charge planted on the centre, and the farthest of them |
+| Post-plant | Tiles that can watch a charge planted on the plant point, and the farthest of them |
 
 Values outside their band are marked in the Markdown and listed under **Flags** (and in `flags` in the
 JSON). The route cut ignores the first 40% of the attackers' way, so a narrow spawn exit is not reported as
@@ -207,9 +210,10 @@ outside a band on purpose; say so in its row of the gallery.
 3. Look at the render with `--overlay routes,chokes`, then `advantage` and `sightlines`: every site has at
    least two approaches, the fastest attack route crosses or passes near the defenders' push, and the long
    lines are where you meant them.
-4. `cargo run -p ibc-sim --release -- league --maps maps --seeds 2` ends with `LEAGUE OK`; run the league on
-   the new map alone with `--bots rusher,holder --seeds 10` and report the attacker round win rate with its
-   sample size. With the simple reference bots 25 to 75% is acceptable.
+4. `cargo run -p ibc-sim --release -- league --maps maps --seeds 2` ends with `LEAGUE OK` (a native smoke
+   test); then `tools/bench.sh balance --maps maps/<name>.ibcmap --bots rusher,holder --no-mirrors --seeds 10`
+   (fuel metered) and report the attacker round win rate with its interval and sample size. With the simple
+   reference bots 25 to 75% is acceptable.
 5. `cargo test -p ibc-sim --release` and `cargo test -p ibc-maptool --release` (the pool test fails if a
    map leaves a band).
 6. Name and layout are original. The file name equals `name:`.
@@ -220,7 +224,9 @@ outside a band on purpose; say so in its row of the gallery.
 
 Times are ticks, one value per site. Renders show the fastest attacker (orange) and defender (blue) route
 to each site and the chokepoint tiles (magenta). League attackers: share of rounds the attacking side won, with its 95% interval, over the eight
-reference bots against each other on both sides, 3 seeds (details under "League with the reference bots").
+reference bots against each other on both sides, 3 seeds (details under "League with the reference bots"). A
+figure marked * was measured again after the map changed: 20 seeds, native, interval clustered by seed (see
+"Side-balance fixes").
 
 | Map | Size | Attackers to site | Defenders to site | Advantage | Rotation | Routes | Longest sightline (tiles) | Flags | League attackers |
 |---|---|---|---|---|---|---|---|---|---|
@@ -230,19 +236,19 @@ reference bots against each other on both sides, 3 seeds (details under "League 
 | [`culvert`](../maps/culvert.ibcmap)<br>![culvert](../maps/renders/culvert.svg) | 3v3, 30x21, 2 sites | 30 / 35 | 15 / 19 | 15 / 16 | 24 | 3 / 4 | 22.0 | 0 | 51.0% [46.0, 56.1] |
 | [`delta`](../maps/delta.ibcmap)<br>![delta](../maps/renders/delta.svg) | 5v5, 37x33, 3 sites | 31 / 34 / 31 | 20 / 17 / 21 | 11 / 17 / 10 | 13 / 25 / 13 | 5 / 5 / 5 | 24.6 | 0 | 51.9% [47.8, 56.1] |
 | [`fulcrum`](../maps/fulcrum.ibcmap)<br>![fulcrum](../maps/renders/fulcrum.svg) | 5v5, 37x31, 2 sites | 33 / 33 | 18 / 19 | 15 / 14 | 28 | 4 / 4 | 22.8 | 0 | 48.5% [43.5, 53.5] |
-| [`longwatch`](../maps/longwatch.ibcmap)<br>![longwatch](../maps/renders/longwatch.svg) | 5v5, 36x29, 2 sites | 34 / 34 | 24 / 24 | 10 / 10 | 28 | 5 / 5 | 19.9 | 0 | 57.0% [52.5, 61.5] |
+| [`longwatch`](../maps/longwatch.ibcmap)<br>![longwatch](../maps/renders/longwatch.svg) | 5v5, 36x29, 2 sites | 34 / 34 | 24 / 24 | 10 / 10 | 28 | 5 / 5 | 19.4 | 0 | 51.5% [47.8, 55.1]* |
 | [`postern`](../maps/postern.ibcmap)<br>![postern](../maps/renders/postern.svg) | 3v3, 28x19, 2 sites | 27 / 27 | 18 / 18 | 9 / 9 | 18 | 3 / 3 | 22.2 | 0 | 53.7% [48.0, 59.4] |
 | [`quarry`](../maps/quarry.ibcmap)<br>![quarry](../maps/renders/quarry.svg) | 4v4, 34x23, 2 sites | 32 / 30 | 22 / 23 | 10 / 7 | 24 | 4 / 3 | 24.3 | 0 | 48.8% [44.1, 53.5] |
 | [`spillway`](../maps/spillway.ibcmap)<br>![spillway](../maps/renders/spillway.svg) | 5v5, 25x40, 2 sites | 42 / 39 | 24 / 21 | 18 / 18 | 22 | 3 / 3 | 22.3 | 0 | 61.9% [57.6, 66.2] |
 | [`steppe`](../maps/steppe.ibcmap)<br>![steppe](../maps/renders/steppe.svg) | 5v5, 44x34, 2 sites | 32 / 46 | 15 / 32 | 17 / 14 | 26 | 3 / 4 | 24.5 | 0 | 51.3% [47.6, 55.0] |
 | [`trident`](../maps/trident.ibcmap)<br>![trident](../maps/renders/trident.svg) | 5v5, 33x27, 3 sites | 31 / 27 / 32 | 25 / 21 / 25 | 6 / 6 / 7 | 16 / 30 / 16 | 5 / 5 / 5 | 24.7 | 0 | 60.0% [55.0, 65.0] |
-| [`tunnels`](../maps/tunnels.ibcmap)<br>![tunnels](../maps/renders/tunnels.svg) | 3v3, 24x13, 2 sites | 30 / 32 | 6 / 7 | 24 / 25 | 14 | 2 / 2 | 20.5 | 6 | 72.9% [68.6, 77.2] |
+| [`tunnels`](../maps/tunnels.ibcmap)<br>![tunnels](../maps/renders/tunnels.svg) | 3v3, 24x13, 2 sites | 29 / 32 | 6 / 6 | 23 / 26 | 14 | 2 / 2 | 21.0 | 6 | 48.1% [44.1, 52.2]* |
 | [`warrens`](../maps/warrens.ibcmap)<br>![warrens](../maps/renders/warrens.svg) | 5v5, 35x25, 2 sites | 39 / 39 | 21 / 21 | 18 / 18 | 28 | 3 / 3 | 22.2 | 0 | 47.1% [42.4, 51.7] |
 
 | Map | Identity |
 |---|---|
 | `agora` | Open middle with flanks. A plaza with a central block and pillars; both sites are reached from the plaza or along an outer lane. The most open map |
-| `longwatch` | Lane map. Two long outer lanes (17 to 20 tile fights) around a cramped middle of small rooms with one-tile doors |
+| `longwatch` | Lane map. Two long outer lanes (17 to 20 tile fights) around a cramped middle of small rooms with one-tile doors; a pillar in each of the two middle rooms breaks the line down their aligned doors |
 | `warrens` | Tight corridors. Rooms and one- and two-tile doors everywhere; three one-tile chokes per site; the only long lines are two cross-map alleys |
 | `spillway` | Vertical split. Portrait map cut in two by a spine wall with a single crossing near the sites; attackers at the bottom, one site per side |
 | `trident` | Three sites: one on the centre axis and one on each wing. Short hops between neighbours, a long rotation wing to wing |
@@ -253,7 +259,7 @@ reference bots against each other on both sides, 3 seeds (details under "League 
 | `postern` | 3v3. Small and fast: three one-tile entrances per site, 18-tick rotation |
 | `culvert` | 3v3, diagonal. Spawns in opposite corners, sites in the other two, so each site has a different timing |
 | `quarry` | 4v4. A central pit full of low cover that you can shoot across but not run through, sites above and below it |
-| `crossfire`, `tunnels` | The two original maps, unchanged (byte-identical). They predate the bands: defenders start next to the sites (advantage 24 to 35 ticks) and `crossfire` has 30-tile sightlines |
+| `crossfire`, `tunnels` | The two original maps. `crossfire` is unchanged (byte-identical); `tunnels` has five tiles changed to take away the attackers' edge (see "Side-balance fixes"). They predate the bands: defenders start next to the sites (advantage 23 to 35 ticks) and `crossfire` has 30-tile sightlines |
 
 The "without" rotations for `delta` and `fulcrum` were measured on a copy of the map with those doors walled.
 
@@ -303,22 +309,103 @@ slots. `n` is the number of games behind the interval. The bots are described in
 | `culvert` | 51.0% [46.0, 56.1] | 192 |
 | `delta` | 51.9% [47.8, 56.1] | 192 |
 | `fulcrum` | 48.5% [43.5, 53.5] | 192 |
-| `longwatch` | 57.0% [52.5, 61.5] | 192 |
+| `longwatch` | 51.5% [47.8, 55.1]* | 1280* |
 | `postern` | 53.7% [48.0, 59.4] | 192 |
 | `quarry` | 48.8% [44.1, 53.5] | 192 |
 | `spillway` | 61.9% [57.6, 66.2] | 192 |
 | `steppe` | 51.3% [47.6, 55.0] | 192 |
 | `trident` | 60.0% [55.0, 65.0] | 192 |
-| `tunnels` | 72.9% [68.6, 77.2] | 192 |
+| `tunnels` | 48.1% [44.1, 52.2]* | 1280* |
 | `warrens` | 47.1% [42.4, 51.7] | 192 |
 
-Over the whole pool attackers win 56.1% [54.8, 57.4] of rounds.
+\* Measured after the map changed, on ruleset `5795cbc069627a93`: 20 seeds, native, interval clustered by seed
+(see "Side-balance fixes"). Before the changes this run gave `longwatch` 57.0% [52.5, 61.5] and `tunnels` 72.9%
+[68.6, 77.2].
+
+Over the whole pool attackers win 56.1% [54.8, 57.4] of rounds (before the `longwatch` and `tunnels` changes).
 
 Read these with the bots in mind: they were written before the timings changed and have not been retuned.
 
-- `crossfire` and `tunnels` stay attacker-sided (68% and 73%). They are the two original maps, where defenders
-  spawn next to the sites, and they are the only two exempt from the bands.
+- `crossfire` stays attacker-sided (68%). It and `tunnels` are the two original maps, where defenders spawn next
+  to the sites, and they are the only two exempt from the bands. `tunnels` was at 73% until it was changed.
 - The four new maps sit between 48% and 61%. `bazaar` is the high one; its interval reaches 67%, so it is the
   one to watch.
 - The older figures in this file's history (rusher against holder, 10 seeds) were for a ruleset that no longer
   exists and a two-bot pool; they are not comparable and were removed.
+- Since 2026-11-27 the bots walk to the plant point (`SiteInfo.plant_x`, `plant_y`) instead of the box centre.
+  On every map but `tunnels` the two are the same point and every game is identical. On `tunnels` before its
+  side-balance fix (2x2 sites, so the plant point is half a tile up and left of the box centre), on ruleset
+  `5795cbc069627a93`, attackers won 72.4% [68.1, 76.8] of rounds before and 71.3% [66.8, 75.7] after, 192 games
+  each: no change beyond the noise. The figures above without a * are the 2026-11-25 measurement.
+
+### Side-balance fixes
+
+Maps changed because the league put them on the attackers' side. Each was measured before and after on ruleset
+`5795cbc069627a93`, the eight reference bots against each other on both slots, mirrors included (64 pairings):
+
+```
+ibc-bench balance --bots rusher,holder,utility,sapper,retaker,lurker,saver,forcer --maps maps/<map>.ibcmap --seeds 20 --backend native
+ibc-bench balance --bots <the same eight, as .wasm files> --maps maps/<map>.ibcmap --seeds 10 --backend wasm
+```
+
+Intervals are 95% and clustered by seed: the squad bots draw their plan and their attack site from the seed, so
+the games of one seed are not independent and the per-game intervals `ibc-bench` prints are too narrow. Three
+seeds are too few to place a map: after the change `tunnels` reads 56.5% [52.3, 60.7] at 3 seeds (per-game
+interval) and 48.1% [44.1, 52.2] at 20. The paired difference is the mean over seeds of each seed's after minus
+before. Squad only: sapper, retaker, lurker, saver and forcer against each other. Retake success: share of
+planted rounds the defenders won. Held: share of all rounds the defenders won without a plant.
+
+#### `tunnels`
+
+Each site is reached through one 1-tile choke, (17,3) or (17,9), off one hall (x 14 to 17, rows 3 to 9) beside
+the defender spawn pocket (x 19 to 22, rows 4 to 8). Two things gave the attackers the map:
+
+- A slit sightline from the attackers' side, around (5..8, 1..3), through the middle-lane gap (13,6) and the hall
+  into the back corner of site 2, and its mirror into site 1: the two longest lines of the map (19.2 and 20.6
+  tiles). Walls at (14,5) and (14,7) close both.
+- Defenders in the spawn pocket could not see the hall the attack comes through. Low cover at (18,5), (18,6)
+  and (18,7) turns the pocket's west wall into a window they can see and shoot through but not walk through.
+  The longest line is now the middle lane into the pocket, (1,6) to (22,6), 21.0 tiles.
+
+| `tunnels` | Before | After | Paired difference |
+|---|---|---|---|
+| Attackers win rounds, native, 20 seeds | 73.1% [70.9, 75.2] | 48.1% [44.1, 52.2] | -24.6 [-28.3, -20.9], lower on 20 of 20 seeds |
+| Attackers win rounds, wasm, 10 seeds | 72.6% [70.2, 75.1] | 49.4% [43.1, 55.7] | -23.0 [-28.6, -17.4], lower on 10 of 10 seeds |
+| Squad only, native | 81.8% [79.8, 83.8] | 44.4% [35.9, 52.9] | -36.9 [-44.7, -29.0] |
+| Plant rate, native | 20.5% [16.7, 24.2] | 15.5% [11.5, 19.5] | -4.8 [-7.3, -2.3] |
+| Retake success, native | 16.8% [14.5, 19.2] | 35.5% [26.5, 44.4] | +21.9 [+15.1, +28.6] |
+| Held, native | 23.5% [21.5, 25.5] | 46.4% [42.3, 50.4] | +22.5 [+18.9, +26.1] |
+| Ends by elimination / defuse, native | 96.5% / 3.4% | 94.5% / 5.5% | detonation and timeout under 0.1% in both |
+
+Alone, the walls moved attackers -8.8 [-11.7, -5.9] and the windows -15.9 [-19.8, -12.0] (native, 20 seeds),
+so the two parts add up. Of the windows the middle one matters most: (18,6) alone -6.9, (18,5) and (18,7)
+together -1.5, all three -15.9. First contact moved from tick 12.5 to 19.6 and tie-broken matches from 19.6% to
+6.5%. The site-holding bots (holder, lurker, retaker, sapper, saver) won 10 to 15% of their defending rounds
+before and 40 to 55% after. rusher barely moved on either side; utility lost 9 points attacking and none
+defending. Squad only fell further than the pool, to 44%, but its interval contains 50%.
+
+#### `longwatch`
+
+The doors of the two middle rooms (x 20 to 25, rows 8 to 12 and 16 to 20) line up vertically: (20..22,7),
+(23..24,13), (23..24,15) and (20..22,21). A 12 to 19 tile line ran through them from the site room's north-west
+corner (19..20, 2..3), the longest on the map ((19,1) to (25,20), 19.9 tiles), and its mirror from site 2.
+Attackers who planted and sat in that corner shot retakers coming down the middle, which is also the rotation
+route. A wall at (22,9) and one at (22,19), a pillar in each middle room, break it. The longest line is now
+(21,1) to (25,20), 19.4 tiles, past the pillar's side; a charge on the centre is seen from 73 tiles instead of
+93, and the mean hold position sees 73% of the site instead of 82%. Timings are unchanged.
+
+| `longwatch` | Before | After | Paired difference |
+|---|---|---|---|
+| Attackers win rounds, native, 20 seeds | 56.9% [53.9, 60.0] | 51.5% [47.8, 55.1] | -5.3 [-7.9, -2.7], lower on 17 of 20 seeds |
+| Attackers win rounds, wasm, 10 seeds | 57.1% [52.1, 62.1] | 50.9% [44.7, 57.0] | -6.1 [-10.4, -1.7], lower on 9 of 10 seeds |
+| Squad only, native | 64.3% [59.1, 69.5] | 59.0% [52.9, 65.1] | -5.0 [-9.6, -0.3] |
+| Plant rate, native | 71.1% [69.6, 72.6] | 71.5% [69.4, 73.6] | +0.4 [-1.1, +1.9] |
+| Retake success, native | 27.7% [24.7, 30.6] | 33.8% [30.4, 37.3] | +6.1 [+3.4, +8.8] |
+| Held, native | 23.4% [21.6, 25.2] | 24.4% [22.1, 26.7] | +0.9 [-0.6, +2.4] |
+| Ends by elimination / defuse, native | 75.6% / 19.7% | 72.3% / 24.2% | defuse +4.4 [+2.8, +6.1] |
+| Ends by detonation / timeout, native | 2.4% / 2.3% | 1.9% / 1.6% | |
+
+The plant rate did not move; what changed is the retake, as intended. Fights got shorter: kills at 10 to 20
+tiles fell from 24% to 8% of all kills and the mean kill distance from 7.8 to 6.5 tiles, so much of the map's
+long-range fighting went down this line rather than the outer lanes. holder and rusher lost 15 to 16 points
+attacking; defending, every bot but rusher and utility gained 6 to 11 points.

@@ -48,7 +48,7 @@ impl {{type}} {
             return; // an enemy is in sight: stand and shoot
         }
         let Some(site) = sites().next() else { return };
-        let site = (site.centre_x, site.centre_y);
+        let site = site.plant_point(); // a site tile, unlike the box centre
         let charge = (info.charge_x, info.charge_y);
         let attacking = info.my_side == SIDE_ATTACK;
         if !attacking && info.phase == PHASE_PLANTED {

@@ -110,6 +110,13 @@ it has left. All effects and devices in flight are removed when a round starts.
 centre, a barrier's first end, the unit being healed). An enemy **trap** is listed only when you can see it and
 it is within `sense_radius` of you: further away it is hidden even in plain view.
 
+**Being hit.** Every time an effect gives a unit a status (a flash blinds it, a concussion or a trap slows it, a
+trap, a sonar pulse or a recon beacon reveals it), that unit's team gets an `EVENT_EFFECT` with the effect kind
+in `value`, and so does the other team if it sees the unit. Fire reports its damage as `EVENT_DAMAGE` instead.
+Only the unit hit reads where it came from: the angle to the effect's centre and the centre itself (`dir`,
+`src_x`, `src_y`), never the thrower's position. The thrower is named (`actor`) only to its own team. A recon
+beacon reports each tick it marks the unit, fire each tick it burns. See `docs/ABI.md`.
+
 ## The abilities
 
 ### Smoke
@@ -127,7 +134,8 @@ clear of walls, smoke and barriers. A unit facing it head-on is blinded for `dur
 linearly with the angle to `power` percent of that at the edge of the cone (rounded down, at least 1 turn).
 A unit with the pop outside its cone is not affected at all, however close. A blinded unit (`S_BLINDED`,
 `UnitInfo.blind` = turns left) sees only within `sense_radius`. A second flash does not add: the longer of the
-two applies.
+two applies. Each unit blinded gets an `EVENT_EFFECT` (`value` = `EFFECT_FLASH`) that tells it alone where the
+flash popped, not who threw it (see **Being hit** above).
 *Counters:* turn away. The thrower is visible casting (`S_CASTING`) and the device in flight
 (`T_PROJECTILES`), and `turn_rate` is enough to put it outside the cone in one tick; the price is a tick spent
 not looking at the fight. Smoke or a barrier in between also works.
@@ -144,7 +152,7 @@ A beacon that scans for `duration` ticks. Each tick, every enemy within `radius`
 beacon has a clear line to (no wall, smoke or barrier) is marked `S_REVEALED` for `power` turns. A revealed
 unit appears in `T_ENEMIES` of every unit of the other team, wherever they are and wherever they look.
 *Counters:* break the line to the beacon: walls, smoke, a barrier. The marked unit sees `S_REVEALED` in its own
-state and knows it is being watched.
+state and an `EVENT_EFFECT` pointing at the beacon, so it knows it is being watched and from where.
 
 ### Barrier
 A straight wall segment placed `range` in front of the user (nearer if the target point is nearer, and never

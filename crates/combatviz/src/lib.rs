@@ -188,14 +188,15 @@ mod tests {
     fn a_strafe_dodges_and_a_lead_hits() {
         let lab = build();
         for name in ["pistol", "marksman"] {
+            let tiles = flight::dodge_tiles(name);
             assert_eq!(
-                scene(&lab, &format!("dodge-{name}-15-strafe")).outcome,
+                scene(&lab, &format!("dodge-{name}-{tiles}-strafe")).outcome,
                 "dealt 0"
             );
-            assert!(!scene(&lab, &format!("dodge-{name}-15-stand"))
+            assert!(!scene(&lab, &format!("dodge-{name}-{tiles}-stand"))
                 .outcome
                 .starts_with("dealt 0"));
-            assert!(!scene(&lab, &format!("dodge-{name}-15-lead"))
+            assert!(!scene(&lab, &format!("dodge-{name}-{tiles}-lead"))
                 .outcome
                 .starts_with("dealt 0"));
         }

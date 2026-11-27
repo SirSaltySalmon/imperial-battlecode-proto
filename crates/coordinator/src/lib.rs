@@ -247,10 +247,48 @@ impl App {
         })
     }
 
+    /// Ranked series that would bring the queue up to `ranked_backlog_ms` of work for the live workers,
+    /// at most `ranked_series_budget`: queued jobs of every class count, so tournament games and scrims
+    /// leave less room. 0 with the fill-up off, no live workers, or a queue that already holds enough.
+    pub fn ranked_fill_budget(
+        &self,
+        tx: &rusqlite::Transaction,
+        games: i64,
+        now: i64,
+    ) -> ApiResult<u32> {
+        let cores = db::live_cores(tx, now - self.cfg.worker_live_ms)?;
+        if self.cfg.ranked_backlog_ms <= 0 || cores <= 0 || games <= 0 {
+            return Ok(0);
+        }
+        let governor = ibc_rating::BudgetConfig::default();
+        let per_game = db::league::mean_game_seconds(tx, now - 3_600_000)?
+            .filter(|m| m.is_finite() && *m > 0.0)
+            .unwrap_or(governor.prior_core_seconds_per_game)
+            .max(governor.min_core_seconds_per_game);
+        let target = cores as f64 * self.cfg.ranked_backlog_ms as f64 / 1000.0 / per_game;
+        let missing = target.floor() as i64 - db::league::queued_jobs(tx)?;
+        if missing <= 0 {
+            return Ok(0);
+        }
+        let series = u32::try_from((missing + games - 1) / games).unwrap_or(u32::MAX);
+        Ok(series.min(u32::try_from(self.cfg.ranked_series_budget).unwrap_or(u32::MAX)))
+    }
+
+    /// A fill-up round: `ranked_round` with `ranked_fill_budget`, nothing if that is 0.
+    pub fn ranked_fill_round(&self, games: i64) -> ApiResult<Vec<String>> {
+        let now = util::now_ms();
+        let budget = self.db.tx(|tx| self.ranked_fill_budget(tx, games, now))?;
+        if budget == 0 {
+            return Ok(Vec::new());
+        }
+        self.ranked_round(Some(budget), games)
+    }
+
     /// One round of the ranked scheduler: `ibc_rating::plan_batch` pairs live teams that have no ranked
-    /// series running (under-played teams first, opponents near in rating), at most `budget` series
-    /// (`None`: what `ranked_budget` says the workers can play). Returns the ids of the series created;
-    /// none while a tournament lock pauses ranked matchmaking.
+    /// series running and are under their series cap (under-played teams first, opponents near in rating,
+    /// fresh opponents before rematches), at most `budget` series (`None`: what `ranked_budget` says the
+    /// workers can play). Returns the ids of the series created; none while a tournament lock pauses
+    /// ranked matchmaking.
     pub fn ranked_round(&self, budget: Option<u32>, games: i64) -> ApiResult<Vec<String>> {
         let now = util::now_ms();
         let seed = u64::from_str_radix(&util::random_hex(8), 16).expect("16 hex digits");
@@ -262,7 +300,8 @@ impl App {
                 Some(b) => b,
                 None => self.ranked_budget(tx, games, now)?,
             };
-            let pool = db::league::matchmaking_pool(tx, self.rating.as_ref(), now)?;
+            let cap_since = now - self.cfg.ranked_cap_window_ms;
+            let pool = db::league::matchmaking_pool(tx, self.rating.as_ref(), now, cap_since)?;
             // A team whose live submission fails on the current patch past its grace is not paired.
             let excluded = patch::excluded_teams(self, tx, now)?;
             let states: Vec<ibc_rating::TeamState> = pool
@@ -277,7 +316,7 @@ impl App {
                 &states,
                 (now.max(0) / 1000) as u64,
                 budget,
-                &ibc_rating::MatchmakingConfig::default(),
+                &self.cfg.matchmaking(),
                 seed,
             );
             let mut created = Vec::new();
@@ -297,9 +336,10 @@ impl App {
     }
 }
 
-/// Start the sweeper and, if configured, the ranked scheduler and the placement task (which follows the
-/// sweeper's period, so a placement series starts within seconds of the last one closing). They run until
-/// the runtime shuts down.
+/// Start the sweeper and, if configured, the ranked scheduler and the placement task. The placement task and
+/// the scheduler's fill-up follow the sweeper's period, so a placement series starts within seconds of the
+/// last one closing and idle workers get ranked games within seconds; the scheduler's full round still
+/// runs every `ranked_interval_ms`. They run until the runtime shuts down.
 pub fn spawn_background(app: Arc<App>) {
     if app.cfg.ranked_interval_ms > 0 && app.cfg.placement_series > 0 {
         let placer = app.clone();
@@ -331,12 +371,25 @@ pub fn spawn_background(app: Arc<App>) {
     });
     if app.cfg.ranked_interval_ms > 0 {
         tokio::spawn(async move {
-            let mut tick = tokio::time::interval(Duration::from_millis(app.cfg.ranked_interval_ms));
+            let interval = Duration::from_millis(app.cfg.ranked_interval_ms);
+            let mut tick = tokio::time::interval(
+                Duration::from_millis(app.cfg.sweep_ms.max(10)).min(interval),
+            );
+            let mut last_round: Option<tokio::time::Instant> = None;
             loop {
-                tick.tick().await;
-                match app.ranked_round(None, app.cfg.ranked_games) {
+                let now = tick.tick().await;
+                let (what, result) = if last_round.is_none_or(|at| now - at >= interval) {
+                    last_round = Some(now);
+                    ("queued", app.ranked_round(None, app.cfg.ranked_games))
+                } else {
+                    (
+                        "topped up the queue with",
+                        app.ranked_fill_round(app.cfg.ranked_games),
+                    )
+                };
+                match result {
                     Ok(created) if !created.is_empty() => {
-                        eprintln!("scheduler: queued {} ranked series", created.len())
+                        eprintln!("scheduler: {what} {} ranked series", created.len())
                     }
                     Ok(_) => {}
                     // No patch, no maps or fewer than two live teams yet: nothing to schedule.

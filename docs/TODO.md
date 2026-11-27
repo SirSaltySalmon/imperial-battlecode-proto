@@ -93,10 +93,29 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   were not affected: the goldens verify unchanged. Left over: never compiled with wasi-sdk. Build a C++ bot
   with `exceptions = true`, check it passes `ibc build`, and measure its module size and fuel per `throw`
   for `sdk/cpp/README.md`.
-- [ ] **The runner scales badly inside one process.** Per-match cost was about 26 ms at `--jobs 1` and 88 ms
-  at `--jobs 8` (8.6 to 8.8 matches per core-second instead of 32 to 35). The worker works around it with one
-  runner process per slot. Find the contention in `crates/cli/src/batch.rs` / `crates/runner` (likely the
-  shared module cache lock or allocator) before sizing a fleet.
+- [x] **The runner scales badly inside one process.** Measured again on 2026-11-27 (i7-12700H laptop: 6
+  two-thread performance cores and 8 efficiency cores, Windows 11; 200 rusher/holder matches on `crossfire`
+  and `quarry` kept N in flight through `run-batch --jsonl`; high priority, as the box was shared; 3
+  repeats, ranges in brackets). It does not triple. One process with `--jobs N` and N processes with
+  `--jobs 1` cost the same per match up to N = 8 (66 [64, 70] against 66 [61, 74] ms); at 16 the one
+  process is 11% slower (89 [88, 90] against 80 [79, 83] ms). The rise from 54 ms at N = 1 is the CPU
+  (efficiency cores, shared cores, one power budget): separate processes rise the same. The old 26 and 88 ms
+  were taken next to ten other builds. What one process adds: creating and dropping a unit's store maps and
+  unmaps its memory, table and fiber stack, which serialises on the process's address-space lock (a
+  benchmark doing only that: about 10,000 stores/s on Windows at any thread count; Linux under WSL2: 20,000
+  on one thread, 10,000 on 16). Wasmtime's pooling allocator removes that on Linux (98,000 stores/s on 16
+  threads), not on Windows, where it pools no fiber stacks and decommits memory on reuse. But a match makes
+  only 10 stores, under 2 ms of 55: on whole matches pooling moved nothing outside the noise (Windows 73.8
+  against 75.1 ms at 16 threads, Linux 49.6 against 48.7), so the runner does not use it. The module cache
+  lock (two lookups per match), the per-match `Arc<Mutex<Match>>`, the heap (glibc tunables that keep large
+  blocks changed nothing) and logging never showed. Done instead, the largest avoidable cost found: the
+  replay was deflated twice per match, for `replay_sha256` and again to write `replay.ibcr`.
+  `MatchOutput::replay_bytes` now carries the first encoding; a match costs about 0.8 of before at every
+  `--jobs` (paired, interleaved runs: 0.77 to 0.84 in one process, 0.66 to 0.82 in N processes), replays
+  byte-identical. Left over: keep the worker's one process per slot (it buys those 11% at 16 slots, and a
+  timed-out match is killed alone). The one deflate left (level 8) is about a fifth of a match; another
+  level changes replay bytes, so that is a patch. Re-measure on the fleet's Linux hosts: WSL2 here was too
+  noisy to resolve less than 10%.
 - [ ] **The `unsafe` in the fuel logic.** `crates/runner/src/vm.rs` reaches the store through a raw pointer to
   re-arm a suspended bot's fuel each turn. Checked against the Wasmtime 51 source on 2026-11-27: no safe API
   can do it. When a fuel slice runs out, Wasmtime refuels and yields without calling the embedder, and runs
@@ -204,8 +223,8 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   429 with `Retry-After`, suspend/ban for teams and users. Was: Upload rate and size per team, total submissions kept per team, API rate limits.
 - [ ] **Cost prior in the budget governor.** `series_per_batch` falls back to 10 core-seconds per game when it
   has no measurement; measured cost is about 0.03. Unit 9 made it schedule at least one series per round until
-  games are timed, and devstack uses a 30 s interval; the prior itself is still 10. Measured 2026-11-27
-  with `bots/burner` (every unit spends its whole fuel every tick;
+  games are timed, and the fill-up (which uses the same prior) keeps an idle fleet busy regardless; the prior
+  itself is still 10. Measured 2026-11-27 with `bots/burner` (every unit spends its whole fuel every tick;
   all 14 maps, 4 seeds, both sides, native `ibc` on an i7-12700H): 0.53 core-s per game mean, 0.66 max doing
   nothing, 0.47 / 0.66 on top of `forcer`; the longest legal match projects to about 0.9. Cache-missing code
   reaches 20 to 31 core-s. The bound only holds once host calls are priced (section 2).
@@ -292,5 +311,8 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 ## 7. Decisions needed
 
 - Eligibility categories for the event (sign-in is email + password, decided).
-- Ladder cadence. Ranked series are now 3 games (sides alternate per game) every 600 s by default.
+- Ladder cadence. Ranked series are now 3 games (sides alternate per game), a round every 600 s plus fill-ups
+  whenever the workers have less than 120 s of work queued, at most 5 series per team per 15 minutes (up to
+  10 when drawn as an opponent). Rematches are allowed and weighted down, not capped per day. The cap and
+  backlog are first guesses: measure storage per day on a real ladder before the event.
 - Team shared memory size (64 bytes now). (Sightings and sounds are now shared automatically.)

@@ -117,43 +117,52 @@ Workers are built for instances that vanish:
 
 ## Measured, and what it costs
 
-Measured on the dev machine (20 logical cores, Windows 11, shared with ten other builds at the time, so
-treat the parallel figures as a floor), prebuilt `ibc` 0.1.0, rusher vs holder on the two pool maps:
+Measured on the dev machine on 2026-11-27 (i7-12700H laptop: 6 two-thread performance cores and 8
+efficiency cores, Windows 11), `ibc` 0.2.0, 200 rusher-vs-holder matches on `crossfire` and `quarry` kept N
+in flight through `ibc run-batch --jsonl`, at high priority because the box was shared with other builds; 3
+repeats, ranges in brackets. These are from just before the runner stopped deflating each replay twice
+(`docs/TODO.md`, section 2), which made every row about 20% cheaper (16 to 34%, paired interleaved runs).
 
-| Run | Wall | Throughput | Matches per core-second |
-|---|---|---|---|
-| `ibc run-batch --jsonl --jobs 1`, 40 matches | 1.13-1.26 s | 32-35 /s | **32-35** (one core) |
-| `ibc run-batch --jsonl --jobs 8`, 40 matches | 0.57-0.58 s | 69-70 /s | **8.6-8.8** by wall x 8 (11 by summed per-match time) |
-| one process per match, 10 matches | 3.0-3.1 s | 3.3 /s | 3.3 |
-| `ibc-worker --concurrency 8` + mock coordinator over HTTP, 2000 matches (two runs: busy box, quieter box) | 22.0 s, 11.7 s | 91 /s, 172 /s | **11.4, 21.5** |
-| `ibc-worker --concurrency 4`, 4000 matches incl. a drain and restart (same two runs) | 64 s, 37 s | 62 /s, 109 /s | 15.5, 27 |
+| Matches at once | One process, `--jobs N`: ms per match | Matches per core-second | N processes, `--jobs 1` each (the worker): ms per match | Matches per core-second |
+|---|---|---|---|---|
+| 1 | 54 [49, 63] | 18 | | |
+| 2 | 53 [51, 55] | 19 | 52 [50, 55] | 19 |
+| 4 | 54 [52, 57] | 18 | 56 [51, 64] | 18 |
+| 8 | 66 [64, 70] | 15 | 66 [61, 74] | 15 |
+| 16 | 89 [88, 90] | 10 | 80 [79, 83] | 11 |
+
+Earlier, with `ibc` 0.1.0 on the same box shared with ten other builds: one process per match managed 3.3
+matches/s, and `ibc-worker` with the mock coordinator over HTTP ran 2000 matches at `--concurrency 8` at
+11.4 and 21.5 matches per core-second (busy box, quieter box), and 4000 at `--concurrency 4`, a drain and
+restart included, at 15.5 and 27.
 
 What this says:
 
-- A warm match costs about 25-30 ms of one core; a match in a fresh process costs about 300 ms. That is
-  why the worker keeps runner processes alive (one per slot, so a timed-out match can be killed alone).
-- Per-match cost roughly triples when eight run at once in one runner process (88 ms vs 26 ms summed
-  per-match wall time), and the worker's figure doubled when the box got quieter. Parallel numbers here are
-  noisy; measure on the target machine. The spread is the difference between 9 and 33 matches per
-  core-second.
+- A warm match costs about 55 ms of one core here (about 45 since the change); a match in a fresh process
+  cost about 300 ms with 0.1.0 (Wasmtime start-up and compiling both bots). That is why the worker keeps
+  runner processes alive (one per slot, so a timed-out match can be killed alone).
+- Matches side by side cost what the CPU's shared cores cost: separate processes slow down just as much.
+  One runner process adds nothing up to 8 at once and about 11% at 16 (Wasmtime maps and unmaps each unit's
+  memory and stack, which serialises within a process). Parallel numbers are noisy; measure on the target
+  machine.
 - The worker's own overhead (lease, three cached blobs, replay upload, complete) is not the bottleneck: it
-  delivered more per core than the bare `--jobs 8` batch.
+  delivered more per core than the bare batch.
 
-Sizing, using the conservative parallel figure (9 matches per core-second) and the single-core figure (33):
+Sizing from the table, before the change (so about 20% pessimistic):
 
-| | conservative | if parallel scaling is fixed |
+| | 16 at once (11 per core-second) | one at a time (18 per core-second) |
 |---|---|---|
-| matches per core-hour | 32 000 | 119 000 |
-| core-hours per 1 M matches | 31 | 8.4 |
-| cost per 1 M matches at $0.01 / vCPU-hour (typical spot) | $0.31 | $0.08 |
-| cost per 1 M matches at $0.04 / vCPU-hour (typical on-demand) | $1.25 | $0.34 |
+| matches per core-hour | 40 000 | 65 000 |
+| core-hours per 1 M matches | 25 | 15 |
+| cost per 1 M matches at $0.01 / vCPU-hour (typical spot) | $0.25 | $0.15 |
+| cost per 1 M matches at $0.04 / vCPU-hour (typical on-demand) | $1.00 | $0.62 |
 
 The hourly prices are illustrative round numbers, not quotes; put in your own. These matches are between
-light reference bots (about 10 M fuel per team); a fuel-hungry bot can cost up to the fuel cap, so re-run
-the benchmark with real submissions before committing to a fleet size. Replays are about 18 KB each:
-1 M matches is about 18 GB of blobs on the coordinator, which will cost more than the compute.
+light reference bots (about 13 M fuel per team); a fuel-hungry bot can cost up to the fuel cap, so re-run
+the benchmark with real submissions before committing to a fleet size. Replays are about 46 KB each:
+1 M matches is about 46 GB of blobs on the coordinator, which will cost more than the compute.
 
-Reproduce: `ibc run-batch --jsonl --jobs 8 < jobs.jsonl` with 40 job lines for the runner alone;
+Reproduce: `ibc run-batch --jsonl --jobs 8 < jobs.jsonl` with job lines for the runner alone;
 `cargo run -p ibc-worker --release --example mock-coordinator -- --jobs 2000 --port 8787` and
 `ibc-worker --coordinator http://127.0.0.1:8787 --registration-token mock --concurrency 8 --once` for the
 whole path.

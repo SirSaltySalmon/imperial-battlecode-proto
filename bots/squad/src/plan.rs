@@ -3,7 +3,7 @@ use crate::{Attack, Defence, Squad, LONG_AGO};
 use ibc::tactics::{approach_point, hold_spot};
 use ibc::*;
 
-/// Posts are picked within this many tiles of the site centre.
+/// Posts are picked within this many tiles of the site's plant point.
 const POST_RADIUS_TILES: i32 = 3;
 /// How many attackers take the long way round in a split.
 const LURKERS: i32 = 2;
@@ -51,7 +51,7 @@ impl Squad {
             let lurks = self.style.attack == Attack::Split && n > 1 && info.unit_slot >= info.team_size - LURKERS;
             if lurks {
                 let other = (self.site + 1 + roll(info, 2) % (n - 1)) % n;
-                self.detour = Some(self.centre(other));
+                self.detour = Some(self.plant_point(other));
             }
             slot
         } else {
@@ -78,13 +78,13 @@ impl Squad {
 
     /// Take the post worked out for the current site. Until it is known, stand on the site.
     pub(crate) fn stand(&mut self) {
-        let centre = self.centre(self.site);
-        let p = self.posts[self.site].unwrap_or(Post { post: centre, watch: centre });
+        let plant = self.plant_point(self.site);
+        let p = self.posts[self.site].unwrap_or(Post { post: plant, watch: plant });
         (self.post, self.watch) = (p.post, p.watch);
     }
 
     /// The expensive part, one step per call: a post for a site that has none yet (the site this unit
-    /// plays first), then a distance field to a site centre. Each answer is kept, so after the first
+    /// plays first), then a distance field to a plant point. Each answer is kept, so after the first
     /// rounds this does nothing.
     pub(crate) fn survey(&mut self, info: &MatchInfo) {
         // A step can outlast its tick on a large map. Never start one on the last buy tick, so the
@@ -100,13 +100,13 @@ impl Squad {
         } else if let Some(i) = own_first.clone().find(|&i| self.fielded[i] < FIELD_STEPS) {
             // Grow the field over the whole map, so every later question is a lookup. The field grows
             // outwards from the site, so asking for the nearest points first splits the work evenly.
-            let centre = self.centre(i);
+            let plant = self.plant_point(i);
             let mut points = self.far_points();
-            points.sort_by_key(|&p| dist2(p, centre));
+            points.sort_by_key(|&p| dist2(p, plant));
             let share = points.len() / FIELD_STEPS as usize;
             let from = self.fielded[i] as usize * share;
             for &p in &points[from..from + share] {
-                let _ = self.far.path_len(&self.nav.grid, p, centre);
+                let _ = self.far.path_len(&self.nav.grid, p, plant);
             }
             self.fielded[i] += 1;
         }
@@ -132,7 +132,7 @@ impl Squad {
     /// Near `site`, a spot with a long line onto the point where the enemy comes into view. A forward
     /// defender stands on that point instead and watches the next one out.
     fn scout(&mut self, site: usize) -> Post {
-        let anchor = self.centre(site);
+        let anchor = self.plant_point(site);
         let origin = (self.map.enemy_spawn_x, self.map.enemy_spawn_y);
         let watch = approach_point(&mut self.nav, anchor, origin);
         if self.forward {

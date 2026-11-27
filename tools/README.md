@@ -18,15 +18,16 @@ ibc-bench ab <A> <B>        paired A/B: W/D/L, Wilson, paired interval, sign tes
 ibc-bench league            round robin, cross table, Bradley-Terry ratings with bootstrap intervals
 ibc-bench balance           designer's report from a league run; --compare OLD.json NEW.json diffs two
 ibc-bench noise <A> <B>     sd of the win rate as a function of N; games needed to detect an Elo gap
-ibc-bench record <A> <B>    replay of one native game (built-in bots), for `why` and `dump`
+ibc-bench record <A> <B>    replay of one native game (built-in bots, unmetered), for `why` and `dump`
 ibc-bench dump <replay>     per-tick JSONL + per-round CSV
 ibc-bench why <replay> --round R --unit U    what that unit saw, did and suffered
 ```
 
-A bot is a built-in name (`rusher`), a bot directory (`bots/rusher`) or a `.wasm` file. Built-in names run
-on the **native** backend (through `ibc-sim`, no wasm, fastest). Paths run on the **wasm** backend, which
-shells out to `ibc run-batch --jsonl`; point it at the runner with `--ibc <path>` or `IBC_BIN`. With
-`--backend wasm` a built-in name means `bots/<name>` built to wasm.
+A bot is a built-in name (`rusher`), a bot directory (`bots/rusher`) or a `.wasm` file. Games run on the
+**wasm** backend by default: `ibc run-batch --jsonl` under the fuel budget, as a real match is played, and a
+built-in name means `bots/<name>` built to wasm. Point it at the runner with `--ibc <path>` or `IBC_BIN`;
+`tools/bench.sh` builds the runner and sets it. `--backend native` links the built-in bots as Rust through
+`ibc-sim`: faster, but UNMETERED (unlimited fuel), and every report it writes says so. Report wasm results.
 
 Output goes to `out/<command>/<utc stamp>/` (override with `--out`): `report.md` for people, `report.json`
 for programs (each has a `schema` field), `games.jsonl` with one record per game. Wasm runs also keep

@@ -138,11 +138,12 @@
 <rect x="176" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="192" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="208" y="80" width="16" height="16" fill="#2b3038" stroke="#d9d4c7" stroke-width="0.5"/>
-<rect x="224" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
+<rect x="224" y="80" width="16" height="16" fill="#2b3038" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="240" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="256" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="272" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
-<rect x="288" y="80" width="16" height="16" fill="#2b3038" stroke="#d9d4c7" stroke-width="0.5"/>
+<rect x="288" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
+<rect x="290" y="82" width="12" height="12" rx="3" fill="#a9824a" stroke="#6e5026" stroke-width="1"/>
 <rect x="304" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="320" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="336" y="80" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
@@ -167,7 +168,8 @@
 <rect x="240" y="96" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="256" y="96" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="272" y="96" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
-<rect x="288" y="96" width="16" height="16" fill="#2b3038" stroke="#d9d4c7" stroke-width="0.5"/>
+<rect x="288" y="96" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
+<rect x="290" y="98" width="12" height="12" rx="3" fill="#a9824a" stroke="#6e5026" stroke-width="1"/>
 <rect x="304" y="96" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="320" y="96" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="336" y="96" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
@@ -187,11 +189,12 @@
 <rect x="176" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="192" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="208" y="112" width="16" height="16" fill="#2b3038" stroke="#d9d4c7" stroke-width="0.5"/>
-<rect x="224" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
+<rect x="224" y="112" width="16" height="16" fill="#2b3038" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="240" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="256" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="272" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
-<rect x="288" y="112" width="16" height="16" fill="#2b3038" stroke="#d9d4c7" stroke-width="0.5"/>
+<rect x="288" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
+<rect x="290" y="114" width="12" height="12" rx="3" fill="#a9824a" stroke="#6e5026" stroke-width="1"/>
 <rect x="304" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="320" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
 <rect x="336" y="112" width="16" height="16" fill="#f4f1ea" stroke="#d9d4c7" stroke-width="0.5"/>
@@ -337,9 +340,9 @@
 <rect x="273" y="145" width="14" height="14" fill="#b5179e" fill-opacity="0.3" stroke="#b5179e" stroke-width="1"/>
 <rect x="273" y="49" width="14" height="14" fill="#b5179e" fill-opacity="0.3" stroke="#b5179e" stroke-width="1"/>
 <rect x="273" y="145" width="14" height="14" fill="#b5179e" fill-opacity="0.3" stroke="#b5179e" stroke-width="1"/>
-<polyline points="40.0,24.0 144.0,53.1 160.0,53.1 208.0,42.9 224.0,42.9 256.0,53.1 272.0,53.1 352.0,32.0" fill="none" stroke="#d9480f" stroke-width="2" stroke-opacity="0.8" stroke-linejoin="round"/>
-<polyline points="344.0,88.0 352.0,32.0" fill="none" stroke="#1c6dd0" stroke-width="2" stroke-opacity="0.8" stroke-linejoin="round"/>
-<polyline points="40.0,24.0 96.0,42.9 99.6,44.4 204.4,99.6 208.0,101.1 224.0,106.9 227.6,108.4 284.4,147.6 288.0,149.1 352.0,176.0" fill="none" stroke="#d9480f" stroke-width="2" stroke-opacity="0.8" stroke-linejoin="round"/>
-<polyline points="344.0,104.0 352.0,176.0" fill="none" stroke="#1c6dd0" stroke-width="2" stroke-opacity="0.8" stroke-linejoin="round"/>
+<polyline points="40.0,24.0 144.0,53.1 160.0,53.1 208.0,42.9 224.0,42.9 256.0,53.1 272.0,53.1 275.6,51.6 344.0,24.0" fill="none" stroke="#d9480f" stroke-width="2" stroke-opacity="0.8" stroke-linejoin="round"/>
+<polyline points="344.0,88.0 344.0,24.0" fill="none" stroke="#1c6dd0" stroke-width="2" stroke-opacity="0.8" stroke-linejoin="round"/>
+<polyline points="40.0,24.0 96.0,42.9 99.6,44.4 204.4,99.6 208.0,101.1 240.0,106.9 243.6,108.4 284.4,147.6 288.0,149.1 344.0,168.0" fill="none" stroke="#d9480f" stroke-width="2" stroke-opacity="0.8" stroke-linejoin="round"/>
+<polyline points="344.0,104.0 344.0,168.0" fill="none" stroke="#1c6dd0" stroke-width="2" stroke-opacity="0.8" stroke-linejoin="round"/>
 <text x="2" y="221" font-size="11" fill="#333">tunnels 24x13 3v3  A=attackers D=defenders  brown=low cover</text>
 </svg>

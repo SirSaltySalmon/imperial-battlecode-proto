@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Paired A/B of a candidate bot against a baseline, with early stopping.
 #   tools/ab.sh <candidate> <baseline> [extra ibc-bench ab flags]
-# Bots are built-in names, bot directories or .wasm files (paths relative to the repo root).
+# Bots are built-in names (played as bots/<name> built to wasm), bot directories or .wasm files (paths
+# relative to the repo root). Games are fuel metered; --backend native is an unmetered quick look only.
 # Prints the verdict; exit 2 = some games failed.
 set -euo pipefail
 if [ $# -lt 2 ]; then

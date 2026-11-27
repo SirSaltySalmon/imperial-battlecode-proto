@@ -118,7 +118,9 @@ coordinator uses it to size ranked batches to the fleet.
 The ladder is rated per series, not per job: when every map of a ranked series has finished, the series'
 `outcome`s (maps won, lost, drawn) move the two ratings once, from the pre-series ratings
 (`docs/api/league.md`). A ranked series is `IBC_RANKED_GAMES` maps (default 3), queued by the built-in
-scheduler every `IBC_RANKED_INTERVAL_SECS` (default 600, 0 = off) with each team's live bot.
+scheduler every `IBC_RANKED_INTERVAL_SECS` (default 600, 0 = off) with each team's live bot, and between
+those rounds whenever the queue holds less than `IBC_RANKED_BACKLOG_SECS` (default 120) of work for the live
+workers, so an idle fleet keeps playing; a per-team series cap bounds how much.
 
 ### Worker procedure
 

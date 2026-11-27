@@ -121,7 +121,7 @@ impl Squad {
     fn scene(&self, me: &UnitInfo, info: &MatchInfo, enemy: Option<UnitInfo>) -> Scene {
         let attacking = info.my_side == SIDE_ATTACK;
         let planted = info.phase == PHASE_PLANTED;
-        let objective = if planted { (info.charge_x, info.charge_y) } else { self.centre(self.site) };
+        let objective = if planted { (info.charge_x, info.charge_y) } else { self.plant_point(self.site) };
         let near = dist(me.pos(), objective);
         let channel_soon = if planted {
             !attacking && near <= 2 * TILE && self.nearest_to(me, objective)
@@ -136,7 +136,7 @@ impl Squad {
             objective,
             watch: self.watch,
             sighting: self.sighting(info),
-            other_site: (other != self.site).then(|| self.centre(other)),
+            other_site: (other != self.site).then(|| self.plant_point(other)),
             defuse_heard: self.defuse_alert(info),
             opened: planted || self.core.round_ticks - info.phase_ticks_left >= 6,
             channel_soon,
@@ -145,7 +145,7 @@ impl Squad {
 
     /// Returns true if the tick's one "hands" action (plant, pickup) was used.
     fn attack(&mut self, me: &UnitInfo, info: &MatchInfo, fighting: bool, hold: bool, pace: i32) -> bool {
-        let anchor = self.centre(self.site);
+        let anchor = self.plant_point(self.site);
         let charge = (info.charge_x, info.charge_y);
         let mut hold = hold;
         let goal = if info.phase == PHASE_PLANTED {
@@ -187,7 +187,7 @@ impl Squad {
         let sighting = self.sighting(info);
         // Spare defenders rotate to the site nearest a fresh sighting.
         if let (Some(seen), true) = (sighting, self.spare) {
-            let hot = (0..self.sites.len()).min_by_key(|&i| dist2(self.centre(i), seen)).unwrap_or(self.site);
+            let hot = (0..self.sites.len()).min_by_key(|&i| dist2(self.plant_point(i), seen)).unwrap_or(self.site);
             if hot != self.site {
                 self.site = hot;
                 self.stand();
@@ -209,8 +209,9 @@ impl Squad {
         let charge = (info.charge_x, info.charge_y);
         let run = self.core.run_speed;
         let direct = dist(me.pos(), charge);
-        // The charge lies on a site, so the distance to that site's centre stands in for the distance to it.
-        let planted_on = (0..self.sites.len()).min_by_key(|&i| dist2(self.centre(i), charge)).unwrap_or(self.site);
+        // The charge lies on a site, so the distance to that site's plant point stands in for the distance to it.
+        let planted_on =
+            (0..self.sites.len()).min_by_key(|&i| dist2(self.plant_point(i), charge)).unwrap_or(self.site);
         let path = self.far_len(me, planted_on).max(direct);
         let defuse_ticks = if me.has(S_HAS_KIT) { self.core.defuse_kit_ticks } else { self.core.defuse_ticks };
         // The fuse leaves no time for anything but going in.

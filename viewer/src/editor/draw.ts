@@ -1,6 +1,6 @@
 // Draws the map being edited with the replay viewer's renderer (`render.ts`: floor, spawns, sites, low cover,
 // walls) on an empty frame, plus the editor's marks: the symmetry axis, the tiles under the cursor, the spawn
-// tiles a team actually uses and the site centres the engine reports.
+// tiles a team actually uses and the plant points the engine reports.
 
 import type { Camera } from "../camera";
 import { parseMap, type GameMap } from "../map";
@@ -88,11 +88,11 @@ function drawMarks(pen: Pen, map: GameMap, overlay: Overlay): void {
         ctx.fill();
       }
     });
-    // Where bots plant: the centre of each site's bounding box.
+    // Where bots plant: each site's plant point, the centre of the site tile nearest its box centre.
     ctx.strokeStyle = pal.site;
     ctx.lineWidth = 2 * px;
     for (const s of overlay.summary.sites) {
-      const [x, y] = [s.centre_x / TILE, s.centre_y / TILE];
+      const [x, y] = [s.plant_x / TILE, s.plant_y / TILE];
       ctx.beginPath();
       ctx.moveTo(x - 0.3, y - 0.3);
       ctx.lineTo(x + 0.3, y + 0.3);

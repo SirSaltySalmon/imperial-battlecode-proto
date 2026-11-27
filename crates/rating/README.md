@@ -21,7 +21,8 @@ let budget = BudgetConfig::default();
 let n = series_per_batch(core_seconds_per_hour, measured_mean_cost /* Option<f64>, None until measured */, &budget);
 let pairings: Vec<Pairing> = plan_batch(&system, &teams, now, n, &mm, batch_seed);
 for p in pairings {
-    let plan: SeriesPlan = plan_series(series_id, p, &map_usage, budget.games_per_series);
+    // pair_usage: games these two teams played on each map lately (&[] for none)
+    let plan: SeriesPlan = plan_series(series_id, p, &map_usage, &pair_usage, budget.games_per_series);
     for g in &plan.games {
         // queue a match job: bot_a = g.slot_a's bot, bot_b = g.slot_b's bot, map pool[g.map], seed g.seed
         map_usage[g.map as usize] += 1;
@@ -55,7 +56,7 @@ Types (all `Clone + Debug`, serde with the feature):
 |---|---|
 | `TeamId` | `u64` |
 | `Rating` | `mu: f64, sigma: f64, games: u32` |
-| `TeamState` | `id, rating: Rating, recent_games: u32, last_played: Option<u64>, recent_opponents: Vec<TeamId>, live: bool` |
+| `TeamState` | `id, rating: Rating, recent_games: u32, last_played: Option<u64>, recent_opponents: Vec<TeamId>, recent_series: u32, live: bool` |
 | `Winner` | `SlotA \| SlotB \| Draw` (by engine slot; `Winner::from_job_outcome(&str)`) |
 | `Outcome` | `AWins \| BWins \| Draw` (seen from the series' team A, not the engine slot) |
 | `GameResult` | `series_id: u64, game_index: u32, team_a, team_b, outcome` |
@@ -65,7 +66,8 @@ Types (all `Clone + Debug`, serde with the feature):
 
 `TeamState::last_played` and `now` share any monotone unit (seconds or batch number). `recent_opponents` lists
 the opponents of the team's series in the last day, oldest first, one entry per series. `recent_games` is the
-number of rated games in the same window. Ratings are updated **per series** (`rate_series`): every map's
+number of rated games in the same window. `recent_series` counts the team's ranked series in the caller's
+cap window (the coordinator uses 15 minutes). Ratings are updated **per series** (`rate_series`): every map's
 update is computed from the pre-series ratings and the mean shifts are summed (a drawn map is a half), so
 map order does not matter and a 3-0 moves more than a 2-1. Uncertainty shrinks as after that many games
 (its step does not depend on who won). `apply_game` remains for per-game simulations.
@@ -132,37 +134,47 @@ opponent, and a team that resubmits every few games stays provisional and keeps 
 
 ## Matchmaking (`plan_batch`)
 
-Halite III's scheme. Repeat until the budget is used or fewer than two teams are left:
+Halite III's scheme, with soft rematches and a per-team cap. Repeat until the budget is used, fewer than two
+teams are left, or every remaining team is at its cap:
 
-1. **Seed team.** 65 %: weighted draw, weight `0.05 + uncertainty + 1 / (1 + recent_games)` (under-played:
-   high sigma or few recent games). 25 %: weighted draw in proportion to idle time (a team that never played
-   counts as twice the longest idle time). 10 %: the team that played least recently.
-2. **Opponent.** Candidates are the remaining live teams, sorted by `|mu - mu_seed|`. Draw `U ~ U(0,1)` and
-   pick uniformly among the nearest `K = ceil(5 / (0.01 + U)^0.65)`: the median K is 8, 10 % of draws exceed
-   21, 1 % exceed 63. Close games are informative; the tail keeps the rating graph connected.
-3. **Rematch rules.** A pair that already met `max_series_per_opponent_per_day` (2) times in
-   `recent_opponents` is never paired. A team's most recent opponent is skipped unless nobody else is left.
+1. **Seed team**, among the teams under their cap (`recent_series < series_cap`, 5). 65 %: weighted draw,
+   weight `0.05 + uncertainty + 1 / (1 + recent_games)` (under-played: high sigma or few recent games). 25 %:
+   weighted draw in proportion to idle time (a team that never played counts as twice the longest idle
+   time). 10 %: the team that played least recently.
+2. **Window.** Candidates are the remaining live teams under `series_cap + cap_overflow` (10), except the
+   seed's most recent opponent unless nobody else is left, sorted by `|mu - mu_seed|`. Draw `U ~ U(0,1)`;
+   the window is the nearest `K = ceil(5 / (0.01 + U)^0.65)`: the median K is 8, 10 % of draws exceed 21,
+   1 % exceed 63. Close games are informative; the tail keeps the rating graph connected.
+3. **Opponent.** The teams of the window under their cap; if the whole window is at its cap, the ones with
+   the fewest recent series, which go past it (by at most `cap_overflow`). Among those, a team met `m`
+   times in `recent_opponents` is drawn with weight `rematch_weight^m` (0.25): a fresh opponent is four
+   times as likely as one met once, sixteen times as likely as one met twice, but a small ladder still
+   rematches as often as the cap allows.
 4. Both teams leave the pool: a team gets at most one series per batch. Team A/B is a coin flip.
 
 Teams with `live = false` are never paired. A seed with no legal opponent sits the batch out, so the result
-may be shorter than the budget.
+may be shorter than the budget. The cap is what bounds a team's games when the fleet is idle: with two teams,
+5 series per window and no more.
 
 ## Placement (`plan_placement`)
 
 Placement matches, as in most ranked games: a team with a new submission plays a few series back to back,
 outside the batches, so the ladder knows roughly where it belongs within minutes instead of after several
-batches. Each series is planned after the previous one is rated: the opponent is drawn uniformly among the
+batches. Each series is planned after the previous one is rated: the opponent is drawn among the
 `placement_window` (3) live teams nearest the newcomer's current mu, close games being the most informative.
 Settled opponents come first, since a game against a provisional team places neither; on a fresh ladder,
-where everyone is provisional, anyone near will do. The rematch rules of `plan_batch` apply. How many series
+where everyone is provisional, anyone near will do. The rematch weights and the cap of `plan_batch` apply
+(a newcomer at its cap waits). How many series
 and how often is the coordinator's business (3 series of 3 maps by default, at most 9 placement series per
 team per day).
 
 ## Series plan (`plan_series`)
 
-- **Maps**: least-used first according to `map_usage` (the caller's running count per pool index), ties broken
-  at random from the series id. No repeats within a series unless the series is longer than the pool. Usage
-  across the pool never differs by more than one game when one planner feeds the counts back.
+- **Maps**: the maps the two teams played least against each other lately first (`pair_usage`, so a rematch
+  is a different setting), then least-used according to `map_usage` (the caller's running count per pool
+  index), ties broken at random from the series id. No repeats within a series unless the series is longer
+  than the pool. With no pair history, usage across the pool never differs by more than one game when one
+  planner feeds the counts back.
 - **Slots**: the engine already swaps attack and defence at half-time, so one game is side-balanced. Team A/B
   slots still alternate game by game from a coin flip on the series id, against residual slot bias.
 - **Seeds**: `game_seed(series_id, game_index)`, a fixed 64-bit mix, so seeds need not be stored.
@@ -193,69 +205,76 @@ between the displayed leaderboard and true skill (ties share a rank). The number
 
 ```
 batch  games/team  rho(Elo)  rho(WL)  rho(WL mu)  WL mean sigma  provisional Elo/WL
-    1         2.0     0.513    0.513       0.513           7.85         60/60
-    2         4.0     0.542    0.694       0.694           7.40         60/60
-    3         6.0     0.672    0.721       0.721           7.00         60/60
-    5        10.0     0.774    0.809       0.809           6.31         38/60
-    8        16.0     0.872    0.834       0.834           5.50          0/56
-   12        24.0     0.931    0.886       0.886           4.73          0/14
-   20        40.0     0.926    0.926       0.926           3.77          0/0
-   35        70.0     0.955    0.970       0.970           2.88          0/0
-   60       120.0     0.969    0.985       0.985           2.28          0/0
-  100       200.0     0.978    0.988       0.988           1.88          0/0
-  150       300.0     0.975    0.984       0.984           1.69          0/0
-  200       400.0     0.974    0.994       0.994           1.60          0/0
+    1         2.0     0.528    0.528       0.528           7.85         60/60
+    2         4.0     0.565    0.669       0.669           7.39         60/60
+    3         6.0     0.707    0.741       0.741           7.01         60/60
+    5        10.0     0.756    0.850       0.850           6.31         40/60
+    8        16.0     0.816    0.904       0.904           5.50          0/57
+   12        24.0     0.876    0.914       0.914           4.75          0/12
+   20        40.0     0.945    0.939       0.939           3.79          0/0
+   35        70.0     0.962    0.978       0.978           2.90          0/0
+   60       120.0     0.974    0.990       0.990           2.30          0/0
+  100       200.0     0.983    0.990       0.990           1.89          0/0
+  150       300.0     0.969    0.988       0.988           1.69          0/0
+  200       400.0     0.980    0.994       0.994           1.60          0/0
 
 cold start: games per team until the leaderboard first reaches a rank correlation
 (mean of 10 ladders; a ladder that never gets there counts as 400)
 target   Elo    Weng-Lin
-  0.70    6.2       5.8
-  0.80   10.4       9.4
-  0.90   20.8      20.6
-  0.95   36.8      39.0
-  0.97   87.4      59.8
-  0.98  174.0     101.8
+  0.70    6.8       6.6
+  0.80   10.6      11.0
+  0.90   22.2      21.4
+  0.95   39.8      37.8
+  0.97   82.0      60.6
+  0.98  193.0      92.8
 
 newcomer (5th best of 60) joining a settled ladder, its first 90 games (mean of 10 ladders)
            mean |error|   games until first within 100   games until it stays within 100
-Elo               109.6                           33.2                              45.1
-Weng-Lin           64.2                            6.6                              43.0
+Elo               113.3                           27.7                              60.9
+Weng-Lin           52.0                            6.6                              15.2
 
 newcomer at true rank 5, 30 or 55 of 60 joins a settled ladder (Weng-Lin, 30 arrivals)
                     |error| after   mean |error|        places off when shown by
 placement series    placement       next 10 batches     mu - 3 sigma   mu
-none                        240.4                98.1           27.4   16.6
-3 (9 games)                  99.8                69.3           13.1    6.0
+none                        240.5               106.2           27.4   16.7
+3 (9 games)                  99.2                78.3           13.4    6.2
 
 resubmission, true skill +300 (Weng-Lin, mean of 12 ladders, first 90 games after)
                  mean |error|   games until first within 100 (90 = never)
-sigma bump               63.8      9.9
-no bump                 167.9     71.0
+sigma bump               63.9     13.2
+no bump                 172.2     71.8
 
 resubmission: a mid-table team's skill jumps and it places again; mean |error| over 60 games (12 ladders)
 sigma after upload    -300   -150      0    150    300    500     mean
-0.85 sigma0           91.1   67.2   56.7   65.5   82.5  119.7     80.5
-0.5 sigma0           124.7   65.3   43.4   57.3  106.7  212.0    101.6
+0.85 sigma0           86.4   66.7   64.7   62.9   78.6  111.4     78.5
+0.5 sigma0           113.0   73.2   44.3   66.5  102.6  199.5     99.9
 ```
+
+These are with soft rematches (`rematch_weight` 0.25). Under the old hard rule (a pair met at most twice a
+day, opponent uniform in the window) the rank correlations were within 0.07 of these at every row, most of
+it in the first 12 batches, and Weng-Lin's was 0.994 at batch 200 in both; the per-team cap never binds here
+(one series per batch). The newcomer and placement
+rows moved more than that, both ways (placement's next-10-batch error 69 then, 78 now; a strong newcomer
+staying within 100 after 43 games then, 15 now). With 10 to 30 arrivals per row, read them as noise until
+a larger run says otherwise.
 
 What this shows, including what it does not:
 
-- Both systems order the ladder well; Weng-Lin ends tighter (0.99 against 0.975) because its steps shrink
+- Both systems order the ladder well; Weng-Lin ends tighter (0.99 against 0.98) because its steps shrink
   while Elo keeps moving 12 points a game.
 - **On a cold start the two are level up to rho = 0.95.** Elo's doubled provisional K does the job of a wide
-  prior while everyone is new. Weng-Lin is ahead only for tight orderings (0.97: 60 against 87 games per team;
-  0.98: 102 against 174). Showing `mu` rather than `mu - 3 sigma` orders the ladder as well or better at every
+  prior while everyone is new. Weng-Lin is ahead only for tight orderings (0.97: 61 against 82 games per team;
+  0.98: 93 against 193). Showing `mu` rather than `mu - 3 sigma` orders the ladder as well or better at every
   row (the old `rho(WL)` column was 0.446 at batch 1 and 0.820 at batch 8).
-- A strong newcomer in a settled ladder gets near its place in about 7 games with Weng-Lin and 33 with Elo.
-  It is not steadier afterwards: the estimate still wanders across the 100-point line for about as long as
-  Elo takes to arrive.
+- A strong newcomer in a settled ladder gets near its place in about 7 games with Weng-Lin and 28 with Elo,
+  and stays within 100 points after about 15 games against 61.
 - **Placement** (3 series of 3 games before the next batch) cuts a newcomer's error before its first batch
-  from 240 to 100 points and its mean error over the next 10 batches from 98 to 69. Here the newcomer plays
+  from 240 to 99 points and its mean error over the next 10 batches from 106 to 78. Here the newcomer plays
   in most batches anyway (20 series for 60 teams, and the matchmaker favours it); on a ladder where a batch
   reaches a smaller share of the teams, waiting for batches costs more and placement saves more. Six series
   brought the error after placement to 53 in a trial run, at twice the cost.
 - **Resubmission**: averaged over jumps from -300 to +500, widening sigma to 0.85 sigma0 instead of 0.5
-  lowers the error from 102 to 81. The price is a bot no better than the last one: 57 against 43. 0.7 and
+  lowers the error from 100 to 79. The price is a bot no better than the last one: 65 against 44. 0.7 and
   1.0 gave 87 and 81 in a trial run, within the noise of 0.85.
 - Errors are measured after matching each system's mean and spread to the true scale, so neither is charged
   for its units.

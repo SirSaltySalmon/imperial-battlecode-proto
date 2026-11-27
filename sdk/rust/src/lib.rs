@@ -201,7 +201,8 @@ pub fn drops() -> Rows<DropInfo> {
     rows(T_DROPS)
 }
 /// Events of the previous tick that this team receives. Kills always arrive; their position is `POS_HIDDEN`
-/// when the team did not see it. Damage arrives only when seen.
+/// when the team did not see it. Damage and effects (`EVENT_EFFECT`) arrive only when seen or when they hit
+/// the team, without the enemy who did it. Only the unit hit reads where it came from (`dir`, `src_x`, `src_y`).
 pub fn events() -> Rows<EventInfo> {
     rows(T_EVENTS)
 }
@@ -282,6 +283,20 @@ impl UnitExt for UnitInfo {
     #[inline]
     fn busy(&self) -> bool {
         self.has(S_WINDUP | S_RELOADING | S_PLANTING | S_DEFUSING | S_CASTING)
+    }
+}
+
+/// Convenience accessors on `SiteInfo`.
+pub trait SiteExt {
+    /// The plant point: the centre of a tile of this site, so a carrier standing here can plant. Walk here,
+    /// not to the bounding-box centre, which on an L-shaped or hollow site is not on the site.
+    fn plant_point(&self) -> (i32, i32);
+}
+
+impl SiteExt for SiteInfo {
+    #[inline]
+    fn plant_point(&self) -> (i32, i32) {
+        (self.plant_x, self.plant_y)
     }
 }
 

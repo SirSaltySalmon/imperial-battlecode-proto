@@ -79,7 +79,8 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
   changes nothing. A series is created between the submissions live at that moment, and they are pinned:
   the series records them, its jobs name their hashes, and every game of it is played with them whatever is
   uploaded or selected later. A ranked series is always rated. Games: `ibc_rating::plan_series` picks the
-  least-used maps of the pool (no repeat within a series), alternates the engine slots from a coin flip and
+  maps the two teams played least against each other in the last 24 h, least-used first among those (no
+  repeat within a series), alternates the engine slots from a coin flip and
   derives the seeds from the series id. A series closes when none of its games and none of their
   verifications is outstanding; a ranked one is then rated once (see Ratings) and a ladder snapshot is
   written. A scrim may pin one of the requester's archived submissions, or the opponent's submission from a
@@ -87,12 +88,23 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
   so); a series where no game finished is void. Setting a new patch dead-letters the jobs of the old one.
 - **Scheduler.** Every `--ranked-interval-secs` (default 600; 0 = off) the matchmaker of `ibc-rating` (`plan_batch`,
   Halite III's scheme) pairs the live teams that have no ranked series running: under-played and idle teams
-  are seeded first, opponents are drawn near in rating with a heavy tail, a pair meets at most twice a day.
-  The round size comes from `series_per_batch`: the cores of the live workers, the mean `wall_ms` of the
-  last hour's matches (its prior until there are some), 70 % utilisation, capped by
-  `--ranked-series-budget`. No live workers, no series; while nothing is measured, at least one series a
-  round, so the ladder starts by itself. Each series is `--ranked-games` maps (default 3), each a full
-  match, between the teams' live bots. Each round's seed is kept in `ranked_batches`.
+  are seeded first, opponents are drawn near in rating with a heavy tail, and within that window opponents
+  met in the last 24 h are less likely (weight 0.25 per meeting) but never ruled out. The round size comes
+  from `series_per_batch`: the cores of the live workers, the mean `wall_ms` of the last hour's matches (its
+  prior until there are some), 70 % utilisation, capped by `--ranked-series-budget`. No live workers, no
+  series; while nothing is measured, at least one series a round, so the ladder starts by itself. Each
+  series is `--ranked-games` maps (default 3), each a full match, between the teams' live bots. Each round's
+  seed is kept in `ranked_batches`.
+- **Fill-up.** Between rounds, on the sweeper's period, the scheduler runs an extra round whenever the queue
+  (every class) holds less than `--ranked-backlog-secs` (default 120; 0 = off) of work for the live workers:
+  queued jobs x the measured seconds per game / live cores. The round is sized to fill the gap, at most
+  `--ranked-series-budget`. An idle fleet keeps playing ranked games; a busy one (a tournament, many scrims)
+  gets none beyond the interval rounds.
+- **Series cap.** Only a team with fewer than `--ranked-cap-series` (5) ranked series created in the last
+  `--ranked-cap-window-secs` (900) starts a series, in a round or in placement. Its opponent is preferably
+  under the cap too; when every team in its rating window is at the cap, the least-played of them goes past
+  it, by at most `--ranked-cap-overflow` (5). This bounds what an idle fleet spends on any one team: at most
+  10 series per 15 minutes.
 - **Placement.** A team whose live submission has finished fewer than `--placement-series` (3; 0 = off)
   ranked series is placing. While the scheduler is on, a task on the sweeper's period gives each placing
   team with no ranked series running one ranked series against the opponent `ibc_rating::plan_placement`

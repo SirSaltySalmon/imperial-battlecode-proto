@@ -43,15 +43,17 @@ clock and random source, empty args and environment. There is no filesystem, net
   stand; use `los` before shooting. Enemy rows hide `hp`, `armor`, credits, ammo, charges, cooldowns, blindness
   and the defuse kit; the weapon in hand is shown. Fog applies to what bots read, not to what replays record.
   An enemy trap (`EFFECT_TRAP`) is listed only to a unit of the team within `sense_radius` of it (`docs/rules/abilities.md`).
-- **Events follow the fog.** `T_EVENTS` is filtered per team. A position is *known* to a team when one of its
-  living units sees it, when the event happened to one of its own units, or when it is the charge's position and
-  the team knows where the charge lies (both teams once it is planted, attackers when it is dropped). An event delivered
-  with an unknown position carries `POS_HIDDEN` (`i32::MIN`) in both `x` and `y`, never `(0, 0)`.
+- **Events follow the fog.** `T_EVENTS` is filtered per team (and where a hit came from, per unit: below). A
+  position is *known* to a team when one of its living units sees it, when the event happened to one of its own
+  units, or when it is the charge's position and the team knows where the charge lies (both teams once it is
+  planted, attackers when it is dropped). An event delivered with an unknown position carries `POS_HIDDEN`
+  (`i32::MIN`) in both `x` and `y`, never `(0, 0)`.
 
   | Event | Delivered to a team | Position |
   |---|---|---|
   | `EVENT_KILL` (actor killer or -1, target victim, value weapon) | Always, both teams | `POS_HIDDEN` unless known |
   | `EVENT_DAMAGE` (actor attacker or -1, target, value amount) | Only when the position is known | Always real |
+  | `EVENT_EFFECT` (actor the effect's owner, target, value `EFFECT_*`) | Only when the position is known | Always real |
   | `EVENT_PLANT` (actor planter, value site) | Always | Real (the planted charge is public) |
   | `EVENT_DEFUSE` (actor defuser) | Always | Real |
   | `EVENT_DETONATE` | Always | Real |
@@ -59,6 +61,23 @@ clock and random source, empty args and environment. There is no filesystem, net
   | Any later kind | Only when the position is known | Always real |
 
   Sounds are separate from events: a shot heard through a wall is a `T_SOUNDS` row, not a damage event.
+- **Nobody learns who hit them.** In `EVENT_DAMAGE` and `EVENT_EFFECT` the actor reads -1 unless it is on the
+  reader's team: your own hits keep your unit's id, an enemy's hit on you never names the enemy. `EVENT_KILL`
+  keeps its killer for both teams.
+- **Only the unit hit learns where it came from.** This is the one per-unit piece of `T_EVENTS`: teammates read
+  the same rows, but `EventInfo.dir`, `src_x` and `src_y` are filled only in the row of an `EVENT_DAMAGE` or
+  `EVENT_EFFECT` read by its own `target`. Everyone else, and every other kind, reads `DIR_HIDDEN` (-1) and
+  `POS_HIDDEN`.
+
+  | What hit the unit | `dir` | `src_x`, `src_y` |
+  |---|---|---|
+  | A bullet | Angle from the unit back along the bullet's flight (a free angle, not the shooter's bearing) | `POS_HIDDEN`: the shooter's position is never told |
+  | Fire (`EVENT_DAMAGE`), or an effect giving a status (`EVENT_EFFECT`) | Angle from the unit to the effect's centre (0 on the centre itself) | The effect's centre, never the thrower |
+
+  `EVENT_EFFECT` reports every status an effect gives a unit, where it gives it: a flash that blinds it, a
+  concussion or trap that slows it, a trap, sonar pulse or recon beacon that reveals it (a beacon each tick it
+  marks the unit, as fire each tick it burns). Nothing more: how long a blindness lasts is in the unit's own
+  `UnitInfo.blind`, as before.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
   resolves with everyone else's when the tick is stepped. One move, one facing and one primary action per tick.
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;
@@ -90,6 +109,15 @@ still loads and reads the prefix of each record it knows; what changed is what s
   `kind` = ability id + 1 and `weapon` = -1. Devices hit nobody; they land at a wall, a barrier or their range.
 - `EFFECT_TRAP` (9), `EFFECT_SONAR` (10), `EFFECT_CONCUSSION` (11); abilities 8-10 and kits 7-9 in the
   ruleset. Every ability has one charge.
+- What a hit tells (after engine 0.2.0): `EventInfo.dir`, `src_x`, `src_y` (the record grows from 24 to 36 bytes), `DIR_HIDDEN`
+  (-1), `EVENT_EFFECT` (7). The actor of `EVENT_DAMAGE` reads -1 for the victim's team, where it used to name
+  the shooter. `T_EVENTS` is no longer identical for teammates: only an event's target reads where it came
+  from (see Conventions).
+- `SiteInfo.plant_x`, `plant_y` (after engine 0.2.0): the plant point, the centre of one tile of the site. It
+  is the site tile whose centre is nearest the bounding-box centre; ties go to the first in row-major order
+  (lowest `ty`, then lowest `tx`). A unit there is on the site, which the box centre need not be: sites may be
+  any shape (L-shaped, hollow). On a filled rectangle with odd sides it equals `centre_x`, `centre_y`. A bot
+  that reads only the first 28 bytes of the record sees no change.
 
 ## For engine and SDK authors
 

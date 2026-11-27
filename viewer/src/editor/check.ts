@@ -14,6 +14,9 @@ export interface SiteSummary {
   max_ty: number;
   centre_x: number;
   centre_y: number;
+  /** Where bots plant: the centre of the site tile nearest the box centre. */
+  plant_x: number;
+  plant_y: number;
 }
 
 /** What the engine makes of the map (`ibc_engine_wasm::map_summary`). */

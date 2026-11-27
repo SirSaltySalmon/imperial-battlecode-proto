@@ -64,7 +64,7 @@ pub fn load(bytes: &[u8]) -> Result<Replay, String> {
 }
 
 /// Parse map text exactly as a match would (`Map::parse`) and summarise what the engine makes of it: size,
-/// team size, the sites (bounding boxes and the centre bots plant at), the spawn tiles per side and the map
+/// team size, the sites (bounding boxes and the points bots plant at), the spawn tiles per side and the map
 /// hash that replays record.
 pub fn map_summary(text: &str) -> Result<String, String> {
     let map = ibc_engine::Map::parse(text)?;
@@ -74,7 +74,7 @@ pub fn map_summary(text: &str) -> Result<String, String> {
         .map(|s| {
             serde_json::json!({
                 "id": s.id, "min_tx": s.min_tx, "min_ty": s.min_ty, "max_tx": s.max_tx, "max_ty": s.max_ty,
-                "centre_x": s.centre_x, "centre_y": s.centre_y,
+                "centre_x": s.centre_x, "centre_y": s.centre_y, "plant_x": s.plant_x, "plant_y": s.plant_y,
             })
         })
         .collect();

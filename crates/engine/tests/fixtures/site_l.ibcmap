@@ -1,0 +1,15 @@
+name: site_l
+team_size: 3
+// An L-shaped site: its bounding box is tiles (1,3)..(3,5) and the box centre, tile (2,4), is plain floor.
+// The plant point is the centre of tile (2,3): (2,3) and (1,4) are both one tile from the box centre and
+// (2,3) comes first in row-major order.
+---
+#################################
+#aaa..#.........................#
+#.....#.........................#
+#111..#.........................#
+#1....#.........................#
+#1..............................#
+#...............................#
+#.....#......................ddd#
+#################################

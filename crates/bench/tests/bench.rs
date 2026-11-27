@@ -478,6 +478,60 @@ fn details_agree_with_the_engine_summary() {
 }
 
 #[test]
+fn fuel_is_metered_by_default_and_unmetered_reports_say_so() {
+    assert_eq!(
+        RunOpts::new(PathBuf::from("unused")).backend,
+        BackendKind::Wasm,
+        "reported results must come from fuel-metered play unless asked otherwise"
+    );
+    assert!(BackendKind::parse("auto").is_err());
+    assert_eq!(BackendKind::parse("native"), Ok(BackendKind::Native));
+
+    // Every report and its stdout summary name the backend; native ones carry the UNMETERED note.
+    let (labels, games) = small_league();
+    assert!(games.iter().all(|g| g.backend == "native"));
+    let league_text = league::render_markdown(&league::table(&labels, &games, Vec::new()));
+    let balance_report = balance::build(&games, Vec::new());
+    let pairs: Vec<GameResult> = (0..8)
+        .map(|id| fake(id, "m", (id / 2) as u64, 7, 3))
+        .collect();
+    let ab_report = ab::analyse("x", "y", &pairs, None, Vec::new());
+    let noise_report = noise::build("x", "y", &pairs, Vec::new());
+    let comparison = compare::render(&compare::compare(&balance_report, &balance_report));
+    for (what, text) in [
+        ("league", league_text),
+        ("balance.md", balance::render_markdown(&balance_report)),
+        ("balance summary", balance::render_summary(&balance_report)),
+        ("ab.md", ab::render_markdown(&ab_report)),
+        ("ab summary", ab::render_summary(&ab_report)),
+        ("noise", noise::render(&noise_report, false)),
+        ("compare", comparison),
+    ] {
+        assert!(
+            text.contains("native, UNMETERED (unlimited fuel)"),
+            "{what} does not say it is unmetered:\n{text}"
+        );
+    }
+    assert!(ab_report
+        .warnings
+        .iter()
+        .any(|w| w.starts_with("UNMETERED")));
+
+    // The same games played as wasm are metered and say that instead.
+    let wasm: Vec<GameResult> = pairs
+        .into_iter()
+        .map(|mut g| {
+            g.backend = "wasm".into();
+            g
+        })
+        .collect();
+    let ab_report = ab::analyse("x", "y", &wasm, None, Vec::new());
+    let text = ab::render_markdown(&ab_report) + &ab::render_summary(&ab_report);
+    assert!(!text.contains("UNMETERED"), "{text}");
+    assert!(text.contains("wasm, fuel metered"), "{text}");
+}
+
+#[test]
 fn compare_is_quiet_on_identical_reports_and_flags_a_changed_metric() {
     let (_, games) = small_league();
     let old = balance::build(&games, Vec::new());

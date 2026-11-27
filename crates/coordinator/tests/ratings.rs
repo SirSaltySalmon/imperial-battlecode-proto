@@ -230,7 +230,7 @@ async fn the_matchmaker_pairs_free_teams_within_the_budget() {
     );
     while w.drain(&h).await > 0 {}
 
-    // Over many rounds every team plays, and no pair meets more than twice a day.
+    // Over many rounds every team plays, and none past its cap plus the overflow (all in one window).
     for _ in 0..12 {
         h.app.ranked_round(Some(8), 2).unwrap();
         w.drain(&h).await;
@@ -244,24 +244,76 @@ async fn the_matchmaker_pairs_free_teams_within_the_budget() {
     let (_, list) = h
         .call("GET", "/v1/matches?limit=500", None, Value::Null)
         .await;
-    let mut meetings = std::collections::BTreeMap::new();
+    let mut series = std::collections::BTreeSet::new();
     for m in list["matches"].as_array().unwrap() {
-        let mut pair = [
-            m["bot_a"]["name"].as_str().unwrap(),
-            m["bot_b"]["name"].as_str().unwrap(),
-        ];
-        pair.sort();
-        *meetings
-            .entry((pair, m["series_id"].as_str().unwrap()))
-            .or_insert(0) += 1;
+        for side in ["bot_a", "bot_b"] {
+            series.insert((
+                m[side]["name"].as_str().unwrap().to_string(),
+                m["series_id"].as_str().unwrap().to_string(),
+            ));
+        }
     }
-    let mut series_per_pair = std::collections::BTreeMap::new();
-    for ((pair, _), _) in meetings {
-        *series_per_pair.entry(pair).or_insert(0) += 1;
+    let mut series_per_team = std::collections::BTreeMap::new();
+    for (team, _) in series {
+        *series_per_team.entry(team).or_insert(0) += 1;
     }
+    let limit = h.app.cfg.ranked_cap_series + h.app.cfg.ranked_cap_overflow;
     assert!(
-        series_per_pair.values().all(|&n| n <= 2),
-        "{series_per_pair:?}"
+        series_per_team.values().all(|&n| n <= limit),
+        "{series_per_team:?}"
+    );
+}
+
+#[tokio::test]
+async fn two_teams_rematch_until_their_cap() {
+    let h = Harness::new(|c| c.ranked_games = 2);
+    h.league(&["a", "b"]).await;
+    let w = MockWorker::register(&h, "w", true).await;
+    let mut created = 0;
+    for _ in 0..20 {
+        created += h.app.ranked_round(Some(8), 2).unwrap().len();
+        w.drain(&h).await;
+        h.app.sweep().unwrap();
+    }
+    // Both start under the cap and reach it together, so neither may start a sixth series.
+    assert_eq!(created as i64, h.app.cfg.ranked_cap_series);
+}
+
+#[tokio::test]
+async fn the_fill_up_tops_the_queue_up_to_the_backlog() {
+    let h = Harness::new(|c| {
+        c.ranked_games = 2;
+        c.ranked_series_budget = 5000;
+    });
+    h.league(&["a", "b", "c", "d", "e"]).await;
+    let fill = |h: &Harness| {
+        h.app
+            .db
+            .tx(|tx| {
+                h.app
+                    .ranked_fill_budget(tx, 2, ibc_coordinator::util::now_ms())
+            })
+            .unwrap()
+    };
+    assert_eq!(fill(&h), 0, "no workers: nothing to fill");
+    // One 4-core worker, nothing measured (10 s a game): 120 s of work is 48 games, 24 series.
+    let _w = MockWorker::register(&h, "w", true).await;
+    assert_eq!(fill(&h), 24);
+    let created = h.app.ranked_fill_round(2).unwrap();
+    assert_eq!(created.len(), 2, "five teams: two pairs, one sits out");
+    assert_eq!(fill(&h), 22, "the four queued games leave less room");
+
+    let off = Harness::new(|c| c.ranked_backlog_ms = 0);
+    off.league(&["a", "b"]).await;
+    let _w = MockWorker::register(&off, "w", true).await;
+    assert_eq!(
+        off.app
+            .db
+            .tx(|tx| off
+                .app
+                .ranked_fill_budget(tx, 2, ibc_coordinator::util::now_ms()))
+            .unwrap(),
+        0
     );
 }
 

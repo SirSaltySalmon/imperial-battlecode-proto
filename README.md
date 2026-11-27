@@ -19,7 +19,8 @@ rustup target add wasm32-wasip1
 cargo build --release -p ibc-cli
 target/release/ibc run bots/rusher bots/holder --map maps/crossfire.ibcmap --seed 1 -o out/demo
 target/release/ibc replay verify out/demo/replay.ibcr
-cargo run --release -p ibc-sim -- league --maps maps --seeds 3     # native, no wasm
+cargo run --release -p ibc-sim -- league --maps maps --seeds 3     # native, unmetered (unlimited fuel): quick look
+tools/bench.sh league --seeds 3                                     # wasm, fuel metered: numbers you report
 ```
 
 Booting the platform and interacting with it, from submitting bots to watching live games:

@@ -49,6 +49,17 @@ pub struct Config {
     /// Most series the scheduler creates per round. Below that, `ibc_rating::series_per_batch` sizes each
     /// round to what the live workers can play.
     pub ranked_series_budget: usize,
+    /// Between rounds, the scheduler tops the queue up whenever it holds less than this much work for the
+    /// live workers (queued jobs x measured seconds per game / live cores), so an idle fleet keeps playing
+    /// ranked games. 0 = rounds on `ranked_interval_ms` only.
+    pub ranked_backlog_ms: i64,
+    /// Only a team with fewer than this many ranked series created in the last `ranked_cap_window_ms`
+    /// looks for an opponent.
+    pub ranked_cap_series: i64,
+    /// A team at its cap may still be drawn as an opponent, up to this many series past it, when every
+    /// team near the searching team's rating is at its cap.
+    pub ranked_cap_overflow: i64,
+    pub ranked_cap_window_ms: i64,
     /// Maps per ranked series, each a full match (sides swap at half-time inside a match, so any count
     /// works; an odd one cannot end level on maps unless a map is drawn).
     pub ranked_games: i64,
@@ -140,6 +151,10 @@ impl Default for Config {
             max_scrim_games: 5,
             ranked_interval_ms: 600_000,
             ranked_series_budget: 16,
+            ranked_backlog_ms: 120_000,
+            ranked_cap_series: 5,
+            ranked_cap_overflow: 5,
+            ranked_cap_window_ms: 900_000,
             ranked_games: 3,
             rating_system: "weng-lin".to_string(),
             languages: vec![("rust".to_string(), 1.0), ("cpp".to_string(), 1.0)],
@@ -169,6 +184,16 @@ impl Config {
             .iter()
             .filter(|&&floor| display >= floor)
             .count()]
+    }
+
+    /// The matchmaker's policy: `ibc_rating`'s defaults with this ladder's series cap.
+    pub fn matchmaking(&self) -> ibc_rating::MatchmakingConfig {
+        let clamp = |n: i64| u32::try_from(n.max(0)).unwrap_or(u32::MAX);
+        ibc_rating::MatchmakingConfig {
+            series_cap: clamp(self.ranked_cap_series),
+            cap_overflow: clamp(self.ranked_cap_overflow),
+            ..ibc_rating::MatchmakingConfig::default()
+        }
     }
 
     pub fn fuel_multiplier(&self, language: &str) -> Option<f64> {

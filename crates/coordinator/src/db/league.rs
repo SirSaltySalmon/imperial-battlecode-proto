@@ -42,6 +42,29 @@ fn map_usage(tx: &Transaction, pool: &[(String, String)]) -> ApiResult<Vec<u64>>
         .collect()
 }
 
+/// Games the two teams played against each other on each map of `pool` since `since`, in pool order.
+fn pair_map_usage(
+    tx: &Transaction,
+    pool: &[(String, String)],
+    a: &str,
+    b: &str,
+    since: i64,
+) -> ApiResult<Vec<u64>> {
+    let mut st = tx.prepare_cached(
+        "SELECT g.map_name, COUNT(*) FROM games g JOIN series s ON s.id = g.series_id
+         WHERE ((s.team_a = ?1 AND s.team_b = ?2) OR (s.team_a = ?2 AND s.team_b = ?1)) AND g.created_at > ?3
+         GROUP BY g.map_name",
+    )?;
+    let rows = st.query_map(params![a, b, since], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    let played: BTreeMap<String, i64> = rows.collect::<Result<_, _>>()?;
+    Ok(pool
+        .iter()
+        .map(|(name, _)| played.get(name).copied().unwrap_or(0).max(0) as u64)
+        .collect())
+}
+
 /// The 64-bit number behind a series id (`s` + 16 hex digits), which seeds its plan.
 fn series_number(id: &str) -> u64 {
     u64::from_str_radix(&id[1..], 16).expect("series ids are s + 16 hex digits")
@@ -113,8 +136,9 @@ pub fn create_series(
     create_series_with(tx, &spec, now)
 }
 
-/// Create a series and queue its games, planned by `ibc_rating::plan_series`: least-used maps of the pool
-/// first (unless the spec names maps), engine slots alternating from a coin flip (unless the spec fixes
+/// Create a series and queue its games, planned by `ibc_rating::plan_series`: the maps of the pool the two
+/// teams played least against each other in the last 24 h, least-used first among those (unless the spec
+/// names maps), engine slots alternating from a coin flip (unless the spec fixes
 /// them), seeds from the series id and game index. Returns the series id and how many of its games were
 /// already in the result cache.
 pub fn create_series_with(
@@ -142,8 +166,8 @@ pub fn create_series_with(
         .ok_or_else(|| ApiError::bad_request("a series has at least one game"))?;
     let patch = current_patch(tx)?
         .ok_or_else(|| ApiError::conflict("no_patch", "no current patch is set"))?;
-    let (pool, usage) = match &spec.maps {
-        Some(maps) => (maps.clone(), vec![0; maps.len()]),
+    let (pool, usage, pair_usage) = match &spec.maps {
+        Some(maps) => (maps.clone(), vec![0; maps.len()], Vec::new()),
         None => {
             let mut pool = Vec::new();
             for map in pool_maps(tx)? {
@@ -152,7 +176,8 @@ pub fn create_series_with(
                 }
             }
             let usage = map_usage(tx, &pool)?;
-            (pool, usage)
+            let pair = pair_map_usage(tx, &pool, &team_a.id, &team_b.id, now - 86_400_000)?;
+            (pool, usage, pair)
         }
     };
     if pool.is_empty() {
@@ -173,6 +198,7 @@ pub fn create_series_with(
             team_b: 1,
         },
         &usage,
+        &pair_usage,
         games,
     );
     let bot = |s: &SubmissionRow| BotRef {
@@ -370,13 +396,15 @@ fn finalize_one(tx: &Transaction, hook: &dyn RatingHook, id: &str, now: i64) -> 
 // ---- matchmaking inputs ----
 
 /// The ranked matchmaker's view of the league: every team with a live submission (sorted by id; the
-/// matchmaker's `TeamId` is the index), with its rating, rated games and ranked opponents of the last 24 h
-/// and when it last played. Teams that still have a ranked series running are marked not live, so the
-/// ranked backlog cannot grow faster than the workers clear it.
+/// matchmaker's `TeamId` is the index), with its rating, rated games and ranked opponents of the last 24 h,
+/// its ranked series created since `cap_since` (the cap window) and when it last played. Teams that still
+/// have a ranked series running are marked not live, so the ranked backlog cannot grow faster than the
+/// workers clear it.
 pub fn matchmaking_pool(
     tx: &Transaction,
     hook: &dyn RatingHook,
     now: i64,
+    cap_since: i64,
 ) -> ApiResult<Vec<(TeamRow, TeamState)>> {
     let pairs = |sql: &str, since: i64| -> ApiResult<Vec<(String, String)>> {
         let mut st = tx.prepare(sql)?;
@@ -431,6 +459,14 @@ pub fn matchmaking_pool(
             *recent_games.entry(b).or_default() += games;
         }
     }
+    let mut recent_series: BTreeMap<String, u32> = BTreeMap::new();
+    for (a, b) in pairs(
+        "SELECT team_a, team_b FROM series WHERE kind = 'ranked' AND created_at > ?1",
+        cap_since,
+    )? {
+        *recent_series.entry(a).or_default() += 1;
+        *recent_series.entry(b).or_default() += 1;
+    }
     let mut opponents: BTreeMap<u64, Vec<u64>> = BTreeMap::new();
     for (a, b) in pairs(
         "SELECT team_a, team_b FROM series WHERE kind = 'ranked' AND created_at > ?1 ORDER BY created_at, id",
@@ -450,6 +486,7 @@ pub fn matchmaking_pool(
             recent_games: recent_games.get(&team.id).copied().unwrap_or(0),
             last_played: standing.last_played.map(|ms| (ms.max(0) / 1000) as u64),
             recent_opponents: opponents.remove(&(i as u64)).unwrap_or_default(),
+            recent_series: recent_series.get(&team.id).copied().unwrap_or(0),
             live: !busy.contains(&team.id),
         };
         out.push((team, state));
@@ -467,6 +504,15 @@ pub fn mean_game_seconds(tx: &Transaction, since: i64) -> ApiResult<Option<f64>>
         |r| r.get(0),
     )?;
     Ok(mean.map(|ms| ms / 1000.0))
+}
+
+/// Jobs of any class waiting for a worker.
+pub fn queued_jobs(tx: &Transaction) -> ApiResult<i64> {
+    Ok(tx.query_row(
+        "SELECT COUNT(*) FROM jobs WHERE state = 'queued'",
+        [],
+        |r| r.get(0),
+    )?)
 }
 
 /// Remember the seed of a ranked batch, so its pairings can be replayed.
