@@ -369,18 +369,28 @@ kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
 
 ## Compute and memory
 
-- Each unit gets `fuel_per_tick` fuel per tick (times a per-language multiplier), more on the draft tick and in
-  the buy phase. Fuel is counted WebAssembly instructions plus a charge per host call (`FUEL_*`), fixed or by
-  size: `debug_draw` 140, WASI `fd_write` 5 per iovec and `random_get` 2 per 8 bytes (`docs/ABI.md`).
+- Each unit gets `fuel_per_tick` fuel per tick (times its language's fuel multiplier), more on the draft tick
+  and in the buy phase. Fuel is counted WebAssembly instructions plus a charge per host call (`FUEL_*`), fixed
+  or by size: `debug_draw` 140, WASI `fd_write` 5 per iovec and `random_get` 2 per 8 bytes (`docs/ABI.md`).
   `memory.copy` and `memory.fill` cost 1 fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
   One `memory.copy` or `memory.fill` always runs to completion, even past the budget, and the excess is taken
   out of the following turns: one huge copy can leave a unit idle for several ticks.
-- Each bot instance has its own linear memory of at most `memory_bytes` (8 MiB); the stack counts. A module
+- Each bot instance has its own linear memory of at most `memory_bytes` (8 MiB, times its language's memory
+  multiplier, rounded down to whole 64 KiB pages); the stack counts. A module
   that declares more is refused at upload and faults at the start of a match; `memory.grow` past the cap
   returns -1, so the allocator reports out of memory. An instance may have one table of at most 65,536 entries.
   Exception objects (a wasm `throw`, 24 bytes each) live in a second heap of the same cap that is never freed
   during the match: about 350,000 throws per unit.
+- **Per-language allowances.** Languages compile differently, so each has a row in `rules/core.toml`
+  (`[[language]]`: `name`, `fuel_milli`, `memory_milli`, in thousandths) that multiplies its fuel and its
+  memory cap; the current rows are in `docs/generated/rules.md`. A bot's language is what its module says:
+  the `ibc.language` custom section `ibc build` writes, else the `producers` section rustc and clang write.
+  A module that names no single language, or one without a row, gets the `default` row. The rows are part
+  of the ruleset hash, so `ibc run`, `run-batch`, the upload check and the ladder apply the same numbers; the
+  replay header records each team's language and the multipliers it got. On the ladder the language is the
+  one the submission was entered as (docs/JOBS.md). The native harness (`ibc-sim`) is unmetered and uncapped,
+  so the rows do not apply there. `stack_limit` is the same for every language.
 - Recursion depth is limited deterministically, the same on every CPU. Each call that has not returned costs
   stack units: its function's parameters, plus its locals, plus the most values its operand stack ever holds,
   plus 2. A call that would take the total over `stack_limit` (65,536) traps, and the unit faults with "stack
@@ -1222,7 +1232,7 @@ still loads and reads the prefix of each record it knows; what changed is what s
 
 # Ruleset reference
 
-Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `c3e611c3c2cbe865`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -1280,7 +1290,25 @@ and largest operand stack height, plus 2. A call that would go deeper traps and 
 the module, not on the native stack, so the depth is the same on every CPU.
 
 On detonation every living unit within this distance of the charge dies, both teams, through walls.
+
+(above [[language]] "default")
+Per-language allowances. A bot's fuel budget every tick and its memory cap (`memory_bytes`, and the
+exception heap beside it) are multiplied by its language's row, in thousandths (1000 = x1). A bot's language
+is what its module says about itself (the `ibc.language` custom section `ibc build` writes, else the
+`producers` section rustc and clang write); a module that names no single language, or one without a row
+here, gets `default`. The upload check and the ladder use the same rows. The memory cap is rounded down to
+whole 64 KiB wasm pages. Rows must come after every other key of this file.
 ```
+
+## Languages
+
+| Language | Fuel | Memory | Memory cap (bytes) |
+| --- | --- | --- | --- |
+| `cpp` | x1 | x1 | 8388608 |
+| `default` | x1 | x1 | 8388608 |
+| `rust` | x1 | x1 | 8388608 |
+
+A language without a row gets the `default` row. The fuel multiplier scales every turn's budget (`fuel_per_tick` and its draft and buy multipliers); the memory multiplier scales `memory_bytes`, rounded down to whole 64 KiB pages.
 
 ## Weapons
 

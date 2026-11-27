@@ -8,7 +8,8 @@
 //! - **Revalidation.** Every live submission is checked against the new patch's ABI. One that fails keeps
 //!   playing for `invalid_grace_ms`, then its team is left out of ranked pairing until it makes a valid
 //!   submission live.
-//! - **Language.** The server decides a submission's language and fuel multiplier, never the upload.
+//! - **Language.** The server decides a submission's language, never the upload its multipliers: the
+//!   runner applies that language's `[[language]]` row of the patch's ruleset.
 
 use crate::bump;
 use crate::config::Config;
@@ -97,10 +98,11 @@ pub fn expire_drained(app: &App, tx: &Transaction, now: i64) -> ApiResult<usize>
     patches::expire_drained(tx, now - app.cfg.patch_drain_ms, now)
 }
 
-fn limits(cfg: &Config) -> Limits {
+/// The upload check's limits for a module in `language`.
+fn limits(cfg: &Config, language: &str) -> Limits {
     Limits {
         max_bytes: cfg.max_wasm_bytes,
-        max_memory_bytes: cfg.max_memory_bytes,
+        max_memory_bytes: cfg.memory_cap(language),
     }
 }
 
@@ -124,13 +126,13 @@ pub async fn revalidate(app: &Arc<App>) -> ApiResult<Revalidated> {
     let Some(patch_id) = patch_id else {
         return Ok(Revalidated::default());
     };
-    let (blobs, limits) = (app.blobs.clone(), limits(&app.cfg));
+    let (blobs, cfg) = (app.blobs.clone(), app.cfg.clone());
     let verdicts = tokio::task::spawn_blocking(move || {
         let mut out = Vec::with_capacity(live.len());
-        for (team_id, submission_id, sha256) in live {
+        for (team_id, submission_id, sha256, language) in live {
             match blobs.get(&sha256) {
                 Ok(Some(wasm)) => {
-                    let failure = check_against(&wasm, &limits, &abi).err();
+                    let failure = check_against(&wasm, &limits(&cfg, &language), &abi).err();
                     out.push((team_id, submission_id, failure));
                 }
                 Ok(None) => {
@@ -171,19 +173,20 @@ pub async fn require_valid(
         let (Some(patch_id), abi) = patches::current_abi(tx)? else {
             return Ok(None);
         };
-        let Some(sha256) = patches::validated_module(tx, submission_id, team_id)? else {
+        let Some((sha256, language)) = patches::validated_module(tx, submission_id, team_id)?
+        else {
             return Ok(None);
         };
         Ok(match patches::current_check(tx, submission_id)? {
             Some(check) => Some(Err(check.failure)),
-            None => Some(Ok((patch_id, abi, sha256))),
+            None => Some(Ok((patch_id, abi, sha256, language))),
         })
     })?;
     let failure = match todo {
         None => None,
         Some(Err(failure)) => failure,
-        Some(Ok((patch_id, abi, sha256))) => {
-            let (blobs, limits) = (app.blobs.clone(), limits(&app.cfg));
+        Some(Ok((patch_id, abi, sha256, language))) => {
+            let (blobs, limits) = (app.blobs.clone(), limits(&app.cfg, &language));
             let failure = tokio::task::spawn_blocking(move || match blobs.get(&sha256) {
                 Ok(Some(wasm)) => Ok(check_against(&wasm, &limits, &abi).err()),
                 Ok(None) => Err(ApiError::internal(format!("module {sha256} is missing"))),
@@ -322,19 +325,26 @@ pub struct Inspected {
     pub patch_id: Option<i64>,
 }
 
-/// Hash, check and store an uploaded module.
-pub async fn inspect_upload(app: &Arc<App>, body: Bytes) -> ApiResult<Inspected> {
+/// Hash, check and store an uploaded module. Its memory is checked against the cap of the language it would
+/// be entered as (`pick_language`).
+pub async fn inspect_upload(
+    app: &Arc<App>,
+    body: Bytes,
+    declared: Option<String>,
+) -> ApiResult<Inspected> {
     let (patch_id, abi) = app.db.tx(patches::current_abi)?;
-    let (store, limits) = (app.blobs.clone(), limits(&app.cfg));
+    let (store, cfg) = (app.blobs.clone(), app.cfg.clone());
     let (sha256, verdict, detected) = tokio::task::spawn_blocking(move || {
         let sha256 = sha256_hex(&body);
+        let detected = detect_languages(&body);
+        let limits = limits(&cfg, &pick_language(declared.as_deref(), &detected));
         let verdict = check_against(&body, &limits, &abi).and_then(|()| {
             store
                 .put(&sha256, &body)
                 .map(|_| ())
                 .map_err(|e| format!("storage: {e}"))
         });
-        (sha256, verdict, detect_languages(&body))
+        (sha256, verdict, detected)
     })
     .await
     .map_err(ApiError::internal)?;
@@ -353,7 +363,7 @@ pub async fn inspect_upload(app: &Arc<App>, body: Bytes) -> ApiResult<Inspected>
 
 /// 400 naming the languages this server accepts.
 pub fn unknown_language(cfg: &Config, language: &str) -> ApiError {
-    let names: Vec<&str> = cfg.languages.iter().map(|(n, _)| n.as_str()).collect();
+    let names = cfg.languages();
     ApiError::new(
         StatusCode::BAD_REQUEST,
         "unknown_language",
@@ -364,22 +374,30 @@ pub fn unknown_language(cfg: &Config, language: &str) -> ApiError {
     )
 }
 
-/// The language a submission is entered as, and its fuel multiplier from the server's configuration (an
-/// upload never sets it). `declared` (`?language=`) wins; without it, the language the module names if it
-/// names exactly one, else `rust`. A module that names languages must name the declared one.
+/// `declared` (`?language=`) if given; else the language the module names if it names exactly one (as the
+/// runner reads it, `ibc_runner::language_of`); else `default`.
+fn pick_language(declared: Option<&str>, detected: &BTreeSet<String>) -> String {
+    match (declared, detected.first()) {
+        (Some(l), _) => l.to_string(),
+        (None, Some(only)) if detected.len() == 1 => only.clone(),
+        (None, _) => ibc_engine::language::DEFAULT_LANGUAGE.to_string(),
+    }
+}
+
+/// The language a submission is entered as (`pick_language`; an upload never sets a multiplier) and its
+/// fuel and memory multipliers in this build's ruleset. A declared language must have a row; a module that
+/// names languages must name the declared one. A module that names a language without a row, or none, is
+/// entered under its name and played with the `default` row, as in a local run.
 pub fn resolve_language(
     cfg: &Config,
     declared: Option<&str>,
     detected: &BTreeSet<String>,
-) -> ApiResult<(String, f64)> {
-    let language = match (declared, detected.first()) {
-        (Some(l), _) => l.to_string(),
-        (None, Some(only)) if detected.len() == 1 => only.clone(),
-        (None, _) => "rust".to_string(),
+) -> ApiResult<(String, ibc_engine::LanguageRules)> {
+    let language = pick_language(declared, detected);
+    let row = match declared {
+        Some(l) => cfg.allowance(l).ok_or_else(|| unknown_language(cfg, l))?,
+        None => cfg.rules.language(&language),
     };
-    let fuel_mult = cfg
-        .fuel_multiplier(&language)
-        .ok_or_else(|| unknown_language(cfg, &language))?;
     if !detected.is_empty() && !detected.contains(&language) {
         let named: Vec<&str> = detected.iter().map(String::as_str).collect();
         return Err(ApiError::new(
@@ -387,11 +405,11 @@ pub fn resolve_language(
             "language_mismatch",
             format!(
                 "the upload says {language:?} but the module was built from {} (its `ibc.language` or `producers` \
-                 section); upload it with ?language={} (the fuel multiplier follows the language)",
+                 section); upload it with ?language={} (the fuel and memory allowances follow the language)",
                 named.join(" + "),
                 named[0]
             ),
         ));
     }
-    Ok((language, fuel_mult))
+    Ok((language, row))
 }

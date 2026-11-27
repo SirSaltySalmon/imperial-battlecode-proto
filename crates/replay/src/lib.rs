@@ -10,11 +10,13 @@
 //! Nothing here touches the filesystem, so the crate also builds for `wasm32-unknown-unknown` (the viewer).
 
 mod codec;
+mod language;
 mod records;
 mod redact;
 mod summary;
 
 pub use ibc_engine::{DebugDraw, StateHashes};
+pub use language::{detect_languages, LANGUAGE_SECTION};
 pub use records::records_json;
 pub use redact::Keep;
 pub use summary::{Fault, Summary, TeamFuel, TeamSummary};
@@ -50,8 +52,19 @@ pub struct BotInfo {
     pub name: String,
     /// SHA-256 of the wasm module of this team, hex.
     pub sha256: String,
-    /// Language fuel multiplier applied to the per-tick budget of the engine.
+    /// Fuel multiplier applied to the per-tick budget of the engine: the language's row of the ruleset, unless
+    /// the run overrode it.
     pub fuel_multiplier: f64,
+    /// The bot's language, as the runner resolved it ("" in replays recorded before per-language rows).
+    #[serde(default)]
+    pub language: String,
+    /// Multiplier applied to the ruleset's `memory_bytes` for this team's units (1.0 before per-language rows).
+    #[serde(default = "one")]
+    pub memory_multiplier: f64,
+}
+
+fn one() -> f64 {
+    1.0
 }
 
 /// How the match ended. Stored in the header so a replay can be checked against it.

@@ -518,14 +518,9 @@ fn queue_pairing(
         .ok_or_else(|| ApiError::internal("tournament started without map hashes"))?;
     let bot = |sub: &str| -> ApiResult<BotRef> {
         Ok(tx.query_row(
-            "SELECT sha256, fuel_mult FROM submissions WHERE id = ?1",
+            "SELECT sha256, language FROM submissions WHERE id = ?1",
             [sub],
-            |r| {
-                Ok(BotRef {
-                    sha256: r.get(0)?,
-                    fuel_mult: r.get(1)?,
-                })
-            },
+            |r| Ok(BotRef::submission(r.get(0)?, r.get(1)?)),
         )?)
     };
     let (bot_a, bot_b) = (bot(p.a.1)?, bot(p.b.1)?);

@@ -118,8 +118,15 @@ fn process(
         "id": seq,
         "bot_a": path(bot_a.path()), "bot_b": path(bot_b.path()), "map": path(map.path()),
         "seed": spec.seed, "out_dir": path(dir),
-        "fuel_mult_a": spec.bot_a.fuel_mult, "fuel_mult_b": spec.bot_b.fuel_mult,
     });
+    for (bot, side) in [(&spec.bot_a, "a"), (&spec.bot_b, "b")] {
+        if let Some(l) = &bot.language {
+            job[format!("language_{side}")] = json!(l);
+        }
+        if let Some(m) = bot.fuel_mult {
+            job[format!("fuel_mult_{side}")] = json!(m);
+        }
+    }
     if let Some(t) = spec.max_ticks {
         job["max_ticks"] = json!(t);
     }

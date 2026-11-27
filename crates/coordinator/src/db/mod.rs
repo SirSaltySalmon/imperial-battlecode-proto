@@ -9,9 +9,9 @@ pub mod moderation;
 pub mod patches;
 pub mod placement;
 pub mod ratings;
-pub mod users;
 pub mod scrims;
 pub mod tournaments;
+pub mod users;
 
 use crate::error::{ApiError, ApiResult};
 use crate::model::Patch;
@@ -287,7 +287,7 @@ pub fn list_teams(tx: &Transaction) -> ApiResult<Vec<Value>> {
 pub struct SubmissionRow {
     pub id: String,
     pub sha256: String,
-    pub fuel_mult: f64,
+    pub language: String,
 }
 
 pub struct NewSubmission<'a> {
@@ -295,6 +295,7 @@ pub struct NewSubmission<'a> {
     pub sha256: &'a str,
     pub size: usize,
     pub language: &'a str,
+    /// The language row's fuel multiplier at upload, for display; matches apply the patch's row.
     pub fuel_mult: f64,
     /// `None`: validated. `Some(reason)`: rejected (never live).
     pub rejected: Option<&'a str>,
@@ -326,7 +327,7 @@ pub fn insert_submission(
     // Re-uploading the module that is already live changes nothing.
     if let Some(current) = current
         .as_ref()
-        .filter(|c| validated && c.sha256 == s.sha256 && c.fuel_mult == s.fuel_mult)
+        .filter(|c| validated && c.sha256 == s.sha256 && c.language == s.language)
     {
         return Ok((current.id.clone(), LiveChange::Unchanged));
     }
@@ -402,13 +403,13 @@ pub fn submission_team(tx: &Transaction, submission_id: &str) -> ApiResult<TeamR
 pub fn live_submission(tx: &Transaction, team_id: &str) -> ApiResult<Option<SubmissionRow>> {
     Ok(tx
         .query_row(
-            "SELECT id, sha256, fuel_mult FROM submissions WHERE team_id = ?1 AND live = 1",
+            "SELECT id, sha256, language FROM submissions WHERE team_id = ?1 AND live = 1",
             [team_id],
             |r| {
                 Ok(SubmissionRow {
                     id: r.get(0)?,
                     sha256: r.get(1)?,
-                    fuel_mult: r.get(2)?,
+                    language: r.get(2)?,
                 })
             },
         )

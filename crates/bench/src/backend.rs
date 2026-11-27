@@ -229,7 +229,10 @@ pub fn record_native(
     let info = |name: &str| BotInfo {
         name: name.to_string(),
         sha256: String::new(),
+        // Native bots run unmetered and uncapped: no language row applies.
         fuel_multiplier: 1.0,
+        language: String::new(),
+        memory_multiplier: 1.0,
     };
     let ruleset_hash = hash_hex(rules.hash());
     let map_hash = hash_hex(map.hash());

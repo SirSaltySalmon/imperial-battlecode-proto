@@ -11,13 +11,13 @@ pub const QUOTA_WINDOW_MS: i64 = 86_400_000;
 fn submission(tx: &Transaction, id: &str) -> ApiResult<Option<SubmissionRow>> {
     Ok(tx
         .query_row(
-            "SELECT id, sha256, fuel_mult FROM submissions WHERE id = ?1",
+            "SELECT id, sha256, language FROM submissions WHERE id = ?1",
             [id],
             |r| {
                 Ok(SubmissionRow {
                     id: r.get(0)?,
                     sha256: r.get(1)?,
-                    fuel_mult: r.get(2)?,
+                    language: r.get(2)?,
                 })
             },
         )

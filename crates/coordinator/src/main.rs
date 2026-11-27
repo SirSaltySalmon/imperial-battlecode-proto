@@ -109,9 +109,6 @@ struct Args {
     /// working directory
     #[arg(long, env = "IBC_VIEWER_DIR")]
     viewer_dir: Option<PathBuf>,
-    /// Language fuel multipliers, e.g. `--language rust=1.0 --language python=3.0`. Default: rust=1, cpp=1
-    #[arg(long = "language", value_parser = parse_language)]
-    languages: Vec<(String, f64)>,
     /// Seconds a live submission that stopped validating at a patch switch keeps playing ranked games
     #[arg(long, env = "IBC_INVALID_GRACE_SECS", default_value_t = 86_400)]
     invalid_grace_secs: u64,
@@ -124,16 +121,6 @@ struct Args {
     /// `distribution.json` (from `cargo xtask dist`) served at /v1/distribution for `ibc update`
     #[arg(long, env = "IBC_DISTRIBUTION")]
     distribution: Option<PathBuf>,
-}
-
-fn parse_language(s: &str) -> Result<(String, f64), String> {
-    let (name, mult) = s.split_once('=').ok_or("expected NAME=MULTIPLIER")?;
-    let mult: f64 = mult
-        .parse()
-        .map_err(|_| format!("bad multiplier {mult:?}"))?;
-    let mult = ibc_coordinator::model::normalize_fuel_mult(mult)
-        .ok_or("multiplier out of range (0.001 ..= 1000)")?;
-    Ok((name.to_string(), mult))
 }
 
 fn parse_tier_floors(s: &str) -> Result<[f64; 8], String> {
@@ -262,11 +249,6 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         tier_floors: args.tier_floors.unwrap_or(defaults.tier_floors),
         tournament_pause_ms: i64::try_from(args.tournament_pause_secs.saturating_mul(1000))
             .unwrap_or(i64::MAX),
-        languages: if args.languages.is_empty() {
-            defaults.languages.clone()
-        } else {
-            args.languages.clone()
-        },
         auth: args.auth.config(args.listen)?,
         moderation: args.moderation.to_config(),
         invalid_grace_ms: (args.invalid_grace_secs * 1000) as i64,

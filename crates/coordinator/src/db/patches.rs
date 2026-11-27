@@ -186,11 +186,12 @@ pub struct Check {
     pub checked_at: i64,
 }
 
-/// The team id, submission id and module hash of every live submission.
-pub fn live_submissions(tx: &Transaction) -> ApiResult<Vec<(String, String, String)>> {
-    let mut st =
-        tx.prepare("SELECT team_id, id, sha256 FROM submissions WHERE live = 1 ORDER BY team_id")?;
-    let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+/// The team id, submission id, module hash and language of every live submission.
+pub fn live_submissions(tx: &Transaction) -> ApiResult<Vec<(String, String, String, String)>> {
+    let mut st = tx.prepare(
+        "SELECT team_id, id, sha256, language FROM submissions WHERE live = 1 ORDER BY team_id",
+    )?;
+    let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
@@ -200,13 +201,13 @@ pub fn validated_module(
     tx: &Transaction,
     submission_id: &str,
     team_id: Option<&str>,
-) -> ApiResult<Option<String>> {
+) -> ApiResult<Option<(String, String)>> {
     Ok(tx
         .query_row(
-            "SELECT sha256 FROM submissions WHERE id = ?1 AND status = 'validated' AND live = 0
+            "SELECT sha256, language FROM submissions WHERE id = ?1 AND status = 'validated' AND live = 0
                AND (?2 IS NULL OR team_id = ?2)",
             params![submission_id, team_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?)
 }
