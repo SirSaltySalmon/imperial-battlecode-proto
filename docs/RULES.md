@@ -102,7 +102,7 @@ the earlier one.
   where the target will be.
 - Bullets are fast objects, not hitscan: they fly at `bullet_speed` per tick, are stopped by walls, and hit the
   first enemy circle on their path. Damage is full up to `falloff_start` and drops linearly to `falloff_min_pct`
-  at `range`. Armour absorbs a share of each hit until it is used up. There is no friendly fire.
+  at `range`. Armour is extra health: a hit takes it first. There is no friendly fire.
 - At long range sustained fire with a multi-pellet weapon loses its outer pellets (an even fan, all of them):
   read `UnitInfo.recoil` and pause to let it settle, at the price of a fresh startup.
 - Each shot adds `recoil_per_shot`; recoil recovers by `recoil_recovery` on ticks without a shot. Magazines hold

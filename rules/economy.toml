@@ -29,7 +29,7 @@ overtime_credits = 5000
 overtime_max_pairs = 3
 
 default_sidearm = 0
-armor_absorb_pct = 50
+armor_absorb_pct = 100
 
 # The shop. Item ids = position in this list and are append-only: never reorder or remove, add new items at the
 # end. kind: 1 weapon (value = weapon id in rules/weapons.toml; keep price equal to the weapon's price),

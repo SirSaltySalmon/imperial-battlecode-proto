@@ -11,7 +11,7 @@
   ],
   "core": {"buy_ticks":6,"defuse_kit_ticks":16,"defuse_ticks":21,"fov_half":9100,"fuse_ticks":80,"interact_reach":1200,"max_hp":100,"max_ticks":4000,"pickup_reach":900,"plant_ticks":12,"round_end_ticks":2,"round_ticks":120,"rounds_per_half":6,"rounds_to_win":7,"run_speed":700,"sense_radius":1536,"shot_sound_radius":30720,"step_sound_radius":8192,"team_size":5,"turn_rate":20000,"unit_radius":300,"vision_range":24576,"walk_speed":350},
   "defuse_ticks": 21,
-  "economy": {"ability_kill_reward":200,"armor_absorb_pct":50,"default_sidearm":0,"defuse_reward":300,"loss_reward":1400,"loss_streak_bonus":500,"loss_streak_cap":3,"max_credits":8000,"overtime_credits":5000,"overtime_max_pairs":3,"plant_reward":300,"refund_pct":100,"start_credits":800,"win_reward":3000},
+  "economy": {"ability_kill_reward":200,"armor_absorb_pct":100,"default_sidearm":0,"defuse_reward":300,"loss_reward":1400,"loss_streak_bonus":500,"loss_streak_cap":3,"max_credits":8000,"overtime_credits":5000,"overtime_max_pairs":3,"plant_reward":300,"refund_pct":100,"start_credits":800,"win_reward":3000},
   "fov_half": 9100,
   "fuse_ticks": 80,
   "item_rules": [

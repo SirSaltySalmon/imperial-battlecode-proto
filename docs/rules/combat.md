@@ -122,7 +122,9 @@ otherwise:            damage * (100 - (100 - falloff_min_pct) * min(t - falloff_
                                        / (range - falloff_start)) / 100
 ```
 
-Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used up (`rules/economy.toml`).
+Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used up (`rules/economy.toml`). At 100
+it is plain extra health, taken point for point before hp: with no armour penetration, light armour (25) means 125
+damage to kill and heavy (50) means 150.
 
 ## Recoil
 
