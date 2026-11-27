@@ -13,7 +13,8 @@ anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # Pinned exactly: the wasmtime version is part of the patch identity (fuel accounting is version specific).
-# Keep WASMTIME_VERSION in src/lib.rs in sync.
+# Keep WASMTIME_VERSION in src/lib.rs in sync. On a bump, re-check the SAFETY argument of `UnitVm::store_mut`
+# in src/vm.rs against the new Wasmtime source; the tests in src/vm/tests.rs fail if it no longer holds.
 wasmtime = { version = "=51.0.0", default-features = false, features = ["cranelift", "runtime", "async", "std"] }
 
 [dev-dependencies]
