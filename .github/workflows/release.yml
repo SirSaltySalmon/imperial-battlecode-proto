@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -47,7 +47,7 @@ jobs:
           esac
       - name: Native goldens must match what is committed
         run: cargo xtask golden verify --native
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: patch
           path: |
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the pinned toolchain (with the wasm targets from rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -71,7 +71,7 @@ jobs:
           shared-key: release-viewer
       - name: Engine for the browser
         run: cargo build --locked -p ibc-engine-wasm --release --target wasm32-unknown-unknown
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Build the viewer
@@ -80,7 +80,7 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build
           ls dist/engine/*.wasm
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: viewer-dist
           path: viewer/dist
@@ -92,7 +92,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web-dist
           path: web/dist
@@ -120,7 +120,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install the pinned toolchain and the target
         run: |
           rustup show active-toolchain || rustup toolchain install
@@ -128,7 +128,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-${{ matrix.target }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Build tools
@@ -140,11 +140,11 @@ jobs:
           if [ "${{ matrix.builder }}" = "zigbuild" ]; then
             python -m pip install --disable-pip-version-check ziglang cargo-zigbuild
           fi
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: viewer-dist
           path: viewer/dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: web/dist
@@ -161,7 +161,7 @@ jobs:
           cd packaging/pip
           zig=""; if [ "${{ matrix.builder }}" = "zigbuild" ]; then zig="--zig"; fi
           maturin build --release --locked --target ${{ matrix.target }} $zig --out ../../dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.target }}
           path: |
@@ -179,13 +179,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: dist-*
           path: dist
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: patch
           path: patch
@@ -220,7 +220,7 @@ jobs:
             echo "Verify a download: \`sha256sum -c SHA256SUMS --ignore-missing\`"
           } > notes.md
           cat notes.md
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-bundle
           path: |

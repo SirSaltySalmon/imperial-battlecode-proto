@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The toolchain and its wasm targets come from rust-toolchain.toml.
       - name: Install the pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
@@ -80,10 +80,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Decided inside the job: a skipped run costs one billed minute, a separate "changes" job would
       # cost that minute on every run.
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: changed
         with:
           filters: |
@@ -121,7 +121,7 @@ jobs:
         run: cargo xtask engine-wasm --require-node out/golden/wasm/*/replay.ibcr
       - name: Keep the outputs of a failed run
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: golden-out
           path: out/golden
