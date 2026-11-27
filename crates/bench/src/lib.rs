@@ -8,6 +8,7 @@ pub mod ab;
 pub mod backend;
 pub mod balance;
 mod balance_render;
+pub mod balance_weapons;
 pub mod compare;
 pub mod dump;
 pub mod league;

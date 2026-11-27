@@ -73,6 +73,7 @@ pub fn render_markdown(r: &BalanceReport) -> String {
             ));
         }
     }
+    s.push_str(&render_weapons(r));
     s.push_str("\n## Attacker round wins by pairing\n\n");
     let rows: Vec<Vec<String>> = r
         .attack_matrix
@@ -195,6 +196,109 @@ pub fn render_markdown(r: &BalanceReport) -> String {
     s
 }
 
+/// Cells behind fewer games than this are marked: split by bot, side and armour they shrink fast.
+const SMALL_CELL: u64 = 100;
+
+fn cell(r: &BalanceReport, key: &str) -> String {
+    match r.metrics.get(key) {
+        Some(e) if e.n < SMALL_CELL => format!("{} n={}", format_metric(key, e), e.n),
+        Some(e) => format_metric(key, e),
+        None => "-".into(),
+    }
+}
+
+/// One row per weapon, one column per `(header, key suffix)`.
+fn weapon_grid(r: &BalanceReport, cols: &[(String, String)]) -> String {
+    let rows: Vec<Vec<String>> = r
+        .per_weapon
+        .weapons
+        .iter()
+        .map(|w| {
+            let mut row = vec![w.clone()];
+            row.extend(
+                cols.iter()
+                    .map(|(_, k)| cell(r, &format!("weapon.{w}.{k}"))),
+            );
+            row
+        })
+        .collect();
+    let mut headers = vec!["weapon"];
+    headers.extend(cols.iter().map(|(h, _)| h.as_str()));
+    md_table(&headers, &rows)
+}
+
+fn columns(prefix: &str, names: &[String]) -> Vec<(String, String)> {
+    names
+        .iter()
+        .map(|n| (n.clone(), format!("{prefix}.{n}")))
+        .collect()
+}
+
+fn render_weapons(r: &BalanceReport) -> String {
+    let p = &r.per_weapon;
+    if p.games == 0 {
+        return "\n## Weapons per carrier-round\n\nUnavailable: no game carries per-weapon attribution (details \
+                recorded by an older ibc-bench). Re-run the league.\n"
+            .into();
+    }
+    let mut s = format!(
+        "\n## Weapons per carrier-round\n\nA carrier-round is a unit holding the weapon when the action phase \
+         starts; every enemy kill, its damage and its kill reward count for the weapon the killer carried then. \
+         Kill index = kills per carrier-round over all kills per unit-round (1 = average). {} games. `n=` marks \
+         a cell behind fewer than {SMALL_CELL} games: do not act on it.\n\n",
+        p.games
+    );
+    let total: u64 = p.carrier_rounds.values().sum();
+    let rows: Vec<Vec<String>> = p
+        .weapons
+        .iter()
+        .map(|w| {
+            let rounds = p.carrier_rounds.get(w).copied().unwrap_or(0);
+            let k = |m: &str| cell(r, &format!("weapon.{w}.{m}"));
+            vec![
+                w.clone(),
+                format!("{rounds} ({})", pct(rounds as f64 / total.max(1) as f64)),
+                k("kill_index"),
+                k("kills_per_carrier_round"),
+                k("damage_per_carrier_round"),
+                k("kill_reward_per_carrier_round"),
+            ]
+        })
+        .collect();
+    s.push_str(&md_table(
+        &[
+            "weapon",
+            "carrier-rounds",
+            "kill index",
+            "kills",
+            "damage",
+            "kill reward",
+        ],
+        &rows,
+    ));
+    let sides: Vec<String> = crate::balance_weapons::SIDES.map(String::from).to_vec();
+    s.push_str("\n### Kill index by side (each side against its own kills per unit-round)\n\n");
+    s.push_str(&weapon_grid(r, &columns("kill_index.side", &sides)));
+    s.push_str(
+        "\n### Kill index by bot (the weapon against that bot's own kills per unit-round)\n\n",
+    );
+    s.push_str(&weapon_grid(r, &columns("kill_index.bot", &r.bots)));
+    s.push_str("\n### Kill index by victim armour at action start\n\n");
+    s.push_str(&weapon_grid(
+        r,
+        &columns("kill_index.victim_armor", &p.armor_classes),
+    ));
+    s.push_str("\n### Enemy kills made with each weapon: distance in tiles\n\n");
+    let mut dist = vec![("mean".to_string(), "kill_distance_tiles.mean".to_string())];
+    dist.extend(
+        BANDS
+            .iter()
+            .map(|(b, _)| (b.to_string(), format!("kills.distance.{b}.share"))),
+    );
+    s.push_str(&weapon_grid(r, &dist));
+    s
+}
+
 /// The one-screen summary printed on stdout.
 pub fn render_summary(r: &BalanceReport) -> String {
     let mut s = format!(
@@ -253,6 +357,27 @@ pub fn render_summary(r: &BalanceReport) -> String {
             "  {:<28} {}\n",
             "kills by weapon",
             weapons.join(", ")
+        ));
+    }
+    let index: Vec<String> = r
+        .per_weapon
+        .weapons
+        .iter()
+        .filter_map(|w| {
+            let e = r.metrics.get(&format!("weapon.{w}.kill_index"))?;
+            let small = if e.n < SMALL_CELL {
+                format!(" (n={})", e.n)
+            } else {
+                String::new()
+            };
+            Some(format!("{w} {:.2}{small}", e.value))
+        })
+        .collect();
+    if !index.is_empty() {
+        s.push_str(&format!(
+            "  {:<28} {}\n",
+            "kill index by weapon",
+            index.join(", ")
         ));
     }
     let bands: Vec<String> = BANDS

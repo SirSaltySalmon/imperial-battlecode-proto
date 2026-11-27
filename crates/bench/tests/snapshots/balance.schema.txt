@@ -33,6 +33,12 @@ metrics.*.hi
 metrics.*.lo
 metrics.*.n
 metrics.*.value
+per_weapon
+per_weapon.armor_classes
+per_weapon.carrier_rounds
+per_weapon.carrier_rounds.*
+per_weapon.games
+per_weapon.weapons
 round_length_histogram
 round_length_histogram[].from
 round_length_histogram[].rounds
