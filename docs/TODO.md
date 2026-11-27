@@ -72,11 +72,14 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 
 ## 2. Engine and runner correctness
 
-- [ ] **C++ bots that use exceptions are rejected.** `ibc_runner::check_wasm` fails with "exception refs not
-  supported". Enable the exception-handling feature in the runner's Wasmtime config
-  (`crates/runner/src/lib.rs`), confirm fuel accounting still holds across a throw/catch (Wasmtime 50 changed
-  it), add a test bot that throws, and re-record goldens. Until then `sdk/cpp/README.md` says to stay on the
-  default `-fno-exceptions`.
+- [x] **C++ bots that use exceptions are rejected.** Done: the runner enables Wasmtime's exception handling
+  in the standard (exnref) encoding, with exception objects in a null-collector GC heap (no collection can
+  suspend a bot), and the coordinator's upload check accepts the same proposal; both refuse the legacy
+  encoding. `crates/runner/tests/exceptions.rs` shows fuel is exact across throw and catch, also when a turn
+  runs out inside a catch handler, and that a throw/catch costs 1 fuel per instruction. Existing modules
+  were not affected: the goldens verify unchanged. Left over: never compiled with wasi-sdk. Build a C++ bot
+  with `exceptions = true`, check it passes `ibc build`, and measure its module size and fuel per `throw`
+  for `sdk/cpp/README.md`.
 - [ ] **The runner scales badly inside one process.** Per-match cost was about 26 ms at `--jobs 1` and 88 ms
   at `--jobs 8` (8.6 to 8.8 matches per core-second instead of 32 to 35). The worker works around it with one
   runner process per slot. Find the contention in `crates/cli/src/batch.rs` / `crates/runner` (likely the

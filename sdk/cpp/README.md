@@ -71,18 +71,42 @@ plant, defuse, pickup, ability, swap, drop, cancel); a later call of a kind repl
 ```
 
 `--debug` swaps `-O2 -DNDEBUG --strip-all` for `-O0 -g`. Exceptions are off by default because they make
-the module bigger and every call slower. To opt in, add an `ibc.toml` next to `src/`:
+the module bigger and cost fuel. To opt in, add an `ibc.toml` next to `src/`:
 
 ```toml
 [cpp]
-exceptions = true    # -fwasm-exceptions -mllvm -wasm-use-legacy-eh=false, links the eh libc++ and libunwind
+exceptions = true    # -fwasm-exceptions -mllvm -wasm-use-legacy-eh=false instead of -fno-exceptions, and -lunwind
 ```
 
-Note: the match runner does not enable the wasm exception-handling feature yet, so today an
-exceptions build compiles and links but `ibc build` rejects the module ("exception refs not supported").
-Until the runner turns it on, stay with the default. The SDK itself never throws and works either way. Floating point is allowed (the host canonicalises NaNs)
-but the SDK does not use it. There is no filesystem, clock or network: WASI gives you `stdout`/`stderr`
-(captured in the unit log), a deterministic clock and random source, and nothing else.
+These are the flags wasi-sdk documents for C++ exceptions (`CppExceptions.md` in the wasi-sdk repository,
+from wasi-sdk 33): `-fwasm-exceptions`, given to the one clang call that also links, selects the
+exceptions build of libc++ and libc++abi in the sysroot; `-lunwind` links libunwind; and
+`-wasm-use-legacy-eh=false` selects the standard (exnref) encoding, `try_table` / `throw` / `throw_ref`.
+clang's default is still the legacy `try` / `catch` encoding, which Wasmtime cannot run: the runner and the
+upload check refuse it ("legacy_exceptions feature required"). What exceptions cost:
+
+- **Fuel.** The wasm instructions are cheap: `throw` and `try_table` cost 1 like any instruction, and the
+  unwinding to the handler is free. A C++ `throw` is not: `__cxa_allocate_exception` (a `malloc`),
+  `__cxa_throw`, libunwind, the personality routine reading the call-site table of each frame with a
+  handler or destructor, and `__cxa_begin_catch` / `__cxa_end_catch` all run as your code does and are
+  charged per instruction. Measure one with `fuel_remaining()` before you throw in the turn loop. Code that
+  never throws pays 1 fuel for each `try_table` it enters (around calls in a `try` or with destructors).
+- **Size.** The exceptions builds of libc++ and libc++abi, libunwind and the call-site tables are linked in.
+- **Exception memory.** Every wasm `throw` (one per C++ `throw` or `throw;`; passing through destructors
+  rethrows the same object) allocates a 24-byte exception object in a per-unit heap that is never
+  collected, so that no collection can pause your bot mid-turn. The heap has its own cap, the same
+  `memory_bytes` (8 MiB) as linear memory: about 350,000 throws in one match fit, and the throw after
+  that faults the unit ("trap: wasm trap: allocation size too large").
+- **Uncaught exceptions** fault the unit like a trap: "uncaught wasm exception" if it leaves `_start`, or
+  a trap from `std::terminate` if it leaves a `noexcept` function first.
+
+Nothing C++ has been compiled with `exceptions = true` in this repository yet: the runner's support is
+tested with hand-written wasm (`crates/runner/tests/exceptions.rs`), and the numbers above come from
+Wasmtime, not from a measured C++ bot. The SDK itself never throws and works either way.
+
+Floating point is allowed (the host canonicalises NaNs) but the SDK does not use it. There is no
+filesystem, clock or network: WASI gives you `stdout`/`stderr` (captured in the unit log), a deterministic
+clock and random source, and nothing else.
 
 ## Fuel tips
 

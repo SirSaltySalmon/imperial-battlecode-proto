@@ -139,6 +139,8 @@ kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
 - Each bot instance has its own linear memory of at most `memory_bytes` (8 MiB); the stack counts. A module
   that declares more is refused at upload and faults at the start of a match; `memory.grow` past the cap
   returns -1, so the allocator reports out of memory. An instance may have one table of at most 65,536 entries.
+  Exception objects (a wasm `throw`, 24 bytes each) live in a second heap of the same cap that is never freed
+  during the match: about 350,000 throws per unit.
 - Team-shared memory (`MEM_*`) is readable in every phase; each scope is writable in one phase only. Units run
   in an order that alternates teams and rotates each tick; a teammate that runs later in the same tick sees
   your write.

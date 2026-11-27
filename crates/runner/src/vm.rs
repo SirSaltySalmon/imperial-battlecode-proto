@@ -25,7 +25,7 @@ use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
-use wasmtime::{Caller, Engine, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder, Trap};
+use wasmtime::{Caller, Engine, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder, ThrownException, Trap};
 
 /// Fuel put into every store once, after instantiation. Never runs out in practice (9e18).
 pub(crate) const INITIAL_FUEL: u64 = u64::MAX / 2;
@@ -459,6 +459,7 @@ impl UnitVm {
                 Some(Exit::ProcExit(code)) => format!("exit({code})"),
                 None => match e.downcast_ref::<Trap>() {
                     Some(t) => format!("trap: {t}"),
+                    None if e.is::<ThrownException>() => "uncaught wasm exception".into(),
                     None => format!("error: {}", root(&e)),
                 },
             }),
