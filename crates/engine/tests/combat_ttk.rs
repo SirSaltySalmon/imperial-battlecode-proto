@@ -212,16 +212,20 @@ fn splice(doc: &str, name: &str, body: &str) -> String {
     format!("{}\n{}{}", &doc[..a], body, &doc[b..])
 }
 
-#[test]
-fn combat_doc_tables_match_the_ruleset() {
-    let r = Ruleset::builtin();
-    let heavy = r
-        .items
+/// Armour points of the heaviest armour in the shop.
+fn heaviest_armor(r: &Ruleset) -> i32 {
+    r.items
         .iter()
         .filter(|i| i.kind == ITEM_KIND_ARMOR)
         .map(|i| i.value)
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+}
+
+#[test]
+fn combat_doc_tables_match_the_ruleset() {
+    let r = Ruleset::builtin();
+    let heavy = heaviest_armor(&r);
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/rules/combat.md");
     let doc = std::fs::read_to_string(path)
         .expect("docs/rules/combat.md")
@@ -242,6 +246,8 @@ fn time_to_kill_gives_each_weapon_its_role() {
     let r = Ruleset::builtin();
     let id = |name: &str| weapon_id(&r, name);
     let t = |name: &str, tiles: i32, running: bool| ttk(id(name), tiles, running, 0);
+    let heavy = heaviest_armor(&r);
+    let t_armor = |name: &str, tiles: i32| ttk(id(name), tiles, false, heavy);
     for (w, name) in r.weapons.iter().zip(&r.weapon_names) {
         // Everything kills up close, and a steady shooter is never slower than one that just ran.
         assert!(
@@ -313,6 +319,13 @@ fn time_to_kill_gives_each_weapon_its_role() {
         "the smg loses little by moving"
     );
     assert_eq!(t("smg", 20, false), None);
+    // Small hits: level with the rifle standing at 5 tiles, no faster than it against heavy armour, well behind
+    // it at 10. A modest step above the free pistol in its own band (inside 6 tiles), armoured or not.
+    assert!(t("smg", 5, false).unwrap() <= t("rifle", 5, false).unwrap() + 1);
+    assert!(t_armor("smg", 5).unwrap_or(CAP) >= t_armor("rifle", 5).unwrap());
+    assert!(t("smg", 10, false).unwrap_or(CAP) >= t("rifle", 10, false).unwrap() + 3);
+    assert!(t("smg", 5, false) < t("pistol", 5, false));
+    assert!(t_armor("smg", 5) < t_armor("pistol", 5));
 
     // Rifle: the all-rounder. Kills at every distance standing, and beats the cheaper guns from 10 tiles out.
     for d in [3, 5, 10, 20] {
@@ -325,18 +338,31 @@ fn time_to_kill_gives_each_weapon_its_role() {
         );
     }
 
-    // LMG: no faster than the rifle to the first kill, but it does not have to stop: one magazine
-    // out-damages the rifle's by a wide margin.
-    assert!(t("lmg", 5, false).unwrap() >= t("rifle", 5, false).unwrap());
+    // LMG: fast once braced. The fastest kill on heavy armour at 5 tiles and close to the rifle at 10, but the
+    // rifle beats it once it has moved, and braced it empties a magazine worth twice the rifle's.
+    assert!(t_armor("lmg", 5).unwrap() <= t_armor("rifle", 5).unwrap());
+    assert!(t("lmg", 10, false).unwrap() <= t("rifle", 10, false).unwrap() + 2);
+    assert!(t("rifle", 5, false).unwrap() < t("lmg", 5, true).unwrap());
     let (lmg, rifle) = (
         r.weapons[id("lmg") as usize],
         r.weapons[id("rifle") as usize],
     );
     assert!(
         lmg.magazine * lmg.pellets * lmg.damage
-            >= 3 * rifle.magazine * rifle.pellets * rifle.damage
+            >= 2 * rifle.magazine * rifle.pellets * rifle.damage
     );
     assert!(lmg.move_pct < rifle.move_pct && lmg.reload_ticks > rifle.reload_ticks);
+
+    // Fire rate: the SMG is the fastest, the braced LMG as fast, the rifle slower than both and level with the
+    // pistol. Where two share an interval, damage per pull separates them.
+    let (smg, pistol) = (
+        r.weapons[id("smg") as usize],
+        r.weapons[id("pistol") as usize],
+    );
+    assert!(smg.cooldown <= lmg.cooldown && lmg.cooldown < rifle.cooldown);
+    assert_eq!(rifle.cooldown, pistol.cooldown);
+    assert!(smg.damage * smg.pellets < lmg.damage * lmg.pellets);
+    assert!(pistol.damage * pistol.pellets < rifle.damage * rifle.pellets);
 
     // The free sidearm is the slowest standing kill at 5 tiles: every purchase is an upgrade somewhere.
     for o in others("pistol") {

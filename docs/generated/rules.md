@@ -2,7 +2,7 @@
 
 # Ruleset reference
 
-Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `4829edc44ccb7483`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -68,7 +68,7 @@ On detonation every living unit within this distance of the charge dies, both te
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `id` | 0 | 1 | 2 | 3 | 4 | 5 |  |
 | `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |  |
-| `damage` | 26 | 22 | 17 | 15 | 75 | 16 |  |
+| `damage` | 26 | 22 | 12 | 15 | 75 | 13 |  |
 | `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | Bullets per trigger pull. |
 | `spread` | 0 | 250 | 200 | 260 | 0 | 300 | Angle between adjacent pellets when standing still and settled. |
 | `_reserved0` | 0 | 0 | 0 | 0 | 0 | 0 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
@@ -76,7 +76,7 @@ On detonation every living unit within this distance of the charge dies, both te
 | `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |  |
 | `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |  |
 | `windup` | 1 | 1 | 1 | 1 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
-| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 | Ticks after a shot before the next pull is accepted. |
+| `cooldown` | 1 | 1 | 0 | 3 | 4 | 0 | Ticks after a shot before the next pull is accepted. |
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |  |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |  |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | Units per tick. |
@@ -109,9 +109,11 @@ tiles and loses damage from four.
 
 (above [[weapon]] "rifle")
 All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
+Fires at the pistol's rate, slower than the smg and a braced lmg.
 
 (above [[weapon]] "smg")
-Run-and-gun: running barely unsteadies it and it carries at full speed, but short reach and steep falloff.
+Run-and-gun: the fastest fire rate (a pull every tick) with small hits that armour soaks. Running barely
+unsteadies it and it carries at full speed, but short reach and steep falloff.
 
 (above [[weapon]] "shotgun")
 Close quarters: a wide seven-bullet fan that kills in one pull inside three tiles and tickles beyond six.
@@ -121,7 +123,7 @@ Long range: one fast bullet with no falloff, two hits kill. Slow to cycle, very 
 and the two-tick startup warns the target.
 
 (above [[weapon]] "lmg")
-Heavy and slow: a five-bullet wall every pull, a deep magazine and almost no recoil, for holding a lane.
+Fast once braced: a five-bullet wall every tick from a deep magazine, for holding a lane against a group.
 Slow to carry, very slow to start firing after moving and very slow to reload.
 ```
 

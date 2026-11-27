@@ -581,14 +581,14 @@ Values, straight from `rules/weapons.toml`:
 | `id` | 0 | 1 | 2 | 3 | 4 | 5 |
 | `slot` | sidearm | primary | primary | primary | primary | primary |
 | `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |
-| `damage` | 26 | 22 | 17 | 15 | 75 | 16 |
+| `damage` | 26 | 22 | 12 | 15 | 75 | 13 |
 | `pellets` | 1 | 3 | 2 | 7 | 1 | 5 |
 | `spread` | 0 | 250 | 200 | 260 | 0 | 300 |
 | `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 |
 | `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |
 | `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |
 | `windup` | 1 | 1 | 1 | 1 | 2 | 2 |
-| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 |
+| `cooldown` | 1 | 1 | 0 | 3 | 4 | 0 |
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
@@ -612,10 +612,10 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 10.0 | 8.0 | 24 + 3 |
 | rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
-| smg | 1 / 1 / 1 | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
+| smg | 1 / 1 / 1 | 1 | 24 / 8 | 200 | 700 | 16.0 | 9.0 | 16 + 3 |
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
 | marksman | 2 / 6 / 6 | 5 | 75 / 75 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
-| lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
+| lmg | 2 / 6 / 6 | 1 | 65 / 35 | 1200 | 490 | 28.0 | 12.0 | 22 + 7 |
 <!-- /generated:derived -->
 
 Roles:
@@ -623,16 +623,19 @@ Roles:
 - **pistol**: the free sidearm. Exact single shots and a short startup even after running, but short reach:
   it is spent at 10 tiles and loses damage from 4. Four hits kill out to about 5 tiles, eight at the edge of
   its reach, so a team on pistols has to close the distance.
-- **smg**: cheap run-and-gun. Running barely unsteadies it, so it starts as fast off a run as standing, and
-  it carries at full speed; short reach, and its two-pellet fan opens fast under sustained fire.
+- **smg**: cheap run-and-gun with the fastest fire rate, a pull every tick, and small hits. Running barely
+  unsteadies it, so it starts as fast off a run as standing, and it carries at full speed; short reach, its
+  two-pellet fan opens fast under sustained fire, and armour soaks many of its small hits.
 - **shotgun**: seven pellets in a wide fan. One pull kills an unarmoured unit inside about three tiles and
   the fan is hard to sidestep; nearly harmless past six tiles. Slow pump, small magazine.
 - **rifle**: the all-rounder. A tight three-bullet burst that kills in two pulls while all three land and
-  still reaches across the map, if you stand still and pace your fire.
+  still reaches across the map, if you stand still and pace your fire. It fires at the pistol's rate, slower
+  than the smg and a braced lmg; its damage per pull is what sets it apart.
 - **marksman**: one fast bullet, no falloff, two hits kill anything. Slow to cycle, and a two-tick startup
   that the target can see, which grows the most of any weapon after moving.
-- **lmg**: heavy and slow. Five bullets a pull, a magazine that lasts sixty ticks and no recoil build-up, for
-  holding a lane; slow to carry, very slow to start after moving, and above all slow to reload.
+- **lmg**: fast once braced. Five bullets a pull and, once it is firing, a pull every tick from a twenty-pull
+  magazine, for holding a lane against a group; the fan opens as it keeps firing. Slow to carry, very slow to
+  start after moving, and above all slow to reload.
 
 ## Time to kill
 
@@ -649,10 +652,10 @@ Target with 100 health and no armour:
 |---|---:|---:|---:|---:|---:|---:|
 | pistol | 8 | 9 | 17 | 18 | no kill | no kill |
 | rifle | 6 | 9 | 6 | 9 | 11 | 14 |
-| smg | 6 | 6 | 9 | 9 | no kill | no kill |
+| smg | 6 | 6 | 14 | 14 | no kill | no kill |
 | shotgun | 6 | 8 | no kill | no kill | no kill | no kill |
 | marksman | 8 | 12 | 8 | 12 | 8 | 12 |
-| lmg | 6 | 10 | 9 | 13 | 25 | 29 |
+| lmg | 4 | 8 | 8 | 12 | 13 | 17 |
 <!-- /generated:ttk -->
 
 Target with 100 health and the heaviest armour in the shop:
@@ -662,10 +665,10 @@ Target with 100 health and the heaviest armour in the shop:
 |---|---:|---:|---:|---:|---:|---:|
 | pistol | 12 | 13 | 23 | 24 | no kill | no kill |
 | rifle | 10 | 13 | 10 | 13 | 17 | 20 |
-| smg | 10 | 10 | 15 | 15 | no kill | no kill |
+| smg | 10 | 10 | 23 | 23 | no kill | no kill |
 | shotgun | 10 | 12 | no kill | no kill | no kill | no kill |
 | marksman | 8 | 12 | 8 | 12 | 8 | 12 |
-| lmg | 6 | 10 | 12 | 16 | 37 | 41 |
+| lmg | 6 | 10 | 12 | 16 | 17 | 21 |
 <!-- /generated:ttk-armor -->
 
 These are duels against a target that stands still. A target that strafes at range dodges any single shot
@@ -1209,7 +1212,7 @@ still loads and reads the prefix of each record it knows; what changed is what s
 
 # Ruleset reference
 
-Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `4829edc44ccb7483`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -1275,7 +1278,7 @@ On detonation every living unit within this distance of the charge dies, both te
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `id` | 0 | 1 | 2 | 3 | 4 | 5 |  |
 | `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |  |
-| `damage` | 26 | 22 | 17 | 15 | 75 | 16 |  |
+| `damage` | 26 | 22 | 12 | 15 | 75 | 13 |  |
 | `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | Bullets per trigger pull. |
 | `spread` | 0 | 250 | 200 | 260 | 0 | 300 | Angle between adjacent pellets when standing still and settled. |
 | `_reserved0` | 0 | 0 | 0 | 0 | 0 | 0 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
@@ -1283,7 +1286,7 @@ On detonation every living unit within this distance of the charge dies, both te
 | `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |  |
 | `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |  |
 | `windup` | 1 | 1 | 1 | 1 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
-| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 | Ticks after a shot before the next pull is accepted. |
+| `cooldown` | 1 | 1 | 0 | 3 | 4 | 0 | Ticks after a shot before the next pull is accepted. |
 | `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |  |
 | `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |  |
 | `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | Units per tick. |
@@ -1316,9 +1319,11 @@ tiles and loses damage from four.
 
 (above [[weapon]] "rifle")
 All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
+Fires at the pistol's rate, slower than the smg and a braced lmg.
 
 (above [[weapon]] "smg")
-Run-and-gun: running barely unsteadies it and it carries at full speed, but short reach and steep falloff.
+Run-and-gun: the fastest fire rate (a pull every tick) with small hits that armour soaks. Running barely
+unsteadies it and it carries at full speed, but short reach and steep falloff.
 
 (above [[weapon]] "shotgun")
 Close quarters: a wide seven-bullet fan that kills in one pull inside three tiles and tickles beyond six.
@@ -1328,7 +1333,7 @@ Long range: one fast bullet with no falloff, two hits kill. Slow to cycle, very 
 and the two-tick startup warns the target.
 
 (above [[weapon]] "lmg")
-Heavy and slow: a five-bullet wall every pull, a deep magazine and almost no recoil, for holding a lane.
+Fast once braced: a five-bullet wall every tick from a deep magazine, for holding a lane against a group.
 Slow to carry, very slow to start firing after moving and very slow to reload.
 ```
 
