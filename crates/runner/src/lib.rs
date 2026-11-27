@@ -23,8 +23,6 @@ pub use wasi::SUPPORTED as WASI_IMPORTS;
 
 /// Exact version of the `wasmtime` crate this host is built with (pinned with `=` in Cargo.toml).
 pub const WASMTIME_VERSION: &str = "51.0.0";
-/// Linear memory cap per bot instance.
-pub const MEMORY_LIMIT_BYTES: usize = 64 << 20;
 /// Default cap of a unit's captured log.
 pub const DEFAULT_LOG_LIMIT: usize = 256 << 10;
 
@@ -233,6 +231,8 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
     let ruleset_hash = hash_hex(cfg.rules.hash());
     let header_rules = HeaderRules::of(&cfg.rules);
     let map_hash = hash_hex(map.hash());
+    // Each unit's linear memory cap (`memory_bytes`), read before the ruleset moves into the match.
+    let memory_limit = usize::try_from(cfg.rules.memory_bytes).unwrap_or(0);
     let game = Arc::new(Mutex::new(Match::new(cfg.rules, map, cfg.seed)));
     let n = lock(&game).unit_count();
     let teams: Vec<i32> = (0..n).map(|u| lock(&game).unit_team(u)).collect();
@@ -313,7 +313,7 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
             unit,
             cfg.seed,
             cfg.log_limit,
-            MEMORY_LIMIT_BYTES,
+            memory_limit,
         ) {
             Ok(vm) => vms.push(Some(vm)),
             Err(reason) => {
