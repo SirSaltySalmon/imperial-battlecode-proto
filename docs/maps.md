@@ -232,7 +232,7 @@ figure marked * was measured again after the map changed: 20 seeds, native, inte
 | [`culvert`](../maps/culvert.ibcmap)<br>![culvert](../maps/renders/culvert.svg) | 3v3, 30x21, 2 sites | 30 / 35 | 15 / 19 | 15 / 16 | 24 | 3 / 4 | 22.0 | 0 | 51.0% [46.0, 56.1] |
 | [`delta`](../maps/delta.ibcmap)<br>![delta](../maps/renders/delta.svg) | 5v5, 37x33, 3 sites | 31 / 34 / 31 | 20 / 17 / 21 | 11 / 17 / 10 | 13 / 25 / 13 | 5 / 5 / 5 | 24.6 | 0 | 51.9% [47.8, 56.1] |
 | [`fulcrum`](../maps/fulcrum.ibcmap)<br>![fulcrum](../maps/renders/fulcrum.svg) | 5v5, 37x31, 2 sites | 33 / 33 | 18 / 19 | 15 / 14 | 28 | 4 / 4 | 22.8 | 0 | 48.5% [43.5, 53.5] |
-| [`longwatch`](../maps/longwatch.ibcmap)<br>![longwatch](../maps/renders/longwatch.svg) | 5v5, 36x29, 2 sites | 34 / 34 | 24 / 24 | 10 / 10 | 28 | 5 / 5 | 19.9 | 0 | 57.0% [52.5, 61.5] |
+| [`longwatch`](../maps/longwatch.ibcmap)<br>![longwatch](../maps/renders/longwatch.svg) | 5v5, 36x29, 2 sites | 34 / 34 | 24 / 24 | 10 / 10 | 28 | 5 / 5 | 19.4 | 0 | 51.5% [47.8, 55.1]* |
 | [`postern`](../maps/postern.ibcmap)<br>![postern](../maps/renders/postern.svg) | 3v3, 28x19, 2 sites | 27 / 27 | 18 / 18 | 9 / 9 | 18 | 3 / 3 | 22.2 | 0 | 53.7% [48.0, 59.4] |
 | [`quarry`](../maps/quarry.ibcmap)<br>![quarry](../maps/renders/quarry.svg) | 4v4, 34x23, 2 sites | 32 / 30 | 22 / 23 | 10 / 7 | 24 | 4 / 3 | 24.3 | 0 | 48.8% [44.1, 53.5] |
 | [`spillway`](../maps/spillway.ibcmap)<br>![spillway](../maps/renders/spillway.svg) | 5v5, 25x40, 2 sites | 42 / 39 | 24 / 21 | 18 / 18 | 22 | 3 / 3 | 22.3 | 0 | 61.9% [57.6, 66.2] |
@@ -244,7 +244,7 @@ figure marked * was measured again after the map changed: 20 seeds, native, inte
 | Map | Identity |
 |---|---|
 | `agora` | Open middle with flanks. A plaza with a central block and pillars; both sites are reached from the plaza or along an outer lane. The most open map |
-| `longwatch` | Lane map. Two long outer lanes (17 to 20 tile fights) around a cramped middle of small rooms with one-tile doors |
+| `longwatch` | Lane map. Two long outer lanes (17 to 20 tile fights) around a cramped middle of small rooms with one-tile doors; a pillar in each of the two middle rooms breaks the line down their aligned doors |
 | `warrens` | Tight corridors. Rooms and one- and two-tile doors everywhere; three one-tile chokes per site; the only long lines are two cross-map alleys |
 | `spillway` | Vertical split. Portrait map cut in two by a spine wall with a single crossing near the sites; attackers at the bottom, one site per side |
 | `trident` | Three sites: one on the centre axis and one on each wing. Short hops between neighbours, a long rotation wing to wing |
@@ -305,7 +305,7 @@ slots. `n` is the number of games behind the interval. The bots are described in
 | `culvert` | 51.0% [46.0, 56.1] | 192 |
 | `delta` | 51.9% [47.8, 56.1] | 192 |
 | `fulcrum` | 48.5% [43.5, 53.5] | 192 |
-| `longwatch` | 57.0% [52.5, 61.5] | 192 |
+| `longwatch` | 51.5% [47.8, 55.1]* | 1280* |
 | `postern` | 53.7% [48.0, 59.4] | 192 |
 | `quarry` | 48.8% [44.1, 53.5] | 192 |
 | `spillway` | 61.9% [57.6, 66.2] | 192 |
@@ -315,9 +315,10 @@ slots. `n` is the number of games behind the interval. The bots are described in
 | `warrens` | 47.1% [42.4, 51.7] | 192 |
 
 \* Measured after the map changed, on ruleset `5795cbc069627a93`: 20 seeds, native, interval clustered by seed
-(see "Side-balance fixes"). Before the change this run gave `tunnels` 72.9% [68.6, 77.2].
+(see "Side-balance fixes"). Before the changes this run gave `longwatch` 57.0% [52.5, 61.5] and `tunnels` 72.9%
+[68.6, 77.2].
 
-Over the whole pool attackers win 56.1% [54.8, 57.4] of rounds (before the `tunnels` change).
+Over the whole pool attackers win 56.1% [54.8, 57.4] of rounds (before the `longwatch` and `tunnels` changes).
 
 Read these with the bots in mind: they were written before the timings changed and have not been retuned.
 
@@ -373,3 +374,29 @@ together -1.5, all three -15.9. First contact moved from tick 12.5 to 19.6 and t
 6.5%. The site-holding bots (holder, lurker, retaker, sapper, saver) won 10 to 15% of their defending rounds
 before and 40 to 55% after. rusher barely moved on either side; utility lost 9 points attacking and none
 defending. Squad only fell further than the pool, to 44%, but its interval contains 50%.
+
+#### `longwatch`
+
+The doors of the two middle rooms (x 20 to 25, rows 8 to 12 and 16 to 20) line up vertically: (20..22,7),
+(23..24,13), (23..24,15) and (20..22,21). A 12 to 19 tile line ran through them from the site room's north-west
+corner (19..20, 2..3), the longest on the map ((19,1) to (25,20), 19.9 tiles), and its mirror from site 2.
+Attackers who planted and sat in that corner shot retakers coming down the middle, which is also the rotation
+route. A wall at (22,9) and one at (22,19), a pillar in each middle room, break it. The longest line is now
+(21,1) to (25,20), 19.4 tiles, past the pillar's side; a charge on the centre is seen from 73 tiles instead of
+93, and the mean hold position sees 73% of the site instead of 82%. Timings are unchanged.
+
+| `longwatch` | Before | After | Paired difference |
+|---|---|---|---|
+| Attackers win rounds, native, 20 seeds | 56.9% [53.9, 60.0] | 51.5% [47.8, 55.1] | -5.3 [-7.9, -2.7], lower on 17 of 20 seeds |
+| Attackers win rounds, wasm, 10 seeds | 57.1% [52.1, 62.1] | 50.9% [44.7, 57.0] | -6.1 [-10.4, -1.7], lower on 9 of 10 seeds |
+| Squad only, native | 64.3% [59.1, 69.5] | 59.0% [52.9, 65.1] | -5.0 [-9.6, -0.3] |
+| Plant rate, native | 71.1% [69.6, 72.6] | 71.5% [69.4, 73.6] | +0.4 [-1.1, +1.9] |
+| Retake success, native | 27.7% [24.7, 30.6] | 33.8% [30.4, 37.3] | +6.1 [+3.4, +8.8] |
+| Held, native | 23.4% [21.6, 25.2] | 24.4% [22.1, 26.7] | +0.9 [-0.6, +2.4] |
+| Ends by elimination / defuse, native | 75.6% / 19.7% | 72.3% / 24.2% | defuse +4.4 [+2.8, +6.1] |
+| Ends by detonation / timeout, native | 2.4% / 2.3% | 1.9% / 1.6% | |
+
+The plant rate did not move; what changed is the retake, as intended. Fights got shorter: kills at 10 to 20
+tiles fell from 24% to 8% of all kills and the mean kill distance from 7.8 to 6.5 tiles, so much of the map's
+long-range fighting went down this line rather than the outer lanes. holder and rusher lost 15 to 16 points
+attacking; defending, every bot but rusher and utility gained 6 to 11 points.
