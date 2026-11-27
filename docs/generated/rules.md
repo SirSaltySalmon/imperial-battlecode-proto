@@ -2,7 +2,7 @@
 
 # Ruleset reference
 
-Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `39c7b9830200a363`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -43,6 +43,7 @@ Ruleset hash `5795cbc069627a93`. Every value as the engine loads it, defaults an
 | `blast_radius` | 12288 | On detonation every living unit within this distance of the charge dies, through walls. |
 | `buy_mem_bytes` | 256 |  |
 | `round_end_ticks` | 2 | Pause after a round is decided. Not part of `T_RULES_CORE`. |
+| `memory_bytes` | 8388608 | Most linear memory one unit's wasm instance may have, in bytes: what it declares and what it grows to, its stack included. Each unit has its own. Enforced by the runner. Not part of `T_RULES_CORE`. |
 
 Notes from `rules/core.toml`:
 
@@ -50,6 +51,8 @@ Notes from `rules/core.toml`:
 Core rules. Distances are fixed-point (1024 per tile), angles are 65536 per full turn, times are ticks.
 
 Buy-phase team memory (MEM_BUY), cleared every round.
+
+Linear memory of each unit's own wasm instance (8 MiB), its stack included. The runner enforces it.
 
 On detonation every living unit within this distance of the charge dies, both teams, through walls.
 ```
