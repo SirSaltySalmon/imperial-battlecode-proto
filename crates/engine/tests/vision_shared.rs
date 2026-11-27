@@ -64,7 +64,7 @@ fn a_unit_fires_at_an_enemy_only_its_teammate_sees() {
     let mut m = setup();
     place(&mut m, 0, c(3, 6), EAST);
     place(&mut m, 1, c(3, 7), EAST);
-    place(&mut m, 2, c(14, 6), WEST);
+    place(&mut m, 2, c(10, 6), WEST);
     m.world.units[0].blind = 100;
     m.step();
     let target = m.world.units[2].pos;
@@ -99,10 +99,11 @@ fn teammates_hear_the_same_sounds() {
 }
 
 /// Unit 0 shoots unit 2 down the open row and is moved behind the wall while the bullet flies. Returns the
-/// match on the tick the bullet lands.
+/// match on the tick the bullet lands. Ten tiles apart: further than a sidearm bullet flies in one tick, and
+/// inside its reach.
 fn shoot_then_hide(target_hp: i32) -> Match {
     let mut m = setup();
-    place(&mut m, 0, c(3, 6), EAST);
+    place(&mut m, 0, c(6, 6), EAST);
     place(&mut m, 2, c(16, 6), WEST);
     m.world.units[2].hp = target_hp;
     m.step();
@@ -115,7 +116,7 @@ fn shoot_then_hide(target_hp: i32) -> Match {
         }
     }
     assert!(!m.world.projectiles.is_empty() && m.world.events.is_empty(), "the bullet is in flight");
-    place(&mut m, 0, c(3, 2), EAST);
+    place(&mut m, 0, c(6, 2), EAST);
     place(&mut m, 2, c(16, 6), NORTH);
     for _ in 0..4 {
         m.step();
