@@ -237,15 +237,18 @@ fn scale(base: u64, milli: u64) -> u64 {
 /// wasm bot. A driven unit acts through the same `ibc_abi::Host` calls as a bot, at its place in the turn
 /// order, so the engine validates it the same way and the replay records it the same way.
 pub trait Driver {
-    /// True if this unit is driven here rather than by its team's bot. Asked once per unit before tick 0.
-    /// A team whose units are all driven needs no module: its `BotSpec::wasm` is not loaded and the
+    /// True if this unit is always driven here and never runs its team's bot. Asked once per unit before
+    /// tick 0. A team whose units are all driven needs no module: its `BotSpec::wasm` is not loaded and the
     /// replay header gives it an empty sha256.
     fn drives(&self, unit: u32, team: i32) -> bool;
     /// Sees the match before the first tick and after every step. May block (a human thinking, a tick
     /// clock). Returning false stops the match there; it is then recorded as unfinished.
     fn observe(&mut self, game: &Match) -> bool;
-    /// The turn of a driven unit this tick: issue its acts on `game` through `ibc_abi::Host`.
-    fn turn(&mut self, unit: u32, game: &mut Match);
+    /// Offered every unit's turn, at its place in the turn order. Returns true if it took the turn (issued
+    /// the unit's acts on `game` through `ibc_abi::Host`, or chose to make none): the unit's bot then does
+    /// not run this tick and resumes where it was on a later one. The answer is ignored for units `drives`
+    /// claimed, which never run a bot.
+    fn turn(&mut self, unit: u32, game: &mut Match) -> bool;
 }
 
 /// No unit is driven from outside: every unit runs its team's bot.
@@ -258,7 +261,9 @@ impl Driver for Bots {
     fn observe(&mut self, _game: &Match) -> bool {
         true
     }
-    fn turn(&mut self, _unit: u32, _game: &mut Match) {}
+    fn turn(&mut self, _unit: u32, _game: &mut Match) -> bool {
+        false
+    }
 }
 
 /// The module of each team and its sha256, loaded only if one of the team's units runs it (not driven).
@@ -416,8 +421,7 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
         };
         let mut tick_fuel = [0u64; 2];
         for unit in order {
-            if driven[unit as usize] {
-                driver.turn(unit, &mut lock(&game));
+            if driver.turn(unit, &mut lock(&game)) || driven[unit as usize] {
                 continue;
             }
             let Some(vm) = vms.get_mut(unit as usize).and_then(|v| v.as_mut()) else { continue };

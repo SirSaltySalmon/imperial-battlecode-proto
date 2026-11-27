@@ -5,7 +5,7 @@
 use crate::fixed;
 use crate::fixed::V2;
 use crate::vision::HitFrom;
-use crate::world::{Projectile, World};
+use crate::world::{Projectile, Trail, World};
 use crate::{abilities, combat};
 
 impl World {
@@ -43,6 +43,24 @@ impl World {
                 }
                 continue;
             }
+            // For the trail of a bullet that ends here: where it was when the tick began (the per-substep steps
+            // above sum to exactly `vel * s / sub`), and the point a fraction `t` (Q14) along this substep.
+            let start = (a.0 - p.vel.0 * s / sub, a.1 - p.vel.1 * s / sub);
+            let at = |t: i64| {
+                (
+                    a.0 + ((b.0 - a.0) as i64 * t / fixed::ONE) as i32,
+                    a.1 + ((b.1 - a.1) as i64 * t / fixed::ONE) as i32,
+                )
+            };
+            let (owner, team, weapon, vel) = (p.owner, p.team, p.weapon, p.vel);
+            let trail = move |to: V2| Trail {
+                owner,
+                team,
+                weapon,
+                from: start,
+                to,
+                vel,
+            };
             let mut victim: Option<(usize, i64)> = None;
             for (j, u) in self.units.iter().enumerate() {
                 if !u.alive || u.team == p.team || u.id == p.owner {
@@ -57,11 +75,13 @@ impl World {
             if let Some((j, t)) = victim {
                 if stop.map_or(true, |st| t <= st) {
                     p.travelled += (seg_len as i64 * t / fixed::ONE) as i32;
+                    self.trails.push(trail(at(t)));
                     hits.push((j, p));
                     continue;
                 }
             }
-            if stop.is_some() {
+            if let Some(st) = stop {
+                self.trails.push(trail(at(st)));
                 if by_effect {
                     blocked.push((p, b));
                 }
@@ -71,6 +91,8 @@ impl World {
             p.travelled += seg_len;
             if p.travelled < p.range {
                 keep.push(p);
+            } else {
+                self.trails.push(trail(b));
             }
         }
         self.projectiles = keep;

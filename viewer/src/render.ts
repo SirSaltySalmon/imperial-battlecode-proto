@@ -111,7 +111,8 @@ export function render(ctx: CanvasRenderingContext2D, width: number, height: num
   if (scene.show.sounds) drawSounds(pen, view.sounds);
   // Bullets are matched across the two frames on the full lists and fogged afterwards, by where each one
   // is drawn: a bullet about to enter the viewers' sight must not be traced back into the fog.
-  const shots = interpShots(frame.projectiles, scene.next?.projectiles ?? null, scene.t, stopFn(scene));
+  const { next } = scene;
+  const shots = interpShots(frame.projectiles, next?.projectiles ?? null, scene.t, stopFn(scene), next?.trails);
   drawShots(pen, shots.filter((s) => s.team === view.team || view.canSee(s.x, s.y)));
   scene.marks?.(pen);
   drawUnits(pen, poses);

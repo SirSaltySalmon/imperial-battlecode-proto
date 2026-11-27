@@ -10,6 +10,7 @@ everything real lives in the binary. The workflow they serve is in [`docs/hillcl
 | `tools/balance.sh run <label>` | balance report into `out/balance/<label>/` |
 | `tools/balance.sh compare <old> <new>` | which metrics moved beyond their intervals between two labels |
 | `tools/devstack.sh [PORT] [--rounds N] [--exit]` | the online loop locally: coordinator + two workers + the eight reference bots as teams, ranked scheduler on; prints the ladder after N rounds (`docs/DEPLOY.md`) |
+| `tools/lab.sh [PORT] [--no-play] [-- OPTIONS]` | combat lab: records `viewer/public/lab.json` (`ibc-combatviz`), serves the viewer with Vite on `PORT` (default 5173) and opens `/lab.html`. Its Play section picks the opponent, the team bot, the map (`tools/lab/range.ibcmap` is 1v1) and your kit and starts `ibc play` with them on `PORT+1`; `OPTIONS` go to every `ibc play`. Rerun after a rule or combat change |
 
 ## `ibc-bench` in one screen
 

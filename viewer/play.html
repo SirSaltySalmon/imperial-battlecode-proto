@@ -15,7 +15,7 @@
         <div id="match-title"></div>
         <div class="spacer"></div>
         <button id="btn-step" class="primary" title="Advance one tick (Space)" hidden>Step (Space)</button>
-        <button id="btn-run" class="primary" title="Start / pause the clock (Space or P)" hidden>Start (Space)</button>
+        <button id="btn-run" class="primary" title="Let the clock run on its own, or stop it (P)" hidden>Start (Space)</button>
         <button id="btn-help" title="Controls">Keys</button>
         <button id="btn-quit" title="End the match here and write the replay">Quit</button>
       </header>
@@ -30,13 +30,14 @@
             <div id="hud-weapon" class="big"></div>
             <div id="hud-credits"></div>
             <div id="hud-kit"></div>
+            <div id="hud-interact" class="big prompt" hidden></div>
             <div id="hud-acts" class="dim"></div>
             <div id="hud-mode" class="dim"></div>
           </div>
-          <div id="draft" class="menu" hidden>
-            <h2>Pick a kit (1-9)</h2>
-            <div id="draft-list"></div>
-            <p class="dim">Then press Space to start.</p>
+          <div id="squad">
+            <h2>Squad (Tab)</h2>
+            <div id="squad-list"></div>
+            <p class="dim">Click a unit to play it; your team's bot plays the rest.</p>
           </div>
           <div id="buy" class="menu" hidden>
             <h2>Buy (1-0)</h2>
@@ -55,11 +56,14 @@
               <dt>Left click</dt><dd>fire (hold)</dd>
               <dt>R</dt><dd>reload</dd>
               <dt>Q E</dt><dd>ability in slot 0 / 1, at the mouse</dd>
-              <dt>F</dt><dd>plant / defuse (hold)</dd>
+              <dt>F</dt><dd>pick up (press), plant / defuse (hold)</dd>
               <dt>1 2</dt><dd>switch weapon slot</dd>
-              <dt>G C</dt><dd>pick up / cancel</dd>
-              <dt>1-0</dt><dd>draft a kit, buy an item (in those phases)</dd>
-              <dt>Space</dt><dd>turn mode: one tick; real time: start / pause (also P)</dd>
+              <dt>G X</dt><dd>drop weapon / drop the charge</dd>
+              <dt>C</dt><dd>cancel the current channel</dd>
+              <dt>1-0</dt><dd>buy an item (in the buy phase)</dd>
+              <dt>Tab</dt><dd>play the next living unit of your team (the bot takes back the one you leave)</dd>
+              <dt>Space</dt><dd>active mode: wait a tick, hold to keep waiting; turn mode: one tick; real time: start / pause</dd>
+              <dt>P</dt><dd>let time run on its own, or stop it</dd>
               <dt>Wheel</dt><dd>zoom</dd>
             </dl>
           </div>

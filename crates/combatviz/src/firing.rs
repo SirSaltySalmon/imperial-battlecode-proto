@@ -5,7 +5,7 @@ use crate::record::Catalog;
 use crate::setup::{self, weapon_id};
 use crate::take::{self, Take};
 use ibc_engine::abi::*;
-use ibc_engine::combat::fan;
+use ibc_engine::combat::{fan, unsteadiness_after};
 use ibc_engine::Ruleset;
 
 pub fn add(cat: &mut Catalog) {
@@ -15,27 +15,34 @@ pub fn add(cat: &mut Catalog) {
     let marksman = weapon_id("marksman");
     let pistol = weapon_id("pistol");
 
+    let windup = rules.weapons[marksman as usize].windup;
     one_pull(cat, marksman, "marksman-windup", "Marksman startup",
-        "combat_firing::bullets_leave_after_the_startup_along_the_fan. A steady unit starts up for two ticks, then one bullet leaves on the aim line.");
+        &format!("combat_firing::bullets_leave_after_the_startup_along_the_fan. A steady unit starts up for {windup} ticks, then one bullet leaves on the aim line."));
     hold(cat, shotgun, 3, "shotgun-cycle", "Shotgun pump, braced",
         "combat_firing::holding_the_trigger_fires_after_the_startup_then_every_one_plus_cooldown_ticks. The startup, the release, then braced: one pull every 1 + cooldown ticks.");
+    let cooldown = rules.weapons[pistol as usize].cooldown;
     hold(cat, pistol, 4, "pistol-cycle", "Pistol, braced",
-        "The same clock with cooldown 1: braced, every second tick's pull leaves on the tick it is made.");
+        &format!("The same clock with cooldown {cooldown}: braced, a pull every {} ticks leaves on the tick it is made.", 1 + cooldown));
 
-    let run = rules.core.run_speed * rules.weapons[rifle as usize].move_pct / 100;
+    let rifle_rules = &rules.weapons[rifle as usize];
+    let run = rules.core.run_speed * rifle_rules.move_pct / 100;
+    let walked = 3;
+    let ran = ticks_to_cap(rifle_rules, run);
     startup_after(cat, rifle, 0, 0, "rifle-startup-steady", "Rifle, steady",
         "combat_brace::running_then_firing_starts_up_slower_than_walking_than_standing. Standing settled: the startup is the wind-up.");
     startup_after(
         cat,
         rifle,
         rules.core.walk_speed,
-        3,
+        walked,
         "rifle-startup-walked",
         "Rifle after walking",
-        "Three ticks of walking leave a little unsteadiness: a slightly longer startup.",
+        &format!(
+            "{walked} ticks of walking leave a little unsteadiness: a slightly longer startup."
+        ),
     );
-    startup_after(cat, rifle, run, 6, "rifle-startup-ran", "Rifle after running",
-        "Six ticks of running reach the cap: the longest startup. Stopping for one tick first would barely shorten it.");
+    startup_after(cat, rifle, run, ran, "rifle-startup-ran", "Rifle after running",
+        &format!("{ran} ticks of running reach the cap of {}: the longest startup. Stopping for one tick first would barely shorten it.", rifle_rules.unsteady_max));
     move_cancels(cat, marksman);
 
     aim_clamp(cat, pistol);
@@ -77,6 +84,16 @@ fn hold(cat: &mut Catalog, id: i32, pulls: i32, sid: &str, title: &str, note: &s
         cat,
         take::meta("pull", sid, title, note, &format!("{shots} pulls")),
     );
+}
+
+/// Ticks of moving `speed` units per tick from a standstill until unsteadiness reaches `unsteady_max`.
+fn ticks_to_cap(wr: &WeaponRules, speed: i32) -> i32 {
+    let (mut heat, mut ticks) = (0, 0);
+    while heat < wr.unsteady_max && ticks < 64 {
+        heat = unsteadiness_after(wr, heat, speed);
+        ticks += 1;
+    }
+    ticks
 }
 
 /// Move at `speed` for `ticks` ticks (legs of three ticks up and down), then pull and hold the trigger.

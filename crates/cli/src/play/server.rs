@@ -3,11 +3,13 @@
 //! | Route | |
 //! |---|---|
 //! | `GET /` | the play page (`play.html` of the built viewer); other paths are the viewer's files |
-//! | `GET /setup` | map text, rules, names, the player's seat and the mode (fixed for the session) |
+//! | `GET /setup` | map text, rules, names, the player's team and the mode (fixed for the session) |
 //! | `GET /state` | the player's team's fogged view after the latest tick, the last acts and their results |
+//! | `GET /state?after=N` | the same, as soon as a tick after `N` has run (or after a short wait) |
 //! | `POST /input` | an `Input` (held controls and queued actions) |
 //! | `POST /step` | optional `Input`, then one tick; answers with the state after it |
-//! | `POST /run` | `{"running": bool}`: start or pause the real-time clock |
+//! | `POST /run` | `{"running": bool}`: let the clock run on its own, or stop it |
+//! | `POST /possess` | `{"slot": n}`: take over that unit of the team from its bot; `{"slot": null}`: watch |
 //! | `POST /quit` | end the match where it is (recorded as unfinished) and stop `ibc play` |
 //!
 //! Std only, bound to 127.0.0.1 like `ibc view`. Requests must name a local host (DNS rebinding), and every
@@ -42,12 +44,22 @@ pub struct Response {
 
 impl Response {
     fn json(value: &Value) -> Response {
-        Response { status: "200 OK", content_type: "application/json", body: value.to_string().into_bytes() }
+        Response {
+            status: "200 OK",
+            content_type: "application/json",
+            body: value.to_string().into_bytes(),
+        }
     }
 
     fn error(status: &'static str, message: &str) -> Response {
-        let body = json!({ "error": status, "message": message }).to_string().into_bytes();
-        Response { status, content_type: "application/json", body }
+        let body = json!({ "error": status, "message": message })
+            .to_string()
+            .into_bytes();
+        Response {
+            status,
+            content_type: "application/json",
+            body,
+        }
     }
 }
 
@@ -128,19 +140,30 @@ pub fn respond(site: &Site, req: &Request) -> Response {
     if !req.host.as_deref().map_or(true, is_local_host) {
         return Response::error("403 Forbidden", "not a local host name");
     }
-    let path = req.path.split(['?', '#']).next().unwrap_or("");
+    let target = req.path.split('#').next().unwrap_or("");
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
     match req.method.as_str() {
-        "GET" | "HEAD" => get(site, path),
-        "POST" if !req.play_header => Response::error("403 Forbidden", "POST needs the header X-IBC-Play: 1"),
+        "GET" | "HEAD" => get(site, path, query),
+        "POST" if !req.play_header => {
+            Response::error("403 Forbidden", "POST needs the header X-IBC-Play: 1")
+        }
         "POST" => post(&site.session, path, &req.body),
         _ => Response::error("405 Method Not Allowed", "only GET, HEAD and POST"),
     }
 }
 
-fn get(site: &Site, path: &str) -> Response {
+fn get(site: &Site, path: &str, query: &str) -> Response {
+    let after = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("after="))
+        .map(str::parse::<u32>);
     match path {
         "/setup" => Response::json(&site.session.setup),
-        "/state" => Response::json(&site.session.state()),
+        "/state" => match after {
+            None => Response::json(&site.session.state()),
+            Some(Ok(tick)) => Response::json(&site.session.state_after(tick)),
+            Some(Err(_)) => Response::error("400 Bad Request", "after must be a tick number"),
+        },
         "/" => static_file(site, "/play.html"),
         _ => static_file(site, path),
     }
@@ -180,8 +203,29 @@ fn post(session: &Session, path: &str, body: &[u8]) -> Response {
                 session.set_running(on);
                 Response::json(&session.state())
             }
-            None => Response::error("400 Bad Request", r#"POST /run needs {"running": true|false}"#),
+            None => Response::error(
+                "400 Bad Request",
+                r#"POST /run needs {"running": true|false}"#,
+            ),
         },
+        "/possess" => {
+            let slot = match &json["slot"] {
+                Value::Null if json.get("slot").is_some() => None,
+                v => match v.as_u64().and_then(|n| u32::try_from(n).ok()) {
+                    Some(n) => Some(n),
+                    None => {
+                        return Response::error(
+                            "400 Bad Request",
+                            r#"POST /possess needs {"slot": n|null}"#,
+                        )
+                    }
+                },
+            };
+            match session.possess(slot) {
+                Ok(()) => Response::json(&session.state()),
+                Err(e) => Response::error("400 Bad Request", &e),
+            }
+        }
         "/quit" => {
             session.quit();
             Response::json(&json!({ "ok": true }))
@@ -201,7 +245,11 @@ fn static_file(site: &Site, path: &str) -> Response {
     // Resolving links and then checking the prefix keeps a symlink in the directory from leading outside it.
     match file.canonicalize() {
         Ok(real) if real.starts_with(&site.root) && real.is_file() => match std::fs::read(&real) {
-            Ok(body) => Response { status: "200 OK", content_type: content_type(&real), body },
+            Ok(body) => Response {
+                status: "200 OK",
+                content_type: content_type(&real),
+                body,
+            },
             Err(e) => Response::error("500 Internal Server Error", &e.to_string()),
         },
         _ => Response::error("404 Not Found", "not found"),

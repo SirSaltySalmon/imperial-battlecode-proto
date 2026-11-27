@@ -1,13 +1,12 @@
-//! One frame of a scripted fight, compact enough to inline in the lab page.
+//! One frame of a scripted fight: the frame the replay viewer gets from the engine module
+//! (`ibc_engine_wasm::view::frame`), plus the combat counters the lab charts and the frame does not carry.
 //!
-//! Unit row: x, y, facing, team, alive, hp, armor, weapon, ammo, recoil, winding, channel, cooldown, aim,
-//! reload, shots, weapon0, ammo0, weapon1, ammo1, slot.
-//! Bullet row: x, y, weapon, vx, vy, owner.
-//! Drop row: x, y, item. Hit row: actor, target, amount.
+//! Counter row per unit: recoil, cooldown, reload, shots.
 
 use ibc_engine::abi::*;
 use ibc_engine::Match;
 use serde::Serialize;
+use serde_json::Value;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +20,8 @@ pub struct Lab {
     pub vision_range: i32,
     pub sense_radius: i32,
     pub ruleset: String,
+    /// The rules export of the engine module (`ibc_engine_wasm::rules`), as the replay viewer reads it.
+    pub rules: Value,
     pub weapons: Vec<WeaponOut>,
     pub maps: Vec<MapOut>,
     pub scenes: Vec<Scene>,
@@ -91,10 +92,8 @@ pub struct Scene {
 
 #[derive(Serialize)]
 pub struct Frame {
-    pub u: Vec<Vec<i32>>,
-    pub b: Vec<Vec<i32>>,
-    pub d: Vec<Vec<i32>>,
-    pub hit: Vec<Vec<i32>>,
+    pub frame: Value,
+    pub x: Vec<[i32; 4]>,
 }
 
 #[derive(Serialize)]
@@ -125,54 +124,22 @@ pub struct Meta {
 }
 
 pub fn snap(m: &Match) -> Frame {
-    let mut u = Vec::new();
-    for unit in &m.world.units {
-        u.push(vec![
-            unit.pos.0,
-            unit.pos.1,
-            unit.facing,
-            unit.team,
-            i32::from(unit.alive),
-            unit.hp,
-            unit.armor,
-            unit.weapon(),
-            unit.ammo[unit.slot],
-            unit.combat.recoil,
-            i32::from(unit.combat.winding),
-            unit.combat.channel(),
-            unit.combat.cooldown,
-            unit.combat.aim & 0xFFFF,
-            unit.combat.reload,
-            unit.combat.shots,
-            unit.weapons[0],
-            unit.ammo[0],
-            unit.weapons[1],
-            unit.ammo[1],
-            unit.slot as i32,
-        ]);
-    }
-    let b = m
+    let json = ibc_engine_wasm::view::frame(&m.world, m.frame_json());
+    let frame = serde_json::from_str(&json).expect("the engine writes valid frame JSON");
+    let x = m
         .world
-        .projectiles
+        .units
         .iter()
-        .filter(|p| p.kind == 0)
-        .map(|p| vec![p.pos.0, p.pos.1, p.weapon, p.vel.0, p.vel.1, p.owner as i32])
+        .map(|u| {
+            [
+                u.combat.recoil,
+                u.combat.cooldown,
+                u.combat.reload,
+                u.combat.shots,
+            ]
+        })
         .collect();
-    let d = m
-        .world
-        .drops
-        .iter()
-        .filter(|drop| drop.kind == DROP_WEAPON)
-        .map(|drop| vec![drop.x, drop.y, drop.item])
-        .collect();
-    let hit = m
-        .world
-        .events
-        .iter()
-        .filter(|e| e.kind == EVENT_DAMAGE)
-        .map(|e| vec![e.actor, e.target, e.value])
-        .collect();
-    Frame { u, b, d, hit }
+    Frame { frame, x }
 }
 
 pub struct Catalog {

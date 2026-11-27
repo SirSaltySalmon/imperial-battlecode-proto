@@ -49,6 +49,8 @@ pub fn build() -> Lab {
         vision_range: rules.core.vision_range,
         sense_radius: rules.core.sense_radius,
         ruleset: format!("{:016x}", rules.hash()),
+        rules: serde_json::from_str(&ibc_engine_wasm::rules())
+            .expect("the engine writes valid rules JSON"),
         weapons: weapons(&rules, &cat.hold),
         maps: cat.maps,
         scenes: cat.scenes,
@@ -137,6 +139,7 @@ fn record_fan(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ibc_engine::abi::DROP_WEAPON;
 
     fn scene<'a>(lab: &'a Lab, id: &str) -> &'a record::Scene {
         lab.scenes
@@ -161,7 +164,10 @@ mod tests {
         let ttk: Vec<_> = lab.scenes.iter().filter(|s| s.ttk.is_some()).collect();
         assert_eq!(ttk.len(), lab.weapons.len() * 3 * 2 * 2);
         for s in ttk {
-            let died = s.frames.iter().position(|f| f.u[1][4] == 0);
+            let died = s
+                .frames
+                .iter()
+                .position(|f| f.frame["units"][1]["alive"] == false);
             // A running duel records its run-in before the first pull starts the clock.
             let run_in = if s.ttk.as_ref().unwrap().running {
                 ttk::RUN_IN as usize
@@ -216,19 +222,28 @@ mod tests {
         assert_eq!(scene(&lab, "killed-windup").outcome, "shots 0");
 
         let swap = scene(&lab, "swap-cooldown");
-        assert!(swap.frames.iter().any(|f| f.u[0][7] == 0 && f.u[0][12] > 0));
+        assert!(swap
+            .frames
+            .iter()
+            .any(|f| f.frame["units"][0]["weapon"] == 0 && f.x[0][1] > 0));
 
         let death = scene(&lab, "death-drops");
-        let last = death.frames.last().unwrap();
-        assert_eq!(last.d.len(), 1);
-        assert_eq!(last.d[0][2], 1, "the rifle");
+        let last = &death.frames.last().unwrap().frame;
+        let guns: Vec<_> = last["drops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["kind"] == DROP_WEAPON)
+            .collect();
+        assert_eq!(guns.len(), 1);
+        assert_eq!(guns[0]["item"], 1, "the rifle");
 
-        let picked = scene(&lab, "pickup-empty");
-        let u = &picked.frames.last().unwrap().u[3];
+        let picked = &scene(&lab, "pickup-empty").frames.last().unwrap().frame;
+        let (kit, u) = (&picked["loadout"][3], &picked["units"][3]);
         assert_eq!(
-            (u[16], u[17], u[7]),
-            (1, 0, 0),
-            "rifle empty, pistol still in hand"
+            (&kit["weapons"][0], &kit["ammo"][0], &u["weapon"]),
+            (&1.into(), &0.into(), &0.into()),
+            "rifle with an empty magazine, pistol still in hand"
         );
     }
 }

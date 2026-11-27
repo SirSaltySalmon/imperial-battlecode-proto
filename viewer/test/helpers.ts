@@ -1,5 +1,5 @@
 import { deflateRawSync } from "node:zlib";
-import type { Frame, ProjectileFrame, UnitFrame } from "../src/types";
+import type { Frame, ProjectileFrame, TrailFrame, UnitFrame } from "../src/types";
 
 export const MAP_TEXT = [
   "name: test",
@@ -94,4 +94,8 @@ export function frame(over: Partial<Frame> = {}): Frame {
 
 export function bullet(over: Partial<ProjectileFrame> = {}): ProjectileFrame {
   return { owner: 0, team: 0, weapon: 0, kind: 0, x: 2000, y: 2000, vx: 1000, vy: 0, ...over };
+}
+
+export function trail(over: Partial<TrailFrame> = {}): TrailFrame {
+  return { owner: 0, team: 0, weapon: 0, x0: 2000, y0: 2000, x1: 3000, y1: 2000, vx: 1000, vy: 0, ...over };
 }
