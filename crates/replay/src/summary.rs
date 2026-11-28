@@ -67,6 +67,11 @@ pub struct TeamSummary {
     pub name: String,
     pub wasm_sha256: String,
     pub fuel_multiplier: f64,
+    /// `BotInfo::language` and `BotInfo::memory_multiplier` of the replay header.
+    #[serde(default)]
+    pub language: String,
+    #[serde(default = "one")]
+    pub memory_multiplier: f64,
     pub fuel: TeamFuel,
     pub faults: u32,
 }
@@ -124,4 +129,8 @@ mod tests {
         assert_eq!(nearest_rank(&[5], 50), 5);
         assert_eq!(nearest_rank(&[], 99), 0);
     }
+}
+
+fn one() -> f64 {
+    1.0
 }

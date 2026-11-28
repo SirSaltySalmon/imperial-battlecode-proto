@@ -9,6 +9,7 @@ pub mod combat;
 pub mod economy;
 pub mod fixed;
 mod host;
+pub mod language;
 pub mod map;
 mod objective;
 mod projectiles;
@@ -20,6 +21,7 @@ pub mod world;
 
 pub use host::MAX_ACTS;
 pub use ibc_abi as abi;
+pub use language::LanguageRules;
 pub use map::Map;
 pub use rules::{RulesSource, Ruleset};
 pub use stats::{Kill, MatchStats};

@@ -30,15 +30,15 @@ impl Patch {
     }
 }
 
-fn one() -> f64 {
-    1.0
-}
-
 #[derive(Clone, Debug, Deserialize)]
 pub struct BotRef {
     pub sha256: String,
-    #[serde(default = "one")]
-    pub fuel_mult: f64,
+    /// The language whose `[[language]]` row of the patch's ruleset applies; absent: what the module says.
+    #[serde(default)]
+    pub language: Option<String>,
+    /// Replaces the row's fuel multiplier (organiser bench jobs); absent: the row's.
+    #[serde(default)]
+    pub fuel_mult: Option<f64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -123,7 +123,7 @@ mod tests {
         let v: Value = serde_json::from_str(
             r#"{"job_id":"j","lease_token":"t","kind":"match","future":{"x":1},
                 "patch":{"engine":"0.1.0","ruleset_hash":"00d2cae8a4f4c61b","wasmtime":"51.0.0","abi":0},
-                "bot_a":{"sha256":"a","fuel_mult":2.5},"bot_b":{"sha256":"b"},"map":{"sha256":"m"},
+                "bot_a":{"sha256":"a","fuel_mult":2.5},"bot_b":{"sha256":"b","language":"cpp"},"map":{"sha256":"m"},
                 "seed":18446744073709551615}"#,
         )
         .unwrap();
@@ -131,7 +131,11 @@ mod tests {
         assert_eq!(m.seed, u64::MAX);
         assert_eq!(
             (m.bot_a.fuel_mult, m.bot_b.fuel_mult, m.max_ticks),
-            (2.5, 1.0, None)
+            (Some(2.5), None, None)
+        );
+        assert_eq!(
+            (m.bot_a.language.as_deref(), m.bot_b.language.as_deref()),
+            (None, Some("cpp"))
         );
         assert_eq!(Lease::from_value(&v).unwrap().job_id, "j");
         assert_eq!(m.patch.dir_name().unwrap(), "0.1.0-00d2cae8a4f4c61b-51.0.0");

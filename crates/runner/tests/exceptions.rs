@@ -106,11 +106,7 @@ const UNCAUGHT: &str = r#"(module
     (throw $e (i32.const 7))))"#;
 
 fn bot(name: &str, wat: &str) -> BotSpec {
-    BotSpec {
-        name: name.into(),
-        wasm: wat::parse_str(wat).unwrap(),
-        fuel_multiplier: 1.0,
-    }
+    BotSpec::new(name, wat::parse_str(wat).unwrap())
 }
 
 fn run(a: BotSpec, b: BotSpec) -> MatchOutput {
