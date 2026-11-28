@@ -38,3 +38,24 @@ memory_bytes = 8388608
 stack_limit = 65536
 # On detonation every living unit within this distance of the charge dies, both teams, through walls.
 blast_radius = 12288
+
+# Per-language allowances. A bot's fuel budget every tick and its memory cap (`memory_bytes`, and the
+# exception heap beside it) are multiplied by its language's row, in thousandths (1000 = x1). A bot's language
+# is what its module says about itself (the `ibc.language` custom section `ibc build` writes, else the
+# `producers` section rustc and clang write); a module that names no single language, or one without a row
+# here, gets `default`. The upload check and the ladder use the same rows. The memory cap is rounded down to
+# whole 64 KiB wasm pages. Rows must come after every other key of this file.
+[[language]]
+name = "default"
+fuel_milli = 1000
+memory_milli = 1000
+
+[[language]]
+name = "rust"
+fuel_milli = 1000
+memory_milli = 1000
+
+[[language]]
+name = "cpp"
+fuel_milli = 1000
+memory_milli = 1000

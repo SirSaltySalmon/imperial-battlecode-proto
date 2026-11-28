@@ -201,10 +201,7 @@ pub fn create_series_with(
         &pair_usage,
         games,
     );
-    let bot = |s: &SubmissionRow| BotRef {
-        sha256: s.sha256.clone(),
-        fuel_mult: s.fuel_mult,
-    };
+    let bot = |s: &SubmissionRow| BotRef::submission(s.sha256.clone(), s.language.clone());
     let from_rotation = spec.maps.is_none();
     let mut cache_hits = 0;
     for g in &plan.games {

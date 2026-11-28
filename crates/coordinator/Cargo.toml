@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 ibc-rating = { path = "../rating" }
+ibc-engine = { workspace = true }
 ibc-replay = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
@@ -32,4 +33,3 @@ clap = { version = "4", features = ["derive", "env"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 wat = "1"
-ibc-engine = { workspace = true }

@@ -539,12 +539,15 @@ function renderScenePanel(panel: HTMLElement): void {
 
 function ttkTable(panel: HTMLElement): void {
   panel.append(paragraph(GROUPS.find((g) => g[0] === "ttk")![2]));
-  for (const armor of [0, lab!.heavyArmor]) {
-    panel.append(heading(armor === 0 ? "No armour" : `Heavy armour (${armor})`));
+  // Recordings from before the duel lists were written down played 5, 10 and 20 tiles, bare and heavy.
+  const tiles = lab!.ttkTiles ?? [5, 10, 20];
+  for (const armor of lab!.ttkArmors ?? [0, lab!.heavyArmor]) {
+    const plate = armor === lab!.heavyArmor ? "Heavy" : "Light";
+    panel.append(heading(armor === 0 ? "No armour" : `${plate} armour (${armor})`));
     const table = document.createElement("table");
     const head = document.createElement("tr");
     head.append(document.createElement("th"));
-    for (const d of [5, 10, 20]) {
+    for (const d of tiles) {
       for (const label of ["still", "ran"]) {
         const th = document.createElement("th");
         th.textContent = `${d} ${label}`;
@@ -557,7 +560,7 @@ function ttkTable(panel: HTMLElement): void {
       const name = document.createElement("th");
       name.textContent = w.name;
       tr.append(name);
-      for (const d of [5, 10, 20]) {
+      for (const d of tiles) {
         for (const running of [false, true]) {
           const s = lab!.scenes.find((sc) => sc.ttk && sc.ttk.weapon === w.name && sc.ttk.tiles === d && sc.ttk.running === running && sc.ttk.armor === armor);
           const td = document.createElement("td");

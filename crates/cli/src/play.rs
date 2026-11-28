@@ -167,12 +167,7 @@ fn team_name(team: i32) -> &'static str {
 }
 
 fn bot_spec(b: &BotInput) -> Result<BotSpec> {
-    let wasm = std::fs::read(&b.wasm).with_context(|| format!("reading {}", b.wasm.display()))?;
-    Ok(BotSpec {
-        name: b.name.clone(),
-        wasm,
-        fuel_multiplier: b.fuel_multiplier,
-    })
+    b.spec()
 }
 
 /// The match config and the session for a setup. Checks the starting unit against the map's team size.

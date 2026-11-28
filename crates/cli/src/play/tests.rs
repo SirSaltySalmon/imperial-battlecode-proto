@@ -22,11 +22,7 @@ const IDLE: &str = r#"(module
   (func (export "_start") (loop $l (call $end_turn) (br $l))))"#;
 
 fn idle(name: &str) -> BotSpec {
-    BotSpec {
-        name: name.into(),
-        wasm: wat::parse_str(IDLE).unwrap(),
-        fuel_multiplier: 1.0,
-    }
+    BotSpec::new(name, wat::parse_str(IDLE).unwrap())
 }
 
 /// Drafts kit 1 and walks right, every turn.
@@ -42,11 +38,7 @@ fn walker(name: &str) -> BotSpec {
       (drop (call $act (i32.const {A_MOVE}) (i32.const 0) (i32.const 100) (i32.const 0)))
       (call $end_turn) (br $l))))"#
     );
-    BotSpec {
-        name: name.into(),
-        wasm: wat::parse_str(wat).unwrap(),
-        fuel_multiplier: 1.0,
-    }
+    BotSpec::new(name, wat::parse_str(wat).unwrap())
 }
 
 struct Running {

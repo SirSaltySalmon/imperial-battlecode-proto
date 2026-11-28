@@ -23,13 +23,6 @@ impl Language {
             Language::Cpp => "cpp",
         }
     }
-
-    /// Default fuel multiplier for bots written in this language.
-    pub fn fuel_multiplier(self) -> f64 {
-        match self {
-            Language::Rust | Language::Cpp => 1.0,
-        }
-    }
 }
 
 pub struct BuiltBot {
@@ -53,8 +46,8 @@ pub fn detect(bot_dir: &Path) -> Result<Language> {
 }
 
 /// Name of the custom section that declares a module's language; the coordinator checks an upload's
-/// `?language=` against it (`ibc-coordinator` `wasmcheck::LANGUAGE_SECTION`).
-const LANGUAGE_SECTION: &str = "ibc.language";
+/// `?language=` against it, and the runner picks the bot's `[[language]]` row of the ruleset by it.
+use ibc_replay::LANGUAGE_SECTION;
 
 /// `wasm` with a custom section `ibc.language` holding the language's name appended. Custom sections may
 /// come anywhere and never change what the module does.

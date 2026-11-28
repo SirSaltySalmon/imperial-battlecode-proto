@@ -33,8 +33,10 @@ What the squad bots do that the first three do not:
 - **Draft and use abilities for the objective.** Smoke on the line the enemy arrives on, or on the charge
   to defuse inside it; fire on a defuse in progress; a barrier in front of a plant or defuse; recon on the
   site before going in; flash, heal and dash as the fight asks. Kits are unique within a team.
-- **Buy by what a weapon is,** not by its name: longest range, biggest magazine, most pellets, cheapest.
-  The logic survives a change to `rules/weapons.toml`.
+- **Buy by what a weapon is,** not by its name: one bullet or a fan, longest range, biggest magazine, most
+  pellets, cheapest. The marksman slot that cannot afford the marksman rifle, or whose team is saving, takes
+  the hunter, the cheap single-bullet gun, for the same angles. The logic survives a change to
+  `rules/weapons.toml`.
 - **Stay inside the fuel budget.** The expensive questions (where does the enemy come into view of a site,
   how far is it) are asked one per buy tick, last in the turn, and kept for the match. Measured with the
   wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` and
@@ -87,6 +89,47 @@ with the binaries before and after run alternately (the machine was slower than 
 storing the 4,096 drawings a tick that the cap keeps, about 3 µs of CPU each; the replay is larger because
 drawings from several units compress worse than one unit's run. Only a lower cap, or a cheaper replay writer,
 reduces that.
+
+## Loadout A/B
+
+What a weapon is worth to a bot is measured by playing the same bot with one slot's weapon swapped. Games
+are deterministic, so map, seed and side cancel out and the difference is the weapon (`docs/hillclimb.md`
+for the method). `Style::loadout` forces one unit slot's primary weapon; it is `None` for every bot in the
+pool, and with `None` the squad bots play exactly as before.
+
+The weapon is named by role (`squad::Arm`: `Rifle`, `Marksman`, `MachineGun`, `Shotgun`, `Smg`), because
+the ABI gives weapons no names. A role is resolved against the rules at runtime as the normal buy resolves
+it: the marksman is the longest-range weapon, the machine gun the biggest magazine, and so on. The override
+changes what the slot buys, never when:
+
+- An eco bot (`saver`) decides to save or buy on its usual weapon, so it saves in the same rounds.
+- When the slot can afford the forced weapon it buys it, then armour from what is left. A dearer weapon can
+  cost the slot its armour; that is part of the weapon's price.
+- When it cannot afford it, the slot buys what it would have bought without the override.
+- A slot that can afford the forced weapon buys it even over a dearer weapon it survived with, so the
+  rounds it plays something else are the rounds it could not pay for the forced one (the pistol round, and
+  poor rounds of a forced weapon dearer than the usual one). Those rounds dilute the result towards zero.
+
+Wasm bots have no runtime configuration, so a variant is its own crate. `tools/loadout.sh` writes one under
+`out/loadout/` (ignored by git), with one line of the base's `STYLE` changed:
+
+```
+tools/loadout.sh saver 3 Marksman          # -> out/loadout/saver-marksman-s3
+tools/bench.sh ab out/loadout/saver-marksman-s3 saver --seeds 3
+tools/bench.sh league --bots out/loadout/saver-marksman-s3,saver,rusher,holder,utility,sapper,retaker,lurker,forcer --seeds 3
+```
+
+`ab` plays the variant against its base on every map and seed, both sides, and reports W/D/L with the
+number of distinct games and a paired 95% interval. It is a near-mirror, so read it as a sanity check
+rather than the answer. The answer is the league: the variant and its base meet the same opponents on the
+same maps, seeds and sides, so compare their rows against each pool bot and their ratings with their
+intervals. Do not act on a difference inside the intervals.
+
+A variant given as a path plays only on the wasm backend (metered, the default and the one to report). It
+is not registered in `ibc-sim` and must not join the default pool; to run one natively for debugging,
+add it to `BOTS` and `make_bot` in `crates/sim/src/lib.rs` and to `crates/sim/Cargo.toml` locally, without
+committing that. Check that the slot holds the forced weapon in a replay (`ibc-bench why <replay> --round
+<R> --unit <id>` for a full-buy round, not the pistol round, or the viewer) before trusting a result.
 
 ## Measured
 

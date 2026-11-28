@@ -13,7 +13,9 @@ use ibc_engine::combat::{self, damage_at, startup_ticks};
 use ibc_engine::fixed::{self, V2};
 use ibc_engine::Ruleset;
 
-const DISTANCES: [i32; 3] = [5, 10, 20];
+/// Point blank (shotgun), fighting distance, mid range, rifle against marksman, long range.
+/// `crates/combatviz/src/ttk.rs` plays the same duels and checks it keeps the same list.
+const DISTANCES: [i32; 5] = [2, 5, 10, 15, 20];
 /// A duel that has not ended by now is reported as no kill.
 const CAP: i32 = 100;
 /// Angle units per radian (65536 / 2 pi).
@@ -212,16 +214,21 @@ fn splice(doc: &str, name: &str, body: &str) -> String {
     format!("{}\n{}{}", &doc[..a], body, &doc[b..])
 }
 
+/// The smallest and the largest armour value the shop sells (0 when it sells none).
+fn armor_values(r: &Ruleset) -> (i32, i32) {
+    let values = || {
+        r.items
+            .iter()
+            .filter(|i| i.kind == ITEM_KIND_ARMOR)
+            .map(|i| i.value)
+    };
+    (values().min().unwrap_or(0), values().max().unwrap_or(0))
+}
+
 #[test]
 fn combat_doc_tables_match_the_ruleset() {
     let r = Ruleset::builtin();
-    let heavy = r
-        .items
-        .iter()
-        .filter(|i| i.kind == ITEM_KIND_ARMOR)
-        .map(|i| i.value)
-        .max()
-        .unwrap_or(0);
+    let (light, heavy) = armor_values(&r);
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/rules/combat.md");
     let doc = std::fs::read_to_string(path)
         .expect("docs/rules/combat.md")
@@ -229,6 +236,7 @@ fn combat_doc_tables_match_the_ruleset() {
     let mut fresh = splice(&doc, "weapons", &weapons_table(&r));
     fresh = splice(&fresh, "derived", &derived_table(&r));
     fresh = splice(&fresh, "ttk", &ttk_table(&r, 0));
+    fresh = splice(&fresh, "ttk-light", &ttk_table(&r, light));
     fresh = splice(&fresh, "ttk-armor", &ttk_table(&r, heavy));
     if std::env::var_os("IBC_BLESS").is_some() {
         std::fs::write(path, &fresh).unwrap();
@@ -240,23 +248,29 @@ fn combat_doc_tables_match_the_ruleset() {
 #[test]
 fn time_to_kill_gives_each_weapon_its_role() {
     let r = Ruleset::builtin();
+    let (light, heavy) = armor_values(&r);
     let id = |name: &str| weapon_id(&r, name);
     let t = |name: &str, tiles: i32, running: bool| ttk(id(name), tiles, running, 0);
+    let t_armor = |name: &str, tiles: i32| ttk(id(name), tiles, false, heavy);
     for (w, name) in r.weapons.iter().zip(&r.weapon_names) {
         // Everything kills up close, and a steady shooter is never slower than one that just ran.
         assert!(
             ttk(w.id, 3, false, 0).is_some(),
             "{name} cannot kill at 3 tiles"
         );
-        for d in [3, 5, 10, 20] {
+        for d in std::iter::once(3).chain(DISTANCES) {
             let (stand, run) = (ttk(w.id, d, false, 0), ttk(w.id, d, true, 0));
             assert!(
                 stand.unwrap_or(CAP) <= run.unwrap_or(CAP),
                 "{name} at {d}: standing {stand:?}, running {run:?}"
             );
-            // Armour never helps the shooter.
+            // Armour never helps the shooter, and more of it never helps less.
+            let (bare, lit) = (
+                stand.unwrap_or(CAP),
+                ttk(w.id, d, false, light).unwrap_or(CAP),
+            );
             assert!(
-                stand.unwrap_or(CAP) <= ttk(w.id, d, false, 50).unwrap_or(CAP),
+                bare <= lit && lit <= ttk(w.id, d, false, heavy).unwrap_or(CAP),
                 "{name} at {d} against armour"
             );
         }
@@ -313,9 +327,16 @@ fn time_to_kill_gives_each_weapon_its_role() {
         "the smg loses little by moving"
     );
     assert_eq!(t("smg", 20, false), None);
+    // Small hits: level with the rifle standing at 5 tiles, no faster than it against heavy armour, well behind
+    // it at 10. A modest step above the free pistol in its own band (inside 6 tiles), armoured or not.
+    assert!(t("smg", 5, false).unwrap() <= t("rifle", 5, false).unwrap() + 1);
+    assert!(t_armor("smg", 5).unwrap_or(CAP) >= t_armor("rifle", 5).unwrap());
+    assert!(t("smg", 10, false).unwrap_or(CAP) >= t("rifle", 10, false).unwrap() + 3);
+    assert!(t("smg", 5, false) < t("pistol", 5, false));
+    assert!(t_armor("smg", 5) < t_armor("pistol", 5));
 
     // Rifle: the all-rounder. Kills at every distance standing, and beats the cheaper guns from 10 tiles out.
-    for d in [3, 5, 10, 20] {
+    for d in std::iter::once(3).chain(DISTANCES) {
         assert!(t("rifle", d, false).is_some(), "rifle at {d}");
     }
     for o in ["pistol", "smg", "shotgun"] {
@@ -324,25 +345,109 @@ fn time_to_kill_gives_each_weapon_its_role() {
             "rifle vs {o} at 10 tiles"
         );
     }
+    // At 15 tiles the rifle meets the marksman: only the marksman kills faster there. The 15-tile pistol may
+    // tie it at the very edge of its reach, never beat it.
+    for o in ["smg", "shotgun", "lmg"] {
+        assert!(
+            t("rifle", 15, false).unwrap() < t(o, 15, false).unwrap_or(CAP),
+            "rifle vs {o} at 15 tiles"
+        );
+    }
+    assert!(t("rifle", 15, false).unwrap() <= t("pistol", 15, false).unwrap_or(CAP));
+    assert!(t("marksman", 15, false).unwrap() < t("rifle", 15, false).unwrap());
 
-    // LMG: no faster than the rifle to the first kill, but it does not have to stop: one magazine
-    // out-damages the rifle's by a wide margin.
-    assert!(t("lmg", 5, false).unwrap() >= t("rifle", 5, false).unwrap());
+    // LMG: fast once braced. The fastest kill on heavy armour at 5 tiles and close to the rifle at 10, but the
+    // rifle beats it once it has moved, and braced it empties a magazine worth twice the rifle's.
+    assert!(t_armor("lmg", 5).unwrap() <= t_armor("rifle", 5).unwrap());
+    assert!(t("lmg", 10, false).unwrap() <= t("rifle", 10, false).unwrap() + 2);
+    assert!(t("rifle", 5, false).unwrap() < t("lmg", 5, true).unwrap());
     let (lmg, rifle) = (
         r.weapons[id("lmg") as usize],
         r.weapons[id("rifle") as usize],
     );
     assert!(
         lmg.magazine * lmg.pellets * lmg.damage
-            >= 3 * rifle.magazine * rifle.pellets * rifle.damage
+            >= 2 * rifle.magazine * rifle.pellets * rifle.damage
     );
     assert!(lmg.move_pct < rifle.move_pct && lmg.reload_ticks > rifle.reload_ticks);
 
-    // The free sidearm is the slowest standing kill at 5 tiles: every purchase is an upgrade somewhere.
-    for o in others("pistol") {
+    // Fire rate: the SMG is the fastest, the braced LMG as fast, the rifle slower than both and level with the
+    // pistol. Where two share an interval, damage per pull separates them.
+    let (smg, pistol) = (
+        r.weapons[id("smg") as usize],
+        r.weapons[id("pistol") as usize],
+    );
+    assert!(smg.cooldown <= lmg.cooldown && lmg.cooldown < rifle.cooldown);
+    assert_eq!(rifle.cooldown, pistol.cooldown);
+    assert!(smg.damage * smg.pellets < lmg.damage * lmg.pellets);
+    assert!(pistol.damage * pistol.pellets < rifle.damage * rifle.pellets);
+
+    // Hunter: the marksman's bullet on a slower cycle, so the same hits to kill everywhere it reaches but
+    // always behind the marksman, and nothing past its own 24 tiles.
+    for d in [5, 10, 20] {
+        let (hunter, marksman) = (t("hunter", d, false), t("marksman", d, false));
+        assert!(
+            hunter.unwrap() > marksman.unwrap(),
+            "hunter vs marksman at {d} tiles"
+        );
+    }
+    let (hunter, marksman) = (
+        r.weapons[id("hunter") as usize],
+        r.weapons[id("marksman") as usize],
+    );
+    assert!(hunter.cooldown > marksman.cooldown && hunter.range < marksman.range);
+    assert!(hunter.price < r.weapons[id("smg") as usize].price);
+
+    // The free sidearm is the slowest standing kill at 5 tiles: every purchase is an upgrade somewhere. The
+    // hunter's upgrade is reach, not close range (it loses to anything that closes): it is never slower than
+    // the 15-tile pistol from 10 tiles out, and beats it from 15.
+    for o in others("pistol").into_iter().filter(|o| o != "hunter") {
         assert!(
             t(&o, 5, false).unwrap() <= t("pistol", 5, false).unwrap(),
             "{o} vs pistol at 5 tiles"
         );
     }
+    assert!(t("hunter", 10, false).unwrap() <= t("pistol", 10, false).unwrap_or(CAP));
+    for d in [15, 20] {
+        assert!(
+            t("hunter", d, false).unwrap() < t("pistol", d, false).unwrap_or(CAP),
+            "hunter vs pistol at {d}"
+        );
+    }
+}
+
+/// Hits of `damage` that kill a fresh 100-health unit wearing `armor`.
+fn hits_to_kill(damage: i32, armor: i32) -> i32 {
+    let mut m = start(&arena(12, 5, 1), 1);
+    m.world.units[1].hp = 100;
+    m.world.units[1].armor = armor;
+    let mut hits = 0;
+    while m.world.units[1].alive {
+        m.world.damage(1, damage, Some(0), 0);
+        hits += 1;
+    }
+    hits
+}
+
+#[test]
+fn the_sidearm_kills_in_four_five_and_six_hits_across_most_of_its_reach() {
+    let r = Ruleset::builtin();
+    let pistol = r.weapons[weapon_id(&r, "pistol") as usize];
+    let mut armour: Vec<i32> = r
+        .items
+        .iter()
+        .filter(|i| i.kind == ITEM_KIND_ARMOR)
+        .map(|i| i.value)
+        .collect();
+    armour.sort();
+    armour.insert(0, 0);
+    // No armour, light, heavy: 4, 5, 6 hits out to 12.5 tiles of flight, where falloff starts to cost a hit.
+    for travelled in (0..=12 * TILE + TILE / 2).step_by(128) {
+        let d = damage_at(&pistol, travelled);
+        let hits: Vec<i32> = armour.iter().map(|&a| hits_to_kill(d, a)).collect();
+        assert_eq!(hits, [4, 5, 6], "{d} damage after {travelled} units");
+    }
+    // It reaches fifteen tiles and still kills at the edge.
+    assert_eq!(pistol.range, 15 * TILE);
+    assert!(ttk(pistol.id, 15, false, 0).is_some());
 }

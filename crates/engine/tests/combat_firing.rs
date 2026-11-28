@@ -38,7 +38,7 @@ fn step_until_shots(m: &mut Match, n: i32) -> i32 {
 #[test]
 fn the_ruleset_has_a_weapon_for_every_role() {
     let r = Ruleset::builtin();
-    for name in ["pistol", "rifle", "smg", "shotgun", "marksman", "lmg"] {
+    for name in ["pistol", "rifle", "smg", "shotgun", "marksman", "lmg", "hunter"] {
         weapon_id(&r, name);
     }
     // Ids the shop and the default loadout refer to must not move.

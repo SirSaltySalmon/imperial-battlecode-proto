@@ -32,7 +32,7 @@ const RULES_DEFAULT: ViewRules = {
   plant_ticks: 12,
   defuse_ticks: 21,
   fuse_ticks: 80,
-  weapons: ["pistol", "rifle", "smg", "shotgun", "marksman", "lmg"],
+  weapons: ["pistol", "rifle", "smg", "shotgun", "marksman", "lmg", "hunter"],
   weapon_ranges: [],
 };
 

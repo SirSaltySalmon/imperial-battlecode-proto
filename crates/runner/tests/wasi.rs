@@ -111,11 +111,7 @@ fn fee_checker() -> String {
 }
 
 fn bot(name: &str, wat: &str) -> BotSpec {
-    BotSpec {
-        name: name.into(),
-        wasm: wat::parse_str(wat).unwrap(),
-        fuel_multiplier: 1.0,
-    }
+    BotSpec::new(name, wat::parse_str(wat).unwrap())
 }
 
 fn run(wat: &str, log_limit: usize) -> MatchOutput {

@@ -147,7 +147,8 @@ attackers.
 
 **Credits.** Money, per unit, capped at `max_credits`, spent in the buy phase.
 
-**Armour.** Points bought in the shop; absorbs `armor_absorb_pct` of each hit until used up.
+**Armour.** Points bought in the shop; absorbs `armor_absorb_pct` of each hit until used up. At 100 it is plain
+extra health: a hit takes armour first, point for point, then hp.
 
 ## What a bot can know and spend
 

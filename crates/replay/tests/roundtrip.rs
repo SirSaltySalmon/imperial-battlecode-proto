@@ -4,7 +4,13 @@ use ibc_replay::*;
 const MAP: &str = include_str!("../../../maps/crossfire.ibcmap");
 
 fn header() -> Header {
-    let bot = |n: &str| BotInfo { name: n.into(), sha256: sha256_hex(n.as_bytes()), fuel_multiplier: 1.0 };
+    let bot = |n: &str| BotInfo {
+        name: n.into(),
+        sha256: sha256_hex(n.as_bytes()),
+        fuel_multiplier: 1.0,
+        language: "rust".into(),
+        memory_multiplier: 1.0,
+    };
     Header {
         engine_version: ibc_engine::ENGINE_VERSION.into(),
         ruleset_hash: hash_hex(Ruleset::builtin().hash()),

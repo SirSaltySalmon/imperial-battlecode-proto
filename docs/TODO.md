@@ -315,10 +315,10 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   and the host API either through a statically linked extension module (needs a custom CPython build) or over
   a file descriptor the WASI shim implements (no rebuild). Cambridge gave Python 25x the fuel; that multiplier
   is the main running-cost lever, so choose it deliberately.
-- [ ] **Per-language allowances.** One table per language holding the fuel multiplier and a memory multiplier,
-  ideally in `rules/` so it is hashed and identical for local runs and the ladder. Today fuel multipliers are
-  coordinator config (`--language`), recorded per bot in the replay header (`BotInfo.fuel_multiplier`). A
-  memory multiplier would scale the `memory_bytes` cap in the runner and in the upload check.
+- [x] **Per-language allowances.** `[[language]]` rows in `rules/core.toml` (fuel and memory multipliers, a
+  `default` row), hashed with the ruleset, applied by the runner by the bot's language and by the upload
+  check; jobs carry the language, the replay header the applied multipliers. The coordinator's `--language`
+  flag is gone. Left over: real numbers for each row, measured on the reference bots in each language.
 - [x] **Map editor** in the browser: `ibc view --editor` (unit 20).
 - [ ] **Bot parameter tuner** (SPSA, as `tools/evotune` did for the Cambridge bot) on top of `ibc-bench`.
 - [x] **Handbook generator:** rules pages from `rules/*.toml`, the ABI reference from `crates/abi`, and a

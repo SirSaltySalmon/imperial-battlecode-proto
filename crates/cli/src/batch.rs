@@ -127,6 +127,12 @@ struct JsonJob {
     map: PathBuf,
     seed: u64,
     out_dir: PathBuf,
+    /// Language of each bot, for its `[[language]]` row; default: what the module says.
+    #[serde(default)]
+    language_a: Option<String>,
+    #[serde(default)]
+    language_b: Option<String>,
+    /// Override of the row's fuel multiplier.
     #[serde(default)]
     fuel_mult_a: Option<f64>,
     #[serde(default)]
@@ -153,7 +159,7 @@ fn run_json_job(job: JsonJob) {
     let run = || -> Result<Value> {
         // Bot names end up in the replay header. Unless the job names them, derive the name from the module
         // content (not from its path), so the same job gives the same replay bytes on every machine.
-        let bot = |path: &Path, mult: Option<f64>, name: &Option<String>| -> Result<BotInput> {
+        let bot = |path: &Path, mult: Option<f64>, language: &Option<String>, name: &Option<String>| -> Result<BotInput> {
             let mut b = wasm_bot(path)?;
             b.name = match name {
                 Some(n) => n.clone(),
@@ -162,14 +168,13 @@ fn run_json_job(job: JsonJob) {
                     ibc_replay::sha256_hex(&wasm)[..12].to_string()
                 }
             };
-            if let Some(m) = mult {
-                b.fuel_multiplier = m;
-            }
+            b.language = language.clone();
+            b.fuel_override = mult;
             Ok(b)
         };
         let spec = JobSpec {
-            bot_a: bot(&job.bot_a, job.fuel_mult_a, &job.name_a)?,
-            bot_b: bot(&job.bot_b, job.fuel_mult_b, &job.name_b)?,
+            bot_a: bot(&job.bot_a, job.fuel_mult_a, &job.language_a, &job.name_a)?,
+            bot_b: bot(&job.bot_b, job.fuel_mult_b, &job.language_b, &job.name_b)?,
             map: job.map.clone(),
             seed: job.seed,
             out_dir: job.out_dir.clone(),

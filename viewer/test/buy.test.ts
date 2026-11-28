@@ -69,7 +69,7 @@ describe("buy menu", () => {
       "ability_charge_1",
     ]);
     expect(gear.rows[1].cells).toEqual(["heavy_armor", "armour", "1000 cr", "50 armour"]);
-    expect(gear.note).toContain("50%");
+    expect(gear.note).toContain("100%");
     expect(economyList(s)).toContainEqual(["default sidearm", "pistol"]);
     expect(economyList(s)).toContainEqual(["start credits", "800 cr"]);
     expect(buyTables(s).map((t) => t.title)).toEqual(["Weapons", "Abilities", "Kits", "Armour and gear"]);

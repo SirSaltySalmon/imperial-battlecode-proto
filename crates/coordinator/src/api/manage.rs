@@ -90,13 +90,13 @@ pub async fn whoami(State(app): AppState, headers: HeaderMap) -> ApiResult<Json<
 
 #[derive(Deserialize)]
 pub struct SubmissionQuery {
-    /// Upload only: one of the server's languages (`patch::resolve_language`).
+    /// Upload only: one of the ruleset's languages (`patch::resolve_language`).
     language: Option<String>,
     /// Admin only: the team to upload for (id or name).
     team: Option<String>,
     /// Upload only: make the module live if it validates (default true).
     live: Option<bool>,
-    /// Refused: the multiplier is the server's (`Config::languages`).
+    /// Refused: the multipliers are the ruleset's `[[language]]` rows.
     fuel_mult: Option<String>,
     /// Upload only: a note to remember the version by (`ibc submit --note`), at most `MAX_NOTE_CHARS`.
     note: Option<String>,
@@ -131,7 +131,7 @@ pub(crate) fn acting_team(app: &App, caller: Caller, team: Option<&str>) -> ApiR
 
 /// Body: the raw wasm module. A module that validates becomes the team's live submission at once, unless
 /// `?live=false`. Series that already exist keep the submissions they were created with. The module is
-/// checked against the current patch; its fuel multiplier comes from the server's language table.
+/// checked against the current patch; its fuel and memory multipliers are its language's row of the ruleset.
 pub async fn upload_submission(
     State(app): AppState,
     Query(q): Query<SubmissionQuery>,
@@ -146,12 +146,12 @@ pub async fn upload_submission(
     }
     if q.fuel_mult.is_some() {
         return Err(ApiError::bad_request(
-            "the server sets the fuel multiplier from the language; send ?language= only",
+            "the ruleset sets the fuel multiplier from the language; send ?language= only",
         ));
     }
     let note = submission_note(q.note.as_deref())?;
     if let Some(language) = q.language.as_deref() {
-        if app.cfg.fuel_multiplier(language).is_none() {
+        if app.cfg.allowance(language).is_none() {
             return Err(patch::unknown_language(&app.cfg, language));
         }
     }
@@ -172,15 +172,18 @@ pub async fn upload_submission(
         verdict,
         detected,
         patch_id,
-    } = patch::inspect_upload(&app, body).await?;
+    } = patch::inspect_upload(&app, body, q.language.clone()).await?;
     // A module that does not validate is stored as rejected; what it says about its language is moot.
     let detected = if verdict.is_ok() {
         detected
     } else {
         Default::default()
     };
-    let (language, fuel_mult) =
-        patch::resolve_language(&app.cfg, q.language.as_deref(), &detected)?;
+    let (language, row) = patch::resolve_language(&app.cfg, q.language.as_deref(), &detected)?;
+    let (fuel_mult, memory_mult) = (
+        row.fuel_milli as f64 / 1000.0,
+        row.memory_milli as f64 / 1000.0,
+    );
     let new = NewSubmission {
         team_id: &team.id,
         sha256: &sha256,
@@ -212,7 +215,7 @@ pub async fn upload_submission(
             StatusCode::CREATED,
             Json(
                 json!({"submission_id": id, "team_id": team.id, "sha256": sha256, "status": "validated", "live": live,
-                        "language": language, "fuel_mult": fuel_mult}),
+                        "language": language, "fuel_mult": fuel_mult, "memory_mult": memory_mult}),
             ),
         )),
         Err(reason) => Err(ApiError::new(

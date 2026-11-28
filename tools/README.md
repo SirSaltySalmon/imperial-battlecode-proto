@@ -7,6 +7,7 @@ everything real lives in the binary. The workflow they serve is in [`docs/hillcl
 |---|---|
 | `tools/bench.sh <args>` | `cargo run --release -p ibc-bench -- <args>` from the repo root |
 | `tools/ab.sh <candidate> <baseline>` | paired A/B, up to 40 seeds, stops early by SPRT (`elo0=0 elo1=30`) |
+| `tools/loadout.sh <base> <slot> <arm>` | a squad bot with one slot's weapon forced, under `out/loadout/`, for a loadout A/B (`bots/README.md`) |
 | `tools/balance.sh run <label>` | balance report into `out/balance/<label>/` |
 | `tools/balance.sh compare <old> <new>` | which metrics moved beyond their intervals between two labels |
 | `tools/devstack.sh [PORT] [--rounds N] [--exit]` | the online loop locally: coordinator + two workers + the eight reference bots as teams, ranked scheduler on; prints the ladder after N rounds (`docs/DEPLOY.md`) |
@@ -34,6 +35,13 @@ Output goes to `out/<command>/<utc stamp>/` (override with `--out`): `report.md`
 for programs (each has a `schema` field), `games.jsonl` with one record per game. Wasm runs also keep
 `games/g<id>/replay.ibcr`; pass `--discard-replays` to save disk. Reports contain no clock times or
 absolute paths, so the same inputs give the same `report.json`.
+
+`balance` (report schema `ibc-bench/balance/2`) also reports each weapon per **carrier-round** (a unit
+holding it when the action phase starts): the **kill index** (its carriers' kills per carrier-round over
+all kills per unit-round; 1 is average), split by side, by bot and by the victim's armour; kills, damage
+and kill-reward income per carrier-round; and the distance of kills made with it. Keys are
+`weapon.<name>.*`; how to read them is in [`docs/hillclimb.md`](../docs/hillclimb.md#reading-the-per-weapon-section).
+`balance --from` an older `games.jsonl` still works; its per-weapon section reads "Unavailable".
 
 Exit code: 0 ok, 1 usage or setup error, 2 the run finished but some games failed (they are listed on
 stderr and excluded from the statistics).

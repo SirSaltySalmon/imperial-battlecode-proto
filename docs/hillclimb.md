@@ -148,10 +148,45 @@ What to look at:
 | `plant_rate`, `first_contact_ticks`, `first_kill_ticks`, `round_ticks` | fights start well before the timer | no contact, or rounds always at the timer |
 | `kills.weapon.*.share`, `shots_per_kill.weapon.*`, loadouts | several weapons bought and killing | one weapon takes every kill |
 | `kills.distance.*.share` | several bands populated | everything in one band |
+| `weapon.*.kill_index` and its splits (below) | intervals around 1, each weapon ahead in its own niche | one weapon above 1 everywhere, against every armour, for every bot |
 | `econ.*`, credits-by-round table | the loser can still buy something | snowball: winners rich, losers on sidearms |
 | `draw_rate`, `tiebreak_rate` | low | high tie-break rate: matches are decided by the tie-break rule |
 | `degenerate.*`, "always times out", "nobody ever shoots" | zero | any entry: a bot or a rule is broken |
 | `fuel.*` | `out_of_fuel_turn_rate` near 0 | bots hitting the budget: results depend on the budget |
+
+### Reading the per-weapon section
+
+Kill share is not strength: it is carriers times kills per carrier. The "Weapons per carrier-round"
+section of `report.md` (`weapon.<name>.*` in `report.json`) measures what a weapon is worth to whoever
+carries it:
+
+- A **carrier-round** is one unit holding the weapon when the action phase starts (a unit without a
+  primary carries its sidearm). Every enemy kill, all damage dealt to enemies and every kill reward count
+  for the weapon the killer carried *then*, whatever finished the kill (a marksman carrier who switches to
+  the pistol still scores for the marksman; ability kills too). Friendly kills and the blast do not count.
+- **`kill_index`** = the carriers' kills per carrier-round over all kills per unit-round. 1 is average, and
+  the indices average to exactly 1 over carrier-rounds. 1.12 means a carrier of it kills 12 % more often
+  than the average unit. `kills_per_carrier_round`, `damage_per_carrier_round` and
+  `kill_reward_per_carrier_round` are the raw rates behind it (reward is what the engine paid: the
+  `kill_reward` of the weapon that made the kill).
+- **Splits compare like with like.** `kill_index.side.attack|defend` is each side against its own
+  baseline; `kill_index.bot.<bot>` is the weapon inside one bot's games against that bot's own kills per
+  unit-round, which separates the weapon from the bot that buys it (the strong bots buy the cheap guns);
+  `kill_index.victim_armor.<class>` counts only kills of victims in that armour at action start ("none",
+  else the cheapest armour item covering their points) against all such kills.
+- **Distance** is the other attribution: `weapon.<name>.kill_distance_tiles.mean` and
+  `weapon.<name>.kills.distance.<band>.share` describe enemy kills made *with* the weapon.
+- Every number is a ratio of per-match sums with an interval clustered by match (the index's interval is
+  the delta method for a ratio of two ratios). `n` is the number of games in which somebody carried the
+  weapon. Cells under 100 games are printed with `n=`: splits by bot, side and armour shrink fast, so read
+  them as hints and do not act inside the interval.
+- Not measured yet: round type (eco, force, full buy), unit slot, and duels by weapon pair and distance
+  band. The pool's weapon choice is code, not choice: a weapon held mostly by weak bots looks weak.
+
+These metrics need details recorded by this version of `ibc-bench` (`games.jsonl` details carry a
+`version`). An older `games.jsonl` still loads; its games are left out of the section, and when none has the
+attribution the section says "Unavailable" and the report carries a warning. `--compare` diffs the
+`weapon.*` metrics like any other; a report older than schema 2 simply lists them as "only in NEW".
 
 `--compare` prints three groups: **MOVED beyond the noise** (the difference exceeds both intervals
 combined: these are the effects of your change), "changed, but no interval" (cannot be judged), and a
