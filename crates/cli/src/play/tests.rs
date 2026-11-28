@@ -234,6 +234,16 @@ fn a_scripted_turn_based_session_replays() {
             .all(|u| u["credits"] == json!(0)),
         "enemy credits hidden"
     );
+    // A pull is refused on a tick the unit moves, and a refused act leaves no input: fire standing still.
+    let still = format!(r#"{{"move":[0,0],"aim":[{},{}],"fire":true}}"#, mx + 5000, my);
+    let s = p.json("POST", "/step", &still);
+    let fire = s["last_acts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["act"] == json!("fire"))
+        .cloned();
+    assert_eq!(fire.map(|a| a["result"].clone()), Some(json!("ok")), "{s}");
 
     // Possessed and idle, then given back: the bot walks again only once it has the unit back.
     let t0 = s["tick"].as_u64().unwrap();
@@ -271,6 +281,9 @@ fn a_scripted_turn_based_session_replays() {
         out.replay.header.bots[1].sha256, "",
         "the team's module ran"
     );
+    // A refused act leaves no input, and kits are unique within a team: of the bot's kit-1 drafts (one per
+    // unit, the possessed one included) only the first is accepted, so that is the one the replay holds.
+    let team = team_size..2 * team_size;
     let drafts: Vec<i32> = out.replay.ticks[..draft_ticks as usize]
         .iter()
         .flat_map(|t| &t.events)
@@ -280,14 +293,11 @@ fn a_scripted_turn_based_session_replays() {
                 kind: A_DRAFT,
                 a,
                 ..
-            }) if *unit == me => Some(*a),
+            }) if team.contains(unit) => Some(*a),
             _ => None,
         })
         .collect();
-    assert!(
-        !drafts.is_empty() && drafts.iter().all(|&k| k == 1),
-        "the team's bot drafted: {drafts:?}"
-    );
+    assert_eq!(drafts, [1], "the team's bot drafted");
     let kinds = recorded(&out, me, draft_ticks..t0);
     for k in [A_BUY, A_MOVE, A_FACE, A_FIRE] {
         assert!(kinds.contains(&k), "act {k} recorded: {kinds:?}");

@@ -397,6 +397,9 @@ pub struct DropInfo {
     pub x: i32,
     pub y: i32,
     pub item: i32,
+    /// `DROP_WEAPON`: the rounds that were in its magazine when it fell, which is what a pickup gets. 0 for the
+    /// charge. Added in engine 0.3.0; a bot built against the 16-byte record gets the fields before it.
+    pub ammo: i32,
 }
 
 #[repr(C)]

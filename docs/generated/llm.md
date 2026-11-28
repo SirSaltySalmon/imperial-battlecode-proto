@@ -577,9 +577,9 @@ damage to kill and heavy (50) means 150.
 - `A_PICKUP` takes the nearest drop within `pickup_reach`. A weapon goes into its own slot; a weapon already
   there is put down in its place, so picking up swaps. The unit keeps using the slot it had in hand, unless
   its hands were empty.
-- **A weapon on the ground holds no ammunition.** A weapon picked up has an empty magazine and must be
-  reloaded. Dropping and picking up is therefore never a faster reload, and handing a teammate a weapon
-  costs them one reload.
+- **A weapon on the ground keeps its rounds.** A drop holds what was in its magazine when it fell
+  (`DropInfo.ammo`), and a pickup gets exactly that. A reload in progress is lost, not finished, so dropping
+  and picking up is never a faster reload; handing a teammate a loaded weapon hands them its rounds.
 - Dropping, or picking up into the slot in hand, cancels startup and reload, like a swap.
 - The displaced weapon lies at your feet, so it is the nearest drop for your next `A_PICKUP`: repeating the
   action swaps back and forth. Step away to reach something else.
@@ -1252,6 +1252,9 @@ still loads and reads the prefix of each record it knows; what changed is what s
   (lowest `ty`, then lowest `tx`). A unit there is on the site, which the box centre need not be: sites may be
   any shape (L-shaped, hollow). On a filled rectangle with odd sides it equals `centre_x`, `centre_y`. A bot
   that reads only the first 28 bytes of the record sees no change.
+- `DropInfo.ammo` (engine 0.3.0): the rounds a dropped weapon still holds, 0 for the charge. A pickup gets
+  exactly those, where it used to get an empty magazine. The record grows from 16 to 20 bytes; a bot that
+  reads only the first 16 sees no change.
 
 ## For engine and SDK authors
 
@@ -1984,7 +1987,7 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 
 ### DropInfo
 
-16 bytes, 4 fields.
+20 bytes, 5 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -1992,6 +1995,7 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 | 4 | `x` | `i32` | 4 |  |
 | 8 | `y` | `i32` | 4 |  |
 | 12 | `item` | `i32` | 4 |  |
+| 16 | `ammo` | `i32` | 4 | `DROP_WEAPON`: the rounds that were in its magazine when it fell, which is what a pickup gets. 0 for the charge. Added in engine 0.3.0; a bot built against the 16-byte record gets the fields before it. |
 
 ### EventInfo
 

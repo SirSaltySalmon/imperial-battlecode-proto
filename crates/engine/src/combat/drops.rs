@@ -1,33 +1,33 @@
-//! Weapons on the ground. A dropped weapon is a `DropInfo { kind: DROP_WEAPON, item: weapon id }` in
-//! `World.drops` (which the core hashes and clears at round start). A drop carries no ammunition: a weapon
-//! picked up has an empty magazine and must be reloaded, so dropping and picking up is never a faster reload.
-//! Weapons are never created here, and only a dead unit's default sidearm disappears: every pickup that
-//! displaces a weapon puts it on the ground.
+//! Weapons on the ground. A dropped weapon is a `DropInfo { kind: DROP_WEAPON, item: weapon id, ammo }` in
+//! `World.drops` (which the core hashes and clears at round start). A drop keeps the rounds that were in its
+//! magazine, and whoever picks it up gets exactly those: a reload in progress is lost, not finished, so
+//! dropping and picking up is never a faster reload. Weapons are never created here, and only a dead unit's
+//! default sidearm disappears: every pickup that displaces a weapon puts it on the ground.
 
 use super::state;
 use crate::fixed::V2;
 use crate::world::World;
 use ibc_abi::*;
 
-fn put_down(w: &mut World, pos: V2, weapon: i32) {
+fn put_down(w: &mut World, pos: V2, (weapon, ammo): (i32, i32)) {
     w.drops.push(DropInfo {
         kind: DROP_WEAPON,
         x: pos.0,
         y: pos.1,
         item: weapon,
+        ammo,
     });
 }
 
-/// Take the weapon out of `slot`, if any.
-fn take(w: &mut World, u: usize, slot: usize) -> Option<i32> {
+/// Take the weapon out of `slot`, if any, with the rounds in its magazine.
+fn take(w: &mut World, u: usize, slot: usize) -> Option<(i32, i32)> {
     let unit = &mut w.units[u];
     let id = unit.weapons[slot];
     if id < 0 {
         return None;
     }
     unit.weapons[slot] = -1;
-    unit.ammo[slot] = 0;
-    Some(id)
+    Some((id, std::mem::take(&mut unit.ammo[slot])))
 }
 
 /// SEAM: a unit died. Its startup, brace and reload end, and its weapons fall where it died, except the default
@@ -40,14 +40,15 @@ pub fn on_death(w: &mut World, u: usize) {
         if w.units[u].weapons[slot] == free {
             continue;
         }
-        if let Some(id) = take(w, u, slot) {
-            put_down(w, pos, id);
+        if let Some(held) = take(w, u, slot) {
+            put_down(w, pos, held);
         }
     }
 }
 
 /// SEAM: a non-charge drop was picked up (the core has already removed it from `World.drops`). The weapon
-/// goes into its own slot with an empty magazine; a weapon already in that slot is put down in its place.
+/// goes into its own slot with the rounds it was dropped with; a weapon already in that slot is put down in
+/// its place.
 pub fn on_pickup(w: &mut World, u: usize, drop: DropInfo) {
     let wr = match w.rules.weapons.get(drop.item.max(0) as usize) {
         Some(wr) if drop.kind == DROP_WEAPON && drop.item >= 0 => *wr,
@@ -59,12 +60,12 @@ pub fn on_pickup(w: &mut World, u: usize, drop: DropInfo) {
     let slot = wr.slot as usize;
     let pos = w.units[u].pos;
     let hand_was_empty = w.units[u].weapon() < 0;
-    if let Some(old) = take(w, u, slot) {
-        put_down(w, pos, old);
+    if let Some(held) = take(w, u, slot) {
+        put_down(w, pos, held);
     }
     let unit = &mut w.units[u];
     unit.weapons[slot] = wr.id;
-    unit.ammo[slot] = 0;
+    unit.ammo[slot] = drop.ammo.clamp(0, wr.magazine);
     if hand_was_empty {
         unit.slot = slot;
     }
@@ -73,15 +74,15 @@ pub fn on_pickup(w: &mut World, u: usize, drop: DropInfo) {
     }
 }
 
-/// SEAM: A_DROP with DROP_WEAPON. The weapon in hand falls at the unit's feet and the unit switches to its
-/// other weapon, if it has one. Does nothing with empty hands.
+/// SEAM: A_DROP with DROP_WEAPON. The weapon in hand falls at the unit's feet with its rounds, and the unit
+/// switches to its other weapon, if it has one. Does nothing with empty hands.
 pub fn on_drop(w: &mut World, u: usize) {
     let slot = w.units[u].slot;
-    let Some(id) = take(w, u, slot) else {
+    let Some(held) = take(w, u, slot) else {
         return;
     };
     let pos = w.units[u].pos;
-    put_down(w, pos, id);
+    put_down(w, pos, held);
     if w.units[u].weapons[1 - slot] >= 0 {
         w.units[u].slot = 1 - slot;
     }

@@ -23,12 +23,13 @@ fn room() -> (Match, i32, i32, i32) {
     )
 }
 
-fn drop_of(item: i32, pos: (i32, i32)) -> DropInfo {
+fn drop_of(item: i32, pos: (i32, i32), ammo: i32) -> DropInfo {
     DropInfo {
         kind: DROP_WEAPON,
         x: pos.0,
         y: pos.1,
         item,
+        ammo,
     }
 }
 
@@ -38,8 +39,9 @@ fn death_drops_bought_weapons_but_not_the_free_sidearm() {
     arm(&mut m, 2, rifle);
     assert_eq!(m.world.units[2].weapons, [rifle, pistol]);
     let pos = m.world.units[2].pos;
+    let full = weapon(&m, rifle).magazine;
     m.world.damage(2, 1000, Some(0), pistol);
-    assert_eq!(weapon_drops(&m), vec![drop_of(rifle, pos)]);
+    assert_eq!(weapon_drops(&m), vec![drop_of(rifle, pos, full)], "it falls with its magazine");
     let dead = &m.world.units[2];
     assert_eq!(
         (dead.weapons, dead.ammo[0]),
@@ -55,9 +57,10 @@ fn death_drops_bought_weapons_but_not_the_free_sidearm() {
 }
 
 #[test]
-fn a_picked_up_weapon_goes_to_its_slot_with_an_empty_magazine() {
+fn a_picked_up_weapon_goes_to_its_slot_with_the_rounds_it_fell_with() {
     let (mut m, pistol, rifle, _) = room();
     arm(&mut m, 2, rifle);
+    m.world.units[2].ammo[0] = 3;
     m.world.damage(2, 1000, Some(0), pistol);
     let at_body = m.world.units[2].pos;
 
@@ -76,14 +79,15 @@ fn a_picked_up_weapon_goes_to_its_slot_with_an_empty_magazine() {
     m.step();
     let u = &m.world.units[3];
     assert!(weapon_drops(&m).is_empty());
-    assert_eq!((u.weapons, u.ammo[0]), ([rifle, pistol], 0));
+    assert_eq!((u.weapons, u.ammo[0]), ([rifle, pistol], 3));
     assert_eq!(u.slot, 1, "it stays in the hand it was using");
 
-    // It has to be loaded before it fires.
+    // It fires with those rounds, and a reload fills the magazine.
     assert_eq!(m.act(3, A_SWAP, 0, 0, 0), OK);
     m.step();
     m.step();
-    assert_eq!(m.act(3, A_FIRE, 32768, 0, 0), ERR_NOT_READY);
+    assert_eq!(m.act(3, A_FIRE, 32768, 0, 0), OK, "three rounds are loaded");
+    m.step();
     assert_eq!(combat::reload(&mut m.world, 3), OK);
     for _ in 0..weapon(&m, rifle).reload_ticks {
         m.step();
@@ -97,7 +101,8 @@ fn picking_up_over_a_held_weapon_swaps_them_on_the_ground() {
     let (mut m, pistol, rifle, lmg) = room();
     arm(&mut m, 1, rifle);
     let pos = m.world.units[1].pos;
-    m.world.drops.push(drop_of(lmg, (pos.0 + 200, pos.1)));
+    let rifle_full = weapon(&m, rifle).magazine;
+    m.world.drops.push(drop_of(lmg, (pos.0 + 200, pos.1), 7));
 
     // Mid wind-up with the rifle: the shot is abandoned along with the weapon.
     m.act(1, A_FIRE, 0, 0, 0);
@@ -106,26 +111,28 @@ fn picking_up_over_a_held_weapon_swaps_them_on_the_ground() {
     m.act(1, A_PICKUP, 0, 0, 0);
     m.step();
     let u = &m.world.units[1];
-    assert_eq!((u.weapons, u.ammo[0], u.slot), ([lmg, pistol], 0, 0));
+    assert_eq!((u.weapons, u.ammo[0], u.slot), ([lmg, pistol], 7, 0));
     assert_eq!((shots(&m, 1), u.combat.winding), (0, false));
     assert_eq!(
         weapon_drops(&m),
-        vec![drop_of(rifle, pos)],
-        "the old weapon lies at the unit's feet"
+        vec![drop_of(rifle, pos, rifle_full)],
+        "the old weapon lies at the unit's feet, still loaded: the abandoned shot was never fired"
     );
 
-    // And back again: the nearest drop is the rifle; its magazine is empty too.
+    // And back again: the nearest drop is the rifle, with its rounds; the LMG keeps its 7.
     m.act(1, A_PICKUP, 0, 0, 0);
     m.step();
     assert_eq!(
         (m.world.units[1].weapons, m.world.units[1].ammo[0]),
-        ([rifle, pistol], 0)
+        ([rifle, pistol], rifle_full)
     );
-    assert_eq!(weapon_drops(&m), vec![drop_of(lmg, pos)]);
+    assert_eq!(weapon_drops(&m), vec![drop_of(lmg, pos, 7)]);
 
     // Picking up a sidearm while holding the primary does not touch the primary's reload.
     m.world.drops.clear();
-    m.world.drops.push(drop_of(pistol, pos));
+    m.world.drops.push(drop_of(pistol, pos, 0));
+    let sidearm_rounds = m.world.units[1].ammo[1];
+    m.world.units[1].ammo[0] = 1; // the rifle came back full: empty it so there is a reload to keep
     m.act(1, A_RELOAD, 0, 0, 0);
     m.step();
     m.act(1, A_PICKUP, 0, 0, 0);
@@ -136,7 +143,7 @@ fn picking_up_over_a_held_weapon_swaps_them_on_the_ground() {
     );
     assert_eq!(
         (m.world.units[1].ammo[1], weapon_drops(&m)),
-        (0, vec![drop_of(pistol, pos)])
+        (0, vec![drop_of(pistol, pos, sidearm_rounds)])
     );
 }
 
@@ -153,7 +160,7 @@ fn a_drop_puts_the_weapon_in_hand_at_the_units_feet() {
         (u.weapons, u.slot, u.ammo),
         ([-1, pistol], 1, [0, weapon(&m, pistol).magazine])
     );
-    assert_eq!(weapon_drops(&m), vec![drop_of(rifle, pos)]);
+    assert_eq!(weapon_drops(&m), vec![drop_of(rifle, pos, weapon(&m, rifle).magazine)]);
     assert!(
         m.world.units[0].has_charge,
         "dropping a weapon is not dropping the charge"
@@ -206,7 +213,8 @@ fn dropping_cancels_the_shot_and_is_never_a_reload() {
     m.step();
     assert_eq!(
         (m.world.units[0].weapons[0], m.world.units[0].ammo[0]),
-        (rifle, 0)
+        (rifle, 3),
+        "back with the three rounds it fell with, not a full magazine"
     );
 }
 

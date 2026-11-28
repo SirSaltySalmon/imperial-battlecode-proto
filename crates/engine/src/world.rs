@@ -643,7 +643,7 @@ impl World {
             self.units[target].has_charge = false;
             self.charge_state = CHARGE_DROPPED;
             self.charge_pos = pos;
-            self.drops.push(DropInfo { kind: DROP_CHARGE, x: pos.0, y: pos.1, item: 0 });
+            self.drops.push(DropInfo { kind: DROP_CHARGE, x: pos.0, y: pos.1, item: 0, ammo: 0 });
         }
         combat::on_death(self, target);
         if let Some(a) = attacker {
