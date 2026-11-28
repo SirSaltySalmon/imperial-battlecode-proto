@@ -118,6 +118,9 @@ still loads and reads the prefix of each record it knows; what changed is what s
   (lowest `ty`, then lowest `tx`). A unit there is on the site, which the box centre need not be: sites may be
   any shape (L-shaped, hollow). On a filled rectangle with odd sides it equals `centre_x`, `centre_y`. A bot
   that reads only the first 28 bytes of the record sees no change.
+- `DropInfo.ammo` (after engine 0.2.0; the record grows from 16 to 20 bytes): the rounds in a dropped
+  weapon's magazine, 0 for the charge. A weapon used to fall empty; it now keeps its magazine and whoever
+  picks it up gets those rounds.
 
 ## For engine and SDK authors
 

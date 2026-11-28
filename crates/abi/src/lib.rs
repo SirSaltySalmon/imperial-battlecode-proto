@@ -387,6 +387,8 @@ pub struct DropInfo {
     pub x: i32,
     pub y: i32,
     pub item: i32,
+    /// `DROP_WEAPON`: the rounds in its magazine, which whoever picks it up gets. 0 for the charge.
+    pub ammo: i32,
 }
 
 #[repr(C)]

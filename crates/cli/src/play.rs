@@ -103,15 +103,9 @@ pub fn run(args: Vec<String>) -> Result<()> {
     let args = Args::parse_from(std::iter::once("ibc play".to_string()).chain(args));
     let root = crate::view::find_viewer_dir(args.viewer_dir.as_deref())?;
     if !root.join("play.html").is_file() {
-        bail!(
-            "{} has no play.html: rebuild the viewer (`cd viewer && npm run build`)",
-            root.display()
-        );
+        bail!("{} has no play.html: rebuild the viewer (`cd viewer && npm run build`)", root.display());
     }
-    let map = args
-        .map
-        .clone()
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_MAP));
+    let map = args.map.clone().unwrap_or_else(|| PathBuf::from(DEFAULT_MAP));
     let map_text = std::fs::read_to_string(&map)
         .with_context(|| format!("reading map {} (choose one with --map)", map.display()))?;
     let setup = Setup {
@@ -130,18 +124,15 @@ pub fn run(args: Vec<String>) -> Result<()> {
     };
     let (cfg, session) = prepare(setup)?;
 
-    let listener = TcpListener::bind(("127.0.0.1", args.port))
-        .with_context(|| format!("listening on 127.0.0.1:{}", args.port))?;
+    let listener =
+        TcpListener::bind(("127.0.0.1", args.port)).with_context(|| format!("listening on 127.0.0.1:{}", args.port))?;
     println!("http://127.0.0.1:{}/", listener.local_addr()?.port());
     eprintln!(
         "you play team {}; serving {} (Ctrl-C to stop)",
         team_name(session.seat.team),
         root.display()
     );
-    let site = Arc::new(server::Site {
-        root,
-        session: Arc::clone(&session),
-    });
+    let site = Arc::new(server::Site { root, session: Arc::clone(&session) });
     std::thread::spawn(move || server::serve(listener, site));
 
     let result = ibc_runner::run_driven(cfg, &mut session.driver());
@@ -168,11 +159,7 @@ fn team_name(team: i32) -> &'static str {
 
 fn bot_spec(b: &BotInput) -> Result<BotSpec> {
     let wasm = std::fs::read(&b.wasm).with_context(|| format!("reading {}", b.wasm.display()))?;
-    Ok(BotSpec {
-        name: b.name.clone(),
-        wasm,
-        fuel_multiplier: b.fuel_multiplier,
-    })
+    Ok(BotSpec { name: b.name.clone(), wasm, fuel_multiplier: b.fuel_multiplier })
 }
 
 /// The match config and the session for a setup. Checks the starting unit against the map's team size.
@@ -224,6 +211,8 @@ pub fn prepare(s: Setup) -> Result<(MatchConfig, Arc<Session>)> {
     } else {
         [s.opponent, human]
     };
+    let setup_json = setup_json(&rules, &s.map_text, s.mode, seat, [&human.name, &s.opponent.name], s.team);
+    let bots = if s.team == 0 { [human, s.opponent] } else { [s.opponent, human] };
     let cfg = MatchConfig {
         rules,
         map_text: s.map_text,

@@ -362,8 +362,10 @@ struct DropInfo {
     int32_t x;
     int32_t y;
     int32_t item;
+    /// `DROP_WEAPON`: the rounds in its magazine, which whoever picks it up gets. 0 for the charge.
+    int32_t ammo;
 };
-static_assert(sizeof(DropInfo) == 16);
+static_assert(sizeof(DropInfo) == 20);
 
 struct EventInfo {
     int32_t kind;

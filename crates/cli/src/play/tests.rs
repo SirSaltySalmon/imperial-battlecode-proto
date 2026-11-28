@@ -22,11 +22,7 @@ const IDLE: &str = r#"(module
   (func (export "_start") (loop $l (call $end_turn) (br $l))))"#;
 
 fn idle(name: &str) -> BotSpec {
-    BotSpec {
-        name: name.into(),
-        wasm: wat::parse_str(IDLE).unwrap(),
-        fuel_multiplier: 1.0,
-    }
+    BotSpec { name: name.into(), wasm: wat::parse_str(IDLE).unwrap(), fuel_multiplier: 1.0 }
 }
 
 /// Drafts kit 1 and walks right, every turn.
@@ -84,10 +80,7 @@ fn start_with_kit(
     .unwrap();
     let s = Arc::clone(&session);
     let game = std::thread::spawn(move || ibc_runner::run_driven(cfg, &mut s.driver()).unwrap());
-    let site = Site {
-        root: base.join("dist").canonicalize().unwrap(),
-        session,
-    };
+    let site = Site { root: base.join("dist").canonicalize().unwrap(), session };
     Running { site, base, game }
 }
 
@@ -105,12 +98,7 @@ impl Running {
 
     fn json(&self, method: &str, path: &str, body: &str) -> Value {
         let r = self.call(method, path, body);
-        assert_eq!(
-            r.status,
-            "200 OK",
-            "{method} {path}: {}",
-            String::from_utf8_lossy(&r.body)
-        );
+        assert_eq!(r.status, "200 OK", "{method} {path}: {}", String::from_utf8_lossy(&r.body));
         serde_json::from_slice(&r.body).unwrap()
     }
 
@@ -203,17 +191,9 @@ fn a_scripted_turn_based_session_replays() {
     }
     let draft_ticks = s["tick"].as_u64().unwrap();
 
-    let s = p.json(
-        "POST",
-        "/step",
-        r#"{"actions":[{"act":"buy","item":1}, {"act":"buy","item":999}]}"#,
-    );
+    let s = p.json("POST", "/step", r#"{"actions":[{"act":"buy","item":1}, {"act":"buy","item":999}]}"#);
     assert_eq!(s["last_acts"][0]["result"], json!("ok"), "{s}");
-    assert_eq!(
-        s["last_acts"][1]["result"],
-        json!("bad argument"),
-        "the engine's answer reaches the page"
-    );
+    assert_eq!(s["last_acts"][1]["result"], json!("bad argument"), "the engine's answer reaches the page");
     let mut s = s;
     while s["view"]["match"]["phase"] != json!(PHASE_ACTION) {
         s = p.json("POST", "/step", "");
@@ -228,20 +208,9 @@ fn a_scripted_turn_based_session_replays() {
     for _ in 0..8 {
         s = p.json("POST", "/step", &aim);
     }
-    assert_ne!(
-        s["view"]["me"]["x"].as_i64().unwrap(),
-        x0,
-        "the unit moved: {}",
-        s["view"]["me"]
-    );
+    assert_ne!(s["view"]["me"]["x"].as_i64().unwrap(), x0, "the unit moved: {}", s["view"]["me"]);
     let units = s["view"]["frame"]["units"].as_array().unwrap();
-    assert!(
-        units
-            .iter()
-            .filter(|u| u["team"] == json!(0))
-            .all(|u| u["credits"] == json!(0)),
-        "enemy credits hidden"
-    );
+    assert!(units.iter().filter(|u| u["team"] == json!(0)).all(|u| u["credits"] == json!(0)), "enemy credits hidden");
 
     // Possessed and idle, then given back: the bot walks again only once it has the unit back.
     let t0 = s["tick"].as_u64().unwrap();
@@ -398,21 +367,12 @@ fn realtime_runs_on_its_clock_once_started() {
 fn serves_the_page_and_rejects_what_it_must() {
     let p = start("http", Mode::Turn, 0, None);
     let page = p.call("GET", "/", "");
-    assert_eq!(
-        (page.status, page.body.as_slice()),
-        ("200 OK", &b"<!doctype html>play"[..])
-    );
+    assert_eq!((page.status, page.body.as_slice()), ("200 OK", &b"<!doctype html>play"[..]));
     for path in ["/../secret.txt", "/%2e%2e/secret.txt", "/missing.js"] {
         assert_ne!(p.call("GET", path, "").status, "200 OK", "{path}");
     }
-    assert_eq!(
-        p.call("POST", "/input", "{not json").status,
-        "400 Bad Request"
-    );
-    assert_eq!(
-        p.call("POST", "/input", r#"{"teleport":[1,1]}"#).status,
-        "400 Bad Request"
-    );
+    assert_eq!(p.call("POST", "/input", "{not json").status, "400 Bad Request");
+    assert_eq!(p.call("POST", "/input", r#"{"teleport":[1,1]}"#).status, "400 Bad Request");
     assert_eq!(p.call("POST", "/input", "").status, "400 Bad Request");
     assert_eq!(p.call("POST", "/run", "{}").status, "400 Bad Request");
     assert_eq!(p.call("POST", "/possess", "{}").status, "400 Bad Request");
@@ -426,17 +386,9 @@ fn serves_the_page_and_rejects_what_it_must() {
     );
     assert_eq!(p.call("POST", "/nope", "{}").status, "404 Not Found");
     assert_eq!(p.call("PUT", "/state", "").status, "405 Method Not Allowed");
-    let unmarked = Request {
-        method: "POST".into(),
-        path: "/step".into(),
-        host: Some("localhost".into()),
-        ..Request::default()
-    };
-    assert_eq!(
-        respond(&p.site, &unmarked).status,
-        "403 Forbidden",
-        "POST without X-IBC-Play"
-    );
+    let unmarked =
+        Request { method: "POST".into(), path: "/step".into(), host: Some("localhost".into()), ..Request::default() };
+    assert_eq!(respond(&p.site, &unmarked).status, "403 Forbidden", "POST without X-IBC-Play");
     let foreign = Request {
         method: "GET".into(),
         path: "/state".into(),
@@ -444,11 +396,7 @@ fn serves_the_page_and_rejects_what_it_must() {
         ..Request::default()
     };
     assert_eq!(respond(&p.site, &foreign).status, "403 Forbidden");
-    assert_eq!(
-        p.json("GET", "/state", "")["tick"],
-        json!(0),
-        "nothing above advanced the match"
-    );
+    assert_eq!(p.json("GET", "/state", "")["tick"], json!(0), "nothing above advanced the match");
     ibc_replay::verify(&p.quit().replay).unwrap();
 }
 

@@ -40,6 +40,34 @@ What the squad bots do that the first three do not:
   wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` and
   `rusher` (so `utility`) do the same (measured below).
 
+## Load bot: `burner`
+
+Not in the pool and not registered in `ibc-sim` (natively there is no fuel meter, so it burns nothing). Every
+unit spends its whole budget on every tick and yields about 250 fuel short of zero, so it is never paused.
+`src/main.rs` does nothing else, like `idle`: the match then always plays all 18 rounds (2,305 ticks).
+`examples/` holds `forcer` plus burning, `forcer` alone from the same sources (the control: same final state
+hash), and kernels that spend the same fuel in costlier ways (`div`, `chase`, `fuel_calls`, `los`, `reads`,
+`draws`, `mem_read`, `mem_write`). Build them with `cargo build --release --target wasm32-wasip1 --examples`
+in `bots/burner` and pass the `.wasm` files to `ibc run`.
+
+Measured on 2026-11-27, ruleset `5795cbc069627a93`, wasm runner, one match per process, i7-12700H:
+
+| Mirror | Games | Core-seconds per game, mean / max |
+|---|---:|---:|
+| `burner` (multiply chain), 14 maps | 112 (56 distinct) | 0.53 / 0.66 |
+| `forcer` plus burning, 14 maps | 112 (56 distinct) | 0.47 / 0.66 |
+| `forcer` alone, 14 maps | 56 | 0.32 / 0.41 |
+| `div` / `fuel_calls` / `los` / `reads`, 4 maps | 4 each | 1.1 / 2.0 / 5.2 / 5.3 (max 5.6) |
+| `chase` (16 MiB per unit), 4 maps | 4 | 20.3 / 22.3 |
+| `draws`, 4 maps | 4 | 74.3 / 76.6, and a 14 MB replay |
+| `mem_read`, first 20 ticks only | 1 | 13.5 for 20 ticks (about 750 for a whole match) |
+
+The fuel budget bounds CPU time only as well as host calls are priced. The same fuel costs 0.18 ns of CPU
+per unit as arithmetic, 0.37 as division, 2 as `los` or table reads, 8 as cache misses, 28 as `debug_draw`
+calls (free) and about 290 as 1 MiB `mem_read` calls (charged 20 fuel whatever the length). `mem_write` is
+worse: the engine records every call in the replay, refused or not, so one refused 1 MiB call per unit-turn
+grows the runner's memory by about 23 MB a tick.
+
 ## Measured
 
 Taken on 2026-11-25, ruleset `47ebd4e1efcddb9b`, native backend. The first table is on the ten maps the pool

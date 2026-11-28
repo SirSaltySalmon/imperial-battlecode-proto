@@ -10,9 +10,12 @@
 //! - **Double elimination** adds a losers bracket of `2 (k - 1)` rounds for `P = 2^k`: round 1 pairs the
 //!   losers of winners round 1, then every even round takes the losers dropping from the next winners round
 //!   (in reversed order every other time, so a team does not meet the one that just beat it), and every odd
-//!   round halves the field. The grand final is winners champion against losers champion, one series, no
-//!   bracket reset: every pairing already plays every tournament map, and a reset is a conditional match a
-//!   static bracket cannot express. With two entrants a double elimination bracket is a single match.
+//!   round halves the field. The grand final is winners champion (seat A) against losers champion (seat B).
+//!   The winners champion has not lost yet, so if it wins the grand final it is champion; if the losers
+//!   champion wins, both have lost once and the **bracket reset** decides: a second grand final between the
+//!   same two teams in the same seats. The reset is a fixed match of the bracket whose seats are filled only
+//!   when it is needed ([`Source::Reset`]); otherwise both are empty and nobody plays it. With two entrants a
+//!   double elimination bracket is a single match.
 //! - **Byes cascade**: a seat whose feeder had nobody (a bye, or the loser of a bye) is empty, and a match
 //!   with one empty seat sends its other seat through. One rule covers byes in both brackets.
 
@@ -32,7 +35,7 @@ pub enum Format {
 pub enum Stage {
     Winners,
     Losers,
-    /// The grand final of a double elimination bracket.
+    /// The grand final of a double elimination bracket (round 1) and its bracket reset (round 2).
     Final,
 }
 
@@ -47,6 +50,9 @@ pub enum Source {
     Bye,
     Winner(u32),
     Loser(u32),
+    /// The bracket reset after grand final `m`: the team in seat `side` of `m` again, if the losers champion
+    /// (seat B) won `m`; nobody if the winners champion did.
+    Reset(u32, Side),
 }
 
 /// One match of the bracket. `round` counts from 1 within its stage.
@@ -110,7 +116,8 @@ pub fn seed_order(size: u32) -> Vec<u32> {
 }
 
 /// The matches of a bracket for `entrants` seeded teams, in an order where every match comes after the
-/// matches that feed it: winners rounds, then losers rounds, then the grand final. Empty below two entrants.
+/// matches that feed it: winners rounds, then losers rounds, then the grand final and its reset. Empty below
+/// two entrants.
 pub fn build(format: Format, entrants: u32) -> Vec<BracketMatch> {
     if entrants < 2 {
         return Vec::new();
@@ -121,14 +128,24 @@ pub fn build(format: Format, entrants: u32) -> Vec<BracketMatch> {
     if format == Format::Double && entrants > 2 {
         let losers_champion = losers_rounds(&mut out, &winners);
         let winners_champion = *winners.last().and_then(|r| r.first()).expect("a final");
-        out.push(BracketMatch {
-            stage: Stage::Final,
-            round: 1,
-            sources: [
+        let grand_final = push(
+            &mut out,
+            Stage::Final,
+            1,
+            [
                 Source::Winner(winners_champion),
                 Source::Winner(losers_champion),
             ],
-        });
+        );
+        push(
+            &mut out,
+            Stage::Final,
+            2,
+            [
+                Source::Reset(grand_final, Side::A),
+                Source::Reset(grand_final, Side::B),
+            ],
+        );
     }
     out
 }
@@ -231,7 +248,8 @@ fn push(out: &mut Vec<BracketMatch>, stage: Stage, round: u32, sources: [Source;
 }
 
 /// Who sits where and who won, given `results[m]` for each match `m` (`None`: not decided). A result for a
-/// match that does not have two teams in it is ignored: byes decide themselves.
+/// match that does not have two teams in it is ignored: byes decide themselves, and a bracket reset that is
+/// not needed is empty.
 pub fn resolve(bracket: &[BracketMatch], results: &[Option<Side>]) -> Vec<MatchState> {
     let mut states: Vec<MatchState> = Vec::with_capacity(bracket.len());
     for (i, m) in bracket.iter().enumerate() {
@@ -240,6 +258,7 @@ pub fn resolve(bracket: &[BracketMatch], results: &[Option<Side>]) -> Vec<MatchS
             Source::Bye => Seat::Empty,
             Source::Winner(j) => states[j as usize].winner,
             Source::Loser(j) => states[j as usize].loser,
+            Source::Reset(j, side) => reset_seat(&states[j as usize], side),
         };
         let seats = [seat(m.sources[0]), seat(m.sources[1])];
         let (winner, loser) = match seats {
@@ -263,9 +282,28 @@ pub fn resolve(bracket: &[BracketMatch], results: &[Option<Side>]) -> Vec<MatchS
     states
 }
 
-/// The bracket's champion: the winner of its last match (`Pending` until it is decided).
+/// Seat `side` of the bracket reset after `grand_final`: the same team as in the grand final when the
+/// losers champion (seat B) beat the winners champion there, nobody when the winners champion won (or the
+/// grand final was a bye), `Pending` until it is decided.
+fn reset_seat(grand_final: &MatchState, side: Side) -> Seat {
+    match (grand_final.seats, grand_final.winner) {
+        (_, Seat::Pending) => Seat::Pending,
+        ([Seat::Team(_), losers_champion @ Seat::Team(_)], winner) if winner == losers_champion => {
+            grand_final.seats[usize::from(side == Side::B)]
+        }
+        _ => Seat::Empty,
+    }
+}
+
+/// The bracket's champion: the winner of its last match that is not empty, which is the grand final when
+/// its bracket reset was not needed (`Pending` until it is decided).
 pub fn champion(states: &[MatchState]) -> Seat {
-    states.last().map_or(Seat::Pending, |s| s.winner)
+    states
+        .iter()
+        .rev()
+        .map(|s| s.winner)
+        .find(|&w| w != Seat::Empty)
+        .unwrap_or(Seat::Pending)
 }
 
 /// One map of a pairing, from the pairing's side A: the map's outcome (`None`: it has no result, e.g. it
@@ -436,23 +474,37 @@ mod tests {
         assert_eq!(count(Stage::Winners), 7);
         // 2 (k - 1) = 4 losers rounds of 2, 2, 1, 1 matches.
         assert_eq!(count(Stage::Losers), 6);
-        assert_eq!(count(Stage::Final), 1);
+        // The grand final and its reset, which replays the grand final's seats.
+        assert_eq!(count(Stage::Final), 2);
         let rounds: Vec<u32> = b
             .iter()
             .filter(|m| m.stage == Stage::Losers)
             .map(|m| m.round)
             .collect();
         assert_eq!(rounds, vec![1, 1, 2, 2, 3, 4]);
+        let grand_final = b.len() as u32 - 2;
+        assert_eq!(b[grand_final as usize].round, 1);
+        assert_eq!(
+            b[grand_final as usize + 1],
+            BracketMatch {
+                stage: Stage::Final,
+                round: 2,
+                sources: [
+                    Source::Reset(grand_final, Side::A),
+                    Source::Reset(grand_final, Side::B)
+                ],
+            }
+        );
         // Every feeder comes before the match it feeds.
         for (i, m) in b.iter().enumerate() {
             for s in m.sources {
-                if let Source::Winner(j) | Source::Loser(j) = s {
+                if let Source::Winner(j) | Source::Loser(j) | Source::Reset(j, _) = s {
                     assert!((j as usize) < i);
                 }
             }
         }
-        // Every match's loser goes somewhere exactly once, except the final's.
-        for j in 0..b.len() as u32 - 1 {
+        // Every winners-bracket loser drops into the losers bracket exactly once; no other loser goes on.
+        for j in 0..b.len() as u32 {
             let fed = b
                 .iter()
                 .flat_map(|m| m.sources)
@@ -463,44 +515,94 @@ mod tests {
         }
     }
 
+    /// Losses per team in the matches that were played (two teams in them).
+    fn losses(states: &[MatchState], entrants: u32) -> Vec<u32> {
+        let mut losses = vec![0; entrants as usize];
+        for s in states {
+            if let (Seat::Team(l), [Seat::Team(_), Seat::Team(_)]) = (s.loser, s.seats) {
+                losses[l as usize] += 1;
+            }
+        }
+        losses
+    }
+
     #[test]
     fn double_elimination_everyone_loses_twice() {
         for n in 3..=33 {
             let b = build(Format::Double, n);
             let (states, played) = play(&b, better);
             assert_eq!(champion(&states), Seat::Team(0), "n = {n}");
-            // Without a bracket reset: every team but the champion loses twice, except that the grand
-            // final's loser may have lost only once. 2n - 3 or 2n - 2 series.
-            assert!(
-                played as u32 == 2 * n - 2 || played as u32 == 2 * n - 3,
-                "n = {n}: {played}"
-            );
-            let mut losses = vec![0; n as usize];
-            for s in &states {
-                if let (Seat::Team(l), true) =
-                    (s.loser, matches!(s.seats, [Seat::Team(_), Seat::Team(_)]))
-                {
-                    losses[l as usize] += 1;
-                }
-            }
+            // The winners champion wins the grand final, so the reset is not played: every team but the
+            // champion loses twice, the champion never. 2n - 2 series.
+            assert_eq!(played as u32, 2 * n - 2, "n = {n}");
+            let losses = losses(&states, n);
             assert_eq!(losses[0], 0);
-            let finalist_loser = match states.last().unwrap().loser {
-                Seat::Team(t) => t,
-                _ => panic!(),
+            assert!(losses[1..].iter().all(|&l| l == 2), "n = {n}: {losses:?}");
+            let [grand_final, reset] = &states[states.len() - 2..] else {
+                unreachable!()
             };
-            for (t, l) in losses.iter().enumerate().skip(1) {
-                if t as u32 == finalist_loser {
-                    assert!(*l == 1 || *l == 2);
-                } else {
-                    assert_eq!(*l, 2, "n = {n}, team {t}");
-                }
-            }
+            assert_eq!(grand_final.seats, [Seat::Team(0), Seat::Team(1)]);
+            assert_eq!(
+                (reset.seats, reset.winner),
+                ([Seat::Empty, Seat::Empty], Seat::Empty)
+            );
         }
     }
 
     #[test]
+    fn bracket_reset_when_the_losers_champion_wins_the_grand_final() {
+        for n in 3..=33 {
+            for reset_winner in [0, 1] {
+                // The higher seed wins everything, except that seed 2 (index 1) beats seed 1 the second time
+                // they meet (the grand final); the reset, their third meeting, goes to `reset_winner`.
+                let b = build(Format::Double, n);
+                let meetings = std::cell::Cell::new(0);
+                let (states, played) = play(&b, |a, b| {
+                    if (a, b) != (0, 1) {
+                        return a.min(b);
+                    }
+                    meetings.set(meetings.get() + 1);
+                    match meetings.get() {
+                        1 => 0,
+                        2 => 1,
+                        _ => reset_winner,
+                    }
+                });
+                assert_eq!(meetings.get(), 3, "n = {n}");
+                let [grand_final, reset] = &states[states.len() - 2..] else {
+                    unreachable!()
+                };
+                assert_eq!(grand_final.winner, Seat::Team(1));
+                // The same two teams in the same seats; its winner is champion and its loser second.
+                assert_eq!(reset.seats, grand_final.seats);
+                assert_eq!(champion(&states), Seat::Team(reset_winner), "n = {n}");
+                assert_eq!(reset.loser, Seat::Team(1 - reset_winner));
+                // One series more than without the reset; the champion has lost once.
+                assert_eq!(played as u32, 2 * n - 1, "n = {n}");
+                let losses = losses(&states, n);
+                assert_eq!(losses[reset_winner as usize], 1);
+                assert_eq!(losses.iter().sum::<u32>(), 2 * n - 1);
+            }
+        }
+        // Until the grand final is decided the reset waits, and so does the champion.
+        let b = build(Format::Double, 4);
+        let mut results = vec![Some(Side::A); b.len() - 2];
+        results.extend([None, None]);
+        let states = resolve(&b, &results);
+        assert!(states[b.len() - 2].playable());
+        assert_eq!(states[b.len() - 1].seats, [Seat::Pending, Seat::Pending]);
+        assert_eq!(champion(&states), Seat::Pending);
+        // Seat B won the grand final: the reset is playable and the champion still pending.
+        results[b.len() - 2] = Some(Side::B);
+        let states = resolve(&b, &results);
+        assert!(states[b.len() - 1].playable());
+        assert_eq!(champion(&states), Seat::Pending);
+    }
+
+    #[test]
     fn double_elimination_upset_path() {
-        // Seed 2 (index 1) loses early in the winners bracket and wins the losers bracket and the final.
+        // Seed 2 (index 1) loses early in the winners bracket, wins the losers bracket, the grand final and
+        // the reset.
         let b = build(Format::Double, 4);
         let met_three = std::cell::Cell::new(false);
         let (states, played) = play(&b, |a, b| {
@@ -513,8 +615,8 @@ mod tests {
             a.min(b)
         });
         assert_eq!(champion(&states), Seat::Team(1));
-        // Two winners round 1 matches, losers 1, winners final, losers final, grand final.
-        assert_eq!(played, 6);
+        // Two winners round 1 matches, losers 1, winners final, losers final, grand final, reset.
+        assert_eq!(played, 7);
         assert_eq!(states.last().unwrap().seats, [Seat::Team(0), Seat::Team(1)]);
     }
 

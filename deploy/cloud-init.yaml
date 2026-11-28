@@ -16,7 +16,7 @@ write_files:
     content: |
       IBC_COORDINATOR=https://coordinator.example.org
       IBC_REGISTRATION_TOKEN=paste-a-short-lived-registration-token
-      RELEASE_URL=https://github.com/SirSaltySalmon/imperial-battlecode-proto/releases/download/v0.1.0/ibc-0.1.0-x86_64-unknown-linux-musl.tar.gz
+      RELEASE_URL=https://github.com/SirSaltySalmon/imperial-battlecode-proto/releases/download/v<version>/ibc-<version>-x86_64-unknown-linux-musl.tar.gz
       RELEASE_SHA256=
 
   # Turns a cloud interruption notice into a drain: the worker stops leasing and finishes what it runs.

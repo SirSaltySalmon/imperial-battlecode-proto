@@ -35,9 +35,7 @@ pub struct Input {
 }
 
 /// Distinguishes `"aim": null` (clear) from a missing `aim` (keep).
-fn some_or_null<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Option<Option<[i32; 2]>>, D::Error> {
+fn some_or_null<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<[i32; 2]>>, D::Error> {
     Option::<[i32; 2]>::deserialize(d).map(Some)
 }
 
@@ -162,11 +160,7 @@ impl Controller {
             return out;
         }
         if self.mv != [0, 0] {
-            let speed = if self.walk {
-                core.walk_speed
-            } else {
-                core.run_speed
-            };
+            let speed = if self.walk { core.walk_speed } else { core.run_speed };
             out.push(act(A_MOVE, fixed::atan2(self.mv[1], self.mv[0]), speed, 0));
         }
         if let Some(angle) = aim_angle {
@@ -236,9 +230,7 @@ fn one_shot(a: Action, target: [i32; 2]) -> Act {
 /// One record of a single-row table, as a bot reads it.
 pub fn read<T: Copy + Default>(game: &impl Host, unit: u32, table: u32) -> Option<T> {
     let mut buf = Vec::new();
-    (game.get(unit, table, 0, &mut buf) >= 0)
-        .then(|| from_bytes(&buf))
-        .flatten()
+    (game.get(unit, table, 0, &mut buf) >= 0).then(|| from_bytes(&buf)).flatten()
 }
 
 /// Name of an act kind, for the page's feedback line.
@@ -329,11 +321,7 @@ mod tests {
         assert_eq!(m.world.phase, PHASE_BUY);
         c.apply(parse(r#"{"aim":[0,0],"move":[1,0]}"#));
         let acts = c.acts(&m, 0);
-        assert_eq!(
-            acts.len(),
-            1,
-            "no movement in the buy phase, only facing: {acts:?}"
-        );
+        assert_eq!(acts.len(), 1, "no movement in the buy phase, only facing: {acts:?}");
         assert_eq!(acts[0].kind, A_FACE);
     }
 
@@ -350,38 +338,20 @@ mod tests {
             me.y
         )));
         let acts = c.acts(&m, 0);
-        assert_eq!(
-            acts[0],
-            act(A_MOVE, 16384, core.walk_speed, 0),
-            "down is a quarter turn"
-        );
+        assert_eq!(acts[0], act(A_MOVE, 16384, core.walk_speed, 0), "down is a quarter turn");
         assert_eq!(acts[1], act(A_FACE, 0, 0, 0), "aim to the right is angle 0");
         assert_eq!(acts[2], act(A_RELOAD, 0, 0, 0), "queued before held");
         assert_eq!(acts.len(), 3);
         let acts = c.acts(&m, 0);
-        assert_eq!(
-            acts[2],
-            act(A_ABILITY, 1, me.x + 1000, me.y),
-            "abilities target the aim point"
-        );
+        assert_eq!(acts[2], act(A_ABILITY, 1, me.x + 1000, me.y), "abilities target the aim point");
         let acts = c.acts(&m, 0);
         assert_eq!(acts[2], act(A_FIRE, 0, 0, 0), "then the held trigger");
         c.apply(parse(r#"{"interact":true,"walk":false}"#));
         let acts = c.acts(&m, 0);
         let side = read::<MatchInfo>(&m, 0, T_MATCH).unwrap().my_side;
         assert_eq!(acts[0].b, core.run_speed);
-        assert_eq!(
-            acts[2].kind,
-            if side == SIDE_ATTACK {
-                A_PLANT
-            } else {
-                A_DEFUSE
-            },
-            "interact wins over fire"
-        );
-        c.apply(parse(
-            r#"{"move":[0,0],"aim":null,"interact":false,"fire":false}"#,
-        ));
+        assert_eq!(acts[2].kind, if side == SIDE_ATTACK { A_PLANT } else { A_DEFUSE }, "interact wins over fire");
+        c.apply(parse(r#"{"move":[0,0],"aim":null,"interact":false,"fire":false}"#));
         assert!(c.acts(&m, 0).is_empty());
     }
 
@@ -500,10 +470,7 @@ mod tests {
     fn the_queue_is_bounded() {
         let mut c = Controller::default();
         for _ in 0..100 {
-            c.apply(Input {
-                actions: vec![Action::Reload],
-                ..Input::default()
-            });
+            c.apply(Input { actions: vec![Action::Reload], ..Input::default() });
         }
         assert_eq!(c.queued(), MAX_QUEUE);
     }

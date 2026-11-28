@@ -191,14 +191,8 @@ impl Session {
         self.changed.notify_all();
         let deadline = Instant::now() + STEP_WAIT;
         while s.tick < target && s.done.is_none() && !s.quit {
-            let Some(left) = deadline.checked_duration_since(Instant::now()) else {
-                break;
-            };
-            s = self
-                .changed
-                .wait_timeout(s, left)
-                .unwrap_or_else(|e| e.into_inner())
-                .0;
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
+            s = self.changed.wait_timeout(s, left).unwrap_or_else(|e| e.into_inner()).0;
         }
         drop(s);
         self.state()
@@ -317,11 +311,7 @@ impl PlayDriver {
                 self.last_tick = Some(if now - due > period { now } else { due });
                 return true;
             }
-            s = session
-                .changed
-                .wait_timeout(s, due - now)
-                .unwrap_or_else(|e| e.into_inner())
-                .0;
+            s = session.changed.wait_timeout(s, due - now).unwrap_or_else(|e| e.into_inner()).0;
         }
     }
 

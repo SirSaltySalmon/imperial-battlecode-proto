@@ -451,14 +451,15 @@ fn bracket_state(
     (shape, states)
 }
 
-/// Queue every pairing whose two seats are known and that has no series yet; close the tournament once
-/// its last match is decided.
+/// Queue every pairing whose two seats are known and that has no series yet (the bracket reset only once
+/// the losers champion has won the grand final); close the tournament once its champion is decided.
 fn advance(tx: &Transaction, t: &Tournament, now: i64) -> ApiResult<()> {
     let entrants = load_entrants(tx, &t.id)?;
     let rows = load_matches(tx, &t.id)?;
     let (_, states) = bracket_state(t, entrants.len(), &rows);
     for (idx, state) in states.iter().enumerate() {
-        if !state.playable() || rows[idx].series_id.is_some() {
+        // A bracket started before the reset was part of the shape has no row for it yet.
+        if !state.playable() || rows.get(idx).is_some_and(|r| r.series_id.is_some()) {
             continue;
         }
         let [Seat::Team(a), Seat::Team(b)] = state.seats else {
@@ -476,7 +477,8 @@ fn advance(tx: &Transaction, t: &Tournament, now: i64) -> ApiResult<()> {
         };
         let series = queue_pairing(tx, t, idx as i64, &pairing, now)?;
         tx.execute(
-            "UPDATE tournament_matches SET series_id = ?3 WHERE tournament_id = ?1 AND idx = ?2",
+            "INSERT INTO tournament_matches(tournament_id, idx, series_id) VALUES (?1, ?2, ?3)
+             ON CONFLICT(tournament_id, idx) DO UPDATE SET series_id = excluded.series_id",
             params![t.id, idx as i64, series],
         )?;
     }

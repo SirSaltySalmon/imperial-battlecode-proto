@@ -44,22 +44,12 @@ pub struct Response {
 
 impl Response {
     fn json(value: &Value) -> Response {
-        Response {
-            status: "200 OK",
-            content_type: "application/json",
-            body: value.to_string().into_bytes(),
-        }
+        Response { status: "200 OK", content_type: "application/json", body: value.to_string().into_bytes() }
     }
 
     fn error(status: &'static str, message: &str) -> Response {
-        let body = json!({ "error": status, "message": message })
-            .to_string()
-            .into_bytes();
-        Response {
-            status,
-            content_type: "application/json",
-            body,
-        }
+        let body = json!({ "error": status, "message": message }).to_string().into_bytes();
+        Response { status, content_type: "application/json", body }
     }
 }
 
@@ -203,10 +193,7 @@ fn post(session: &Session, path: &str, body: &[u8]) -> Response {
                 session.set_running(on);
                 Response::json(&session.state())
             }
-            None => Response::error(
-                "400 Bad Request",
-                r#"POST /run needs {"running": true|false}"#,
-            ),
+            None => Response::error("400 Bad Request", r#"POST /run needs {"running": true|false}"#),
         },
         "/possess" => {
             let slot = match &json["slot"] {
@@ -245,11 +232,7 @@ fn static_file(site: &Site, path: &str) -> Response {
     // Resolving links and then checking the prefix keeps a symlink in the directory from leading outside it.
     match file.canonicalize() {
         Ok(real) if real.starts_with(&site.root) && real.is_file() => match std::fs::read(&real) {
-            Ok(body) => Response {
-                status: "200 OK",
-                content_type: content_type(&real),
-                body,
-            },
+            Ok(body) => Response { status: "200 OK", content_type: content_type(&real), body },
             Err(e) => Response::error("500 Internal Server Error", &e.to_string()),
         },
         _ => Response::error("404 Not Found", "not found"),

@@ -4,13 +4,13 @@
 // player acts; Space waits (a tick per press, more while held), P lets time run, Tab switches unit.
 
 import { toTiles, type Camera } from "../camera";
-import { drawBlast, drawHeadline, ENDING_TICKS, endingOf, type Ending } from "../ending";
+import { drawBlast, drawHeadline, EndingTracker } from "../ending";
 import { interpUnits } from "../interp";
 import { parseMap, type GameMap } from "../map";
 import { viewOf } from "../perspective";
 import { render } from "../render";
 import { applyTheme, type Palette } from "../theme";
-import { EVENT_DETONATE, EVENT_ROUND_END, S_ALIVE, TILE, type EventFrame, type Frame } from "../types";
+import { PHASE_MATCH_END, S_ALIVE, TILE, type Frame } from "../types";
 import { rulesFor, type ViewRules } from "../vision";
 import { api, type PlayUnit, type Setup, type State } from "./api";
 import { heldInput, heldKey, keyAction, NOTHING_HELD, sameHeld, toWorld, type Action, type Held, type InputMsg } from "./controls";
@@ -46,11 +46,8 @@ let raf = 0;
 let stepping = false;
 /** Where enemies died, from the kill events (the server only gives the position in the tick of the kill). */
 const deaths = new Map<number, [number, number]>();
-/** Round end and detonation events of the round being played, and the round they belong to. */
-let roundEvents: EventFrame[] = [];
-let eventsRound = -1;
-/** How the match ended, once it has, and when the page first showed that. */
-let ending: Ending | null = null;
+/** Each round's ending (headline, blast), drawn by the page alone; and when the latest one first showed. */
+const endings = new EndingTracker();
 let endedAt = 0;
 
 function invalidate(): void {
@@ -91,8 +88,10 @@ function draw(): void {
   // Between ticks: the previous tick moving towards the latest. Once there, the latest as it is.
   const from = prev && t < 1 ? displayed(interpFrom(prev, state.view.frame)) : null;
   const shown = from ?? cur;
-  // The ending (headline, blast) grows in over its first ticks and then stays: the match is over.
-  const endingT = ending ? Math.min(1, (performance.now() - endedAt) / (ENDING_TICKS * tickPeriod(setup.tps))) : 0;
+  // A round's ending shows for a few ticks after it (for good once the match is over), the blast growing in.
+  const shownEnd = endings.at(state.tick, state.view.frame.phase === PHASE_MATCH_END);
+  const ending = shownEnd?.ending ?? null;
+  const endingT = (performance.now() - endedAt) / tickPeriod(setup.tps);
   const id = possessedId();
   const me = state.view.me;
   if (id !== null && me && me.state & S_ALIVE) {
@@ -116,7 +115,7 @@ function draw(): void {
     palette,
     show: { vision: true, debug: false, sounds: true },
     selected: id,
-    marks: ending?.blast ? (pen) => drawBlast(pen, ending!.blast!, rules.blast_radius, endingT) : undefined,
+    marks: ending?.blast ? (pen) => drawBlast(pen, ending.blast!, rules.blast_radius, endingT) : undefined,
   });
   if (ending) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -125,20 +124,11 @@ function draw(): void {
   if (from || (ending && endingT < 1)) raf = requestAnimationFrame(draw);
 }
 
-/**
- * Keep the round's ending events (they arrive in one tick's frame only) and work out the ending once the
- * match is over. The page draws it itself; nothing of it goes to the server or the replay.
- */
+/** Note a round's ending; the page draws it itself, and nothing of it goes to the server or the replay. */
 function noteEnding(frame: Frame): void {
-  if (frame.round !== eventsRound) {
-    eventsRound = frame.round;
-    roundEvents = [];
-  }
-  roundEvents.push(...frame.events.filter((e) => e.kind === EVENT_ROUND_END || e.kind === EVENT_DETONATE));
-  if (!ending) {
-    ending = endingOf(frame, roundEvents);
-    if (ending) endedAt = performance.now();
-  }
+  const before = endings.last;
+  endings.note(frame);
+  if (endings.last !== before) endedAt = performance.now();
 }
 
 function resize(): void {

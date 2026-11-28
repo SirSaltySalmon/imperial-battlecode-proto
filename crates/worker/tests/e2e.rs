@@ -25,7 +25,7 @@ impl Coordinator {
     fn start(tag: &str) -> Coordinator {
         let dir = std::env::temp_dir().join(format!("ibc-e2e-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let cfg = Config {
+        let mut cfg = Config {
             admin_token: ADMIN.into(),
             registration_token: REG.into(),
             trusted_registration_token: Some(TRUSTED_REG.into()),
@@ -38,6 +38,8 @@ impl Coordinator {
             ranked_interval_ms: 0,
             ..Config::default()
         };
+        // The test polls the public `/metrics` every 20 ms, far past the per-IP limit meant for browsers.
+        cfg.moderation.public_per_minute = u32::MAX;
         let app = App::open(cfg, &dir.join("data")).expect("coordinator data dir");
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -312,7 +314,9 @@ fn real_coordinator_and_workers_play_a_ranked_league_and_survive_a_killed_worker
                 ["a", "b", "draw"].contains(&m["outcome"].as_str().unwrap()),
                 "{m}"
             );
-            let (status, replay) = c.call("GET", m["replay_url"].as_str().unwrap(), None, None);
+            // The default view is redacted and names the teams; the organisers' full view is the stored blob.
+            let url = format!("{}?view=full", m["replay_url"].as_str().unwrap());
+            let (status, replay) = c.call("GET", &url, Some(ADMIN), None);
             assert_eq!(status, 200);
             assert_eq!(
                 &ibc_worker::sha256_hex(&replay),

@@ -17,6 +17,8 @@ pub struct State {
     pub queue: VecDeque<Value>,
     /// job_id -> (lease token, expiry)
     pub leased: HashMap<String, (String, Instant)>,
+    /// Lease calls received (a long poll counts when it starts).
+    pub polls: u32,
     pub lease_secs: u64,
     pub blobs: HashMap<String, Vec<u8>>,
     /// Blobs served with wrong content.
@@ -24,6 +26,8 @@ pub struct State {
     /// Every blob download takes this long.
     pub blob_delay: Duration,
     pub blob_gets: u32,
+    /// The SHA-256 asked for by every blob download, in order.
+    pub blob_log: Vec<String>,
     pub heartbeats: HashMap<String, u32>,
     /// Answer every heartbeat with 409, as if the job had been reassigned.
     pub heartbeat_conflict: bool,
@@ -225,6 +229,7 @@ fn route(shared: &Shared, method: &str, path: &str, bearer: Option<&str>, body: 
             std::thread::sleep(delay);
             let mut st = lock();
             st.blob_gets += 1;
+            st.blob_log.push(sha.to_string());
             match st.blobs.get(*sha) {
                 Some(_) if st.corrupt.contains(*sha) => {
                     (200, b"these are not the bytes you asked for".to_vec())
@@ -250,6 +255,8 @@ fn route(shared: &Shared, method: &str, path: &str, bearer: Option<&str>, body: 
 fn lease(shared: &Shared, max: usize, wait_ms: u64) -> Reply {
     let end = Instant::now() + Duration::from_millis(wait_ms.min(25_000));
     let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+    st.polls += 1;
+    shared.changed.notify_all();
     loop {
         // Expired leases are forgotten (a real coordinator re-queues the job; the scripts here do not need it).
         let now = Instant::now();

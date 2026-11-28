@@ -50,9 +50,7 @@ impl TeamView {
 pub fn fogged_frame(game: &Match, team: i32) -> Value {
     let w = &game.world;
     let mut frame: Value = serde_json::from_str(&game.frame_json()).unwrap_or(Value::Null);
-    let eyes: Vec<usize> = (0..w.units.len())
-        .filter(|&i| w.units[i].team == team && w.units[i].alive)
-        .collect();
+    let eyes: Vec<usize> = (0..w.units.len()).filter(|&i| w.units[i].team == team && w.units[i].alive).collect();
     // The team's shared view (engine `vision.rs`): every unit any teammate sees.
     let seen = w.views[team as usize & 1].units;
     let sees = |x: i32, y: i32| eyes.iter().any(|&i| w.can_see_point(i, (x, y)));
@@ -126,9 +124,7 @@ fn blank_enemy(u: &mut Value, sight: Option<Sight>) {
     if matches!(sight, Some(Sight::Seen)) {
         return;
     }
-    for k in [
-        "x", "y", "vx", "vy", "facing", "aim", "hp", "armor", "kit", "channel",
-    ] {
+    for k in ["x", "y", "vx", "vy", "facing", "aim", "hp", "armor", "kit", "channel"] {
         u[k] = json!(0);
     }
     u["weapon"] = json!(-1);
@@ -198,11 +194,7 @@ mod tests {
         );
         assert_eq!(tv.view(Some(1))["me"]["id"], json!(1));
         let units = v["frame"]["units"].as_array().unwrap();
-        assert_eq!(
-            units.len(),
-            2 * team_size,
-            "every unit keeps its row so indices stay unit ids"
-        );
+        assert_eq!(units.len(), 2 * team_size, "every unit keeps its row so indices stay unit ids");
         for (i, u) in units.iter().enumerate() {
             let w = &m.world.units[i];
             if w.team == 0 {
@@ -210,37 +202,21 @@ mod tests {
                 assert_eq!(u["credits"], json!(w.credits));
             } else {
                 // At round start the teams are at opposite spawns and cannot see each other.
-                assert_eq!(
-                    (u["x"].clone(), u["credits"].clone(), u["seen"].clone()),
-                    (json!(0), json!(0), json!("0"))
-                );
-                assert_eq!(
-                    (u["alive"].clone(), u["hidden"].clone()),
-                    (json!(true), json!(true))
-                );
+                assert_eq!((u["x"].clone(), u["credits"].clone(), u["seen"].clone()), (json!(0), json!(0), json!("0")));
+                assert_eq!((u["alive"].clone(), u["hidden"].clone()), (json!(true), json!(true)));
             }
         }
         // A seen enemy keeps its position but not its defuse kit; a dead one only shows where it died in the
         // tick of its kill event.
-        let mut u =
-            serde_json::from_str::<Value>(&m.frame_json()).unwrap()["units"][team_size].clone();
+        let mut u = serde_json::from_str::<Value>(&m.frame_json()).unwrap()["units"][team_size].clone();
         u["state"] = json!(S_ALIVE | S_HAS_KIT);
         blank_enemy(&mut u, Some(Sight::Seen));
-        assert_eq!(
-            (u["state"].clone(), u["x"].clone()),
-            (json!(S_ALIVE), json!(m.world.units[team_size].pos.0))
-        );
+        assert_eq!((u["state"].clone(), u["x"].clone()), (json!(S_ALIVE), json!(m.world.units[team_size].pos.0)));
         u["alive"] = json!(false);
         blank_enemy(&mut u, Some(Sight::DiedAt(7, 9)));
-        assert_eq!(
-            (u["x"].clone(), u["y"].clone(), u["hidden"].clone()),
-            (json!(7), json!(9), Value::Null)
-        );
+        assert_eq!((u["x"].clone(), u["y"].clone(), u["hidden"].clone()), (json!(7), json!(9), Value::Null));
         blank_enemy(&mut u, None);
-        assert_eq!(
-            (u["x"].clone(), u["hidden"].clone()),
-            (json!(0), json!(true))
-        );
+        assert_eq!((u["x"].clone(), u["hidden"].clone()), (json!(0), json!(true)));
         assert_eq!(v["me"]["id"], json!(0));
         assert_eq!(v["me"]["credits"], json!(m.world.units[0].credits));
         assert_eq!(v["match"]["phase"], json!(PHASE_ACTION));

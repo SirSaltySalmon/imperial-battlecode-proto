@@ -556,15 +556,16 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 ## Weapons on the ground
 
 - A unit that dies drops its weapons where it died, except the default sidearm everyone is handed each
-  round, as `T_DROPS` rows of kind `DROP_WEAPON` with `item` = weapon id.
+  round, as `T_DROPS` rows of kind `DROP_WEAPON` with `item` = weapon id and `ammo` = the rounds in its
+  magazine.
 - `A_DROP(DROP_WEAPON)` puts the weapon in hand at the unit's feet; the unit switches to its other weapon if
   it has one. With empty hands it does nothing.
 - `A_PICKUP` takes the nearest drop within `pickup_reach`. A weapon goes into its own slot; a weapon already
   there is put down in its place, so picking up swaps. The unit keeps using the slot it had in hand, unless
   its hands were empty.
-- **A weapon on the ground holds no ammunition.** A weapon picked up has an empty magazine and must be
-  reloaded. Dropping and picking up is therefore never a faster reload, and handing a teammate a weapon
-  costs them one reload.
+- **A weapon on the ground keeps its magazine.** It falls with the rounds it held (`DropInfo.ammo`, visible
+  to every team that sees the drop) and whoever picks it up gets exactly those. Dropping and picking up is
+  therefore never a reload, and a teammate is handed a weapon as loaded as it was.
 - Dropping, or picking up into the slot in hand, cancels startup and reload, like a swap.
 - The displaced weapon lies at your feet, so it is the nearest drop for your next `A_PICKUP`: repeating the
   action swaps back and forth. Step away to reach something else.
@@ -1193,6 +1194,9 @@ still loads and reads the prefix of each record it knows; what changed is what s
   (lowest `ty`, then lowest `tx`). A unit there is on the site, which the box centre need not be: sites may be
   any shape (L-shaped, hollow). On a filled rectangle with odd sides it equals `centre_x`, `centre_y`. A bot
   that reads only the first 28 bytes of the record sees no change.
+- `DropInfo.ammo` (after engine 0.2.0; the record grows from 16 to 20 bytes): the rounds in a dropped
+  weapon's magazine, 0 for the charge. A weapon used to fall empty; it now keeps its magazine and whoever
+  picks it up gets those rounds.
 
 ## For engine and SDK authors
 
@@ -1895,7 +1899,7 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 
 ### DropInfo
 
-16 bytes, 4 fields.
+20 bytes, 5 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -1903,6 +1907,7 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 | 4 | `x` | `i32` | 4 |  |
 | 8 | `y` | `i32` | 4 |  |
 | 12 | `item` | `i32` | 4 |  |
+| 16 | `ammo` | `i32` | 4 | `DROP_WEAPON`: the rounds in its magazine, which whoever picks it up gets. 0 for the charge. |
 
 ### EventInfo
 

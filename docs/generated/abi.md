@@ -416,7 +416,7 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 
 ### DropInfo
 
-16 bytes, 4 fields.
+20 bytes, 5 fields.
 
 | Offset | Field | Type | Bytes | Meaning |
 | --- | --- | --- | --- | --- |
@@ -424,6 +424,7 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 | 4 | `x` | `i32` | 4 |  |
 | 8 | `y` | `i32` | 4 |  |
 | 12 | `item` | `i32` | 4 |  |
+| 16 | `ammo` | `i32` | 4 | `DROP_WEAPON`: the rounds in its magazine, which whoever picks it up gets. 0 for the charge. |
 
 ### EventInfo
 

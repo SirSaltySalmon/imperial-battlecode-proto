@@ -73,6 +73,7 @@ impl World {
                 x: pos.0,
                 y: pos.1,
                 item: 0,
+                ammo: 0,
             });
         } else if kind == DROP_WEAPON {
             combat::on_drop(self, u);
