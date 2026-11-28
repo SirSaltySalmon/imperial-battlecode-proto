@@ -183,6 +183,9 @@ export interface Pairing {
   rounds_won: [number, number] | null;
   winner: string | null;
   decided_by: DecidedBy | null;
+  /** `waiting`: a seat is still to be decided; `bye`: one seat is empty; `empty`: nobody plays it (an unneeded
+   * bracket reset, or two byes). Absent from servers that predate it. */
+  state?: "waiting" | "running" | "done" | "bye" | "empty";
 }
 
 export interface TournamentSummary {
@@ -193,7 +196,8 @@ export interface TournamentSummary {
 }
 
 export interface Tournament extends TournamentSummary {
-  rounds: { pairings: Pairing[] }[];
+  /** `name` (e.g. "Grand final reset") is absent from servers that predate it. */
+  rounds: { name?: string; pairings: Pairing[] }[];
   maps: string[] | null;
 }
 
