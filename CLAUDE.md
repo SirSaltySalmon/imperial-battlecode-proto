@@ -21,18 +21,18 @@ Use words as `docs/GLOSSARY.md` defines them; `docs/generated/` is written by `c
 ## Hard rules
 
 - **Determinism.** In `crates/engine`: integers and fixed-point only, no `f32`/`f64`, no `HashMap` iteration, no
-  `usize` in state or output, no clocks, no I/O, no randomness outside the seeded state. A match is a pure
-  function of (engine version, ruleset, map, bots, seed). If two runs differ, that is a bug, not noise.
+`usize` in state or output, no clocks, no I/O, no randomness outside the seeded state. A match is a pure
+function of (engine version, ruleset, map, bots, seed). If two runs differ, that is a bug, not noise.
 - **Real geometry.** Distances are Euclidean, aim is a free angle, hits are swept. Do not introduce tile-distance
-  or 8-direction shortcuts into mechanics.
+or 8-direction shortcuts into mechanics.
 - **Rules are data.** A tunable number goes in `rules/*.toml`, not in code. Changing a rule changes the ruleset
-  hash, which is expected; say so in the PR.
+hash, which is expected; say so in the PR.
 - **Every state field is hashed.** If you add state that affects simulation, add it to the relevant `hash`
-  function, or replays will verify when they should not.
+function, or replays will verify when they should not.
 - **Stay in your lane.** Change mechanics inside their module and through the seams. If a seam is missing, say so
-  rather than reaching into core files from a feature branch.
+rather than reaching into core files from a feature branch.
 - **Running cost matters.** Bot fuel dominates match cost, then storage. Do not add per-tick work that scales
-  with map area, do not store what can be recomputed from a replay, and keep always-on services to one binary.
+with map area, do not store what can be recomputed from a replay, and keep always-on services to one binary.
 
 ## How to check your work
 
@@ -45,25 +45,40 @@ ibc replay verify out/e2e/replay.ibcr                      # re-simulates and co
 
 Run the same match twice and compare the replay files: they must be byte-identical.
 
-## Changing the game (lessons carried over from our CAMBC post-mortem)
+## Several agents on one machine
+
+Builds are bounded by RAM before cores; a saturated machine makes every command slow, not just cargo. Read
+`docs/parallel.md` before fanning work out. In short:
+
+- **Check with the cheapest thing that proves the change.** `cargo check -p <crate>`, then `cargo test -p <crate>`
+for the crate you touched, then `ibc-sim` or `ibc-bench --backend native` for match behaviour. Only work in
+`crates/runner`, `crates/cli`, the services or the SDKs needs `ibc run`, the wasm goldens or a release `ibc`.
+- **Workers do not run the whole-tree checks.** `cargo xtask check`, `cargo test --workspace`, `cargo xtask docs`,
+`cargo xtask golden verify` and the end-to-end match run once, by whoever integrates the branches.
+- **Shared work is done once and handed over.** The base commit's release binaries and its "before" bench table
+are built by the orchestrator and passed to workers as paths (`IBC_BIN`, the `before` directory). They are
+deterministic, so every worker would compute the same thing.
+- **Every worker gets** its own `CARGO_TARGET_DIR`, `RUSTC_WRAPPER=sccache`, and a `CARGO_BUILD_JOBS` that keeps
+the machine's total within its memory.
+- **Wait for background jobs to notify.** No `until ...; do sleep` loops, and no foreground waits on a build.
+
+## Changing the game
 
 - **Look up the known method first.** Most problems here have names (line of sight, swept collision, rating
-  systems, task allocation). Implement the published approach rather than inventing one.
+systems, task allocation). Implement the published approach rather than inventing one.
 - **Build general systems, not patches.** One movement path, one damage path, one vision test. A special case for
-  one map or one weapon is a smell.
+one map or one weapon is a smell.
 - **One change at a time.** Stack two balance changes and you cannot tell which one moved the numbers.
-- **Know the noise.** Games are deterministic, so vary seeds, maps and sides. Report a win rate with its sample
-  size and interval; do not act on differences inside it.
-- **Do not tune against a mirror.** A change that beats a copy of the same bot proves little. Use the whole
-  reference pool and both sides.
-- **A loss might be a bug.** Read the replay and the logs before dropping an idea.
+- **Know the noise.** Games are deterministic, so vary seeds, maps and sides. Report a win rate with its sample  
+size and interval; do not act on differences inside it.
+- **Bad bot results might be a bot bug.** Read the replay and the logs before dropping an idea.
 - **Delete what lost.** No dead switches and no commented-out code; git is the archive.
 - **Write down what you measured.** A balance change comes with the league table before and after.
 
 ## Conventions
 
 - Rust stable, `cargo fmt`, no new `unsafe` outside `crates/abi`, `crates/runner`, `crates/engine-wasm` (its C
-  exports) and the SDK's import layer.
+exports) and the SDK's import layer.
 - Keep files under about 800 lines and functions under about 80; split by the decision the code makes.
 - Text files are LF. Maps and rules are hashed from their parsed content, not their bytes.
 - Bench and match output goes under `out/` (ignored), never the repo root.

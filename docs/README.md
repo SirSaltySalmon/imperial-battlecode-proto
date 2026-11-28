@@ -14,6 +14,7 @@ Start with the glossary: every page uses its words in exactly its sense.
 | [release.md](release.md) | What a patch is and how one ships |
 | [maps.md](maps.md) | The map pool and the map format |
 | [hillclimb.md](hillclimb.md) | Measuring balance with `ibc-bench` |
+| [parallel.md](parallel.md) | Several agents on one machine: what each should build and run, and what is done once |
 | [TODO.md](TODO.md) | What is left to do |
 | [DEPRECATED.md](DEPRECATED.md) | Features we dropped, one line each |
 | [informal/](informal/) | The vision notes and the review of them, the weapons vision, and the design vision for the site and viewer |

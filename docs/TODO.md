@@ -18,10 +18,11 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   2026-11-25 with the eight-bot pool on ten maps (20,609 rounds): 11.6% end by detonation, 28.0% by defuse,
   59.4% by elimination, 1.0% on the clock, and the charge is planted in 69.3% of rounds. It was the bots:
   the old two-bot pool on the same rules and maps gives 19.8% / 10.8% / 68.0%. Table in `bots/README.md`.
-- [ ] **Mirror matches are lopsided.** Re-measured 2026-11-25: attackers win 26.5% of `rusher` mirror
-  rounds, 30.7% of `forcer`, 85.4% of `holder`, and 67 to 74% of the other squad bots' mirrors. Matches decided
-  by the tie-break fell from 29.2% to 7.9% with the larger pool. Done: attacker round win rate per pairing,
-  not just overall, sits in a band we choose (say 40 to 60%) for bots of comparable strength.
+- [x] **Mirror matches are lopsided.** Not a game problem (decided 2026-11-27). Re-measured 2026-11-25:
+  attackers win 26.5% of `rusher` mirror rounds, 30.7% of `forcer`, 85.4% of `holder`, and 67 to 74% of the
+  other squad bots' mirrors. In a mirror the same code plays both sides, so this measures a bot's attack
+  against its own defence: some bots are simply better at one side. Side balance is judged per map over the
+  whole pool and both sides (the maps item below).
 - [x] **Reference bots are too few and too alike.** Eight playing bots now (`bots/README.md`): `rusher`,
   `holder`, `utility` and five styles of one shared implementation, `bots/squad` (`sapper`, `retaker`,
   `lurker`, `saver`, `forcer`). All eight are in the sim registry. The squad bots draft unique kits, use
@@ -30,8 +31,11 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   useful opponent (it loses 84 to 92% of defending rounds to any bot that attacks as a group).
 - [ ] **`forcer` beats the whole pool** (78.8% of matches) with the cheapest loadout and the most forward
   defence. Find out which of the two it is with `ibc-bench why` and an A/B of `forcer` against a copy with
-  `Buy::Best`, before touching SMG or shotgun prices.
-- [ ] **The batch moved the league a long way, and nothing is tuned yet.** Native league, 14 maps x 3 seeds,
+  `Buy::Best`, before touching SMG or shotgun prices. A suspect for the forward defence: no bot reacts to
+  being shot (none reads `EVENT_DAMAGE`), and a standing holder fires no later than a peeker. Diagnose on
+  today's rules first; teaching bots to turn towards a hit is a separate, measured change after that.
+- [x] **The batch moved the league a long way, and nothing is tuned yet.** Intended (decided 2026-11-27):
+  shooting on the move is meant to lose. Native league, 14 maps x 3 seeds,
   3,024 games, 672 per bot (about +/-3.7 points), win % before the batch -> after: rusher 65.2 -> 53.1,
   holder 37.9 -> 28.7, utility 45.5 -> 33.3, sapper 53.4 -> 52.2, retaker 49.6 -> 73.7, lurker 52.1 -> 53.4,
   saver 63.8 -> 76.0, forcer 82.4 -> 79.5. Most of it is the firing model (unit 3, PR 26): bots that shot on the
@@ -39,13 +43,17 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   replays before acting on it. Per-stage tables are in the integration PR. Tune one change at a time.
 - [ ] **Pistol and rifle after the firing model.** With no movement spread and no kick, the pistol kills at
   20 tiles and the rifle is strong at every range (unit 3's note). Re-measure kills by weapon, then tune.
+  Decided 2026-11-27: the pistol's range drops to 10 tiles (8, or even 5, if still too strong). The rifle is
+  the all-rounder (the Vandal or Phantom role); if it needs toning down, use fire rate or startup. Never add
+  recoil kick: bots can compute it away.
 - [ ] **Refused actions during ability startup.** Since thrown abilities gained a startup (unit 5), bots
   built on `utility` see 0.8 to 1.4% refused actions: they try to shoot while casting. Teach the SDK and bots
   to wait out `S_CASTING`.
 - [ ] **New mechanics are played but not tuned.** Kills by weapon with the eight-bot pool: rifle 24.8%,
   marksman 23.2%, pistol 18.7%, SMG 9.7%, abilities 9.2%, shotgun 8.0%, LMG 6.5%. The marksman rifle is
   carried by about one unit in five and takes almost a quarter of the kills. Tune one thing at a time
-  (`CLAUDE.md`, "Changing the game").
+  (`CLAUDE.md`, "Changing the game"). A good bot inflates its weapon's kills, so normalise by rounds carried
+  and split by bot. Write each weapon's role first, in `docs/informal/weapons.md`, and tune towards it.
 - [ ] **Three maps are lopsided,** but not the three listed before. With the eight-bot pool attackers win
   72% of rounds on `crossfire`, 76% on `tunnels` (the two original maps, defenders spawn next to the sites)
   and 66% on `longwatch`; `postern` is the low one at 38%. `quarry`, `trident`, `agora`, `culvert`,
@@ -55,23 +63,45 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   because they spread their path searches over the buy ticks and keep the results. `holder` still plans a
   whole round in its first buy tick and overruns it (7 turns in one match on `quarry`). Give it the same
   treatment or retire it, and make the bench default to the wasm backend for anything that is reported.
+  Decided 2026-11-27: fuel is metered by default (as in Cambridge Battlecode), and unmetered native play is an
+  explicit testing option. Fix `holder`'s code.
   The native sim (`crates/sim`) has no memory cap at all: a bot over `memory_bytes` only fails on wasm.
 - [ ] **Pathfinding cost on large maps.** A full distance field on `crossfire` (544 tiles) is roughly one
   100k-fuel tick by estimate, never measured. On 56x40 maps `path_len`/`approach_point` in `sdk/rust/src/nav.rs`
   may exceed even the buy-phase budget. Measure fuel per call with the wasm runner and either budget the search
-  or offer a host-side path helper in a later ABI revision.
+  or offer a host-side path helper in a later ABI revision. Decided 2026-11-27: make the SDK helpers as cheap
+  as they go, and document their cost in the SDK doc comments (they feed the handbook), telling teams who want
+  more fuel to adapt them or write simpler ones of their own.
 - [x] **Friendly fire for bullets.** Decided (vision): abilities hit your own team, bullets never do.
 - [ ] **`SiteInfo` is only a bounding box.** Its centre need not be a site tile on L-shaped or hollow sites, so
   `A_PLANT` there would fail. `ibc-maptool lint` rejects such maps today; the better fix is a guaranteed
-  plantable point per site (additive ABI field).
+  plantable point per site (additive ABI field). Decided 2026-11-27: the point is the centre of one site
+  tile, planting stays legal anywhere on the site, and L-shaped or hollow sites are welcome in new maps.
 - [x] **Bots cannot see their weapon cooldown or second weapon.** Done: `UnitInfo.other_weapon` and
   `fire_cooldown` (unit 4). `UnitInfo` shows only the weapon in hand and
   has no weapon cooldown, so bots get `ERR_NOT_READY` unless they track it. Additive ABI fields.
 - [x] **`vx`/`vy` report the commanded velocity**, even when a wall blocked the move. Report what happened.
-- [ ] **`EVENT_DAMAGE` carries no weapon id**, so damage-by-weapon needs re-simulation. Additive.
+- [ ] **What a hit unit learns.** Decided 2026-11-27. `EVENT_DAMAGE` gives bots the amount, never the
+  shooter's unit id or the weapon (`EVENT_KILL` stays as it is: killer, victim, weapon). The unit that was
+  hit, and only that unit, gets the direction a bullet came from, or the location of the fire or flash
+  that hit it (never the thrower). For benchmarks, damage by weapon goes in the match summary instead of the
+  ABI (see "Per-round and per-kill statistics" in section 2).
 
 ## 2. Engine and runner correctness
 
+- [ ] **Fuel does not bound a match's CPU or memory: some host calls cost far more than they charge.**
+  Found 2026-11-27 with the kernels in `bots/burner/examples`, full idle-length games, native `ibc`:
+  - `mem_write` stores `Input::MemWrite { data }` in the replay before any phase, scope or range check
+    (`crates/engine/src/host.rs`), at 20 fuel per call. Refused 1 MiB writes grew the runner by about 23 MB
+    a tick (923 MB after 40 ticks): a submission can exhaust a worker's memory. Record only accepted writes.
+  - `mem_read` allocates a zeroed buffer of the requested length (`h_mem_read` in `crates/runner/src/vm.rs`)
+    before the engine refuses it, for a flat 20 fuel: about 750 to 1,200 core-s a match, past the worker's
+    300 s job timeout. Check the length against the scope first, or charge per byte.
+  - `debug_draw` costs 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB replay, 568 MB peak.
+  - `count`/`get` and `los` spend about 1.9 ns per fuel, about 5 core-s per game.
+  Per unit of fuel, arithmetic costs 0.18 ns, `count`/`get` and `los` about 11 times that, cache-missing
+  loads about 43 times, `mem_read` about 1,600 times, and `debug_draw` is free. Fix these before trusting
+  the cost prior (section 3).
 - [x] **C++ bots that use exceptions are rejected.** Done: the runner enables Wasmtime's exception handling
   in the standard (exnref) encoding, with exception objects in a null-collector GC heap (no collection can
   suspend a bot), and the coordinator's upload check accepts the same proposal; both refuse the legacy
@@ -158,15 +188,24 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 
 ## 3. Job system and platform
 
-- [ ] **Deployment files have never been run.** `deploy/Dockerfile`, `docker-compose.yml`,
-  `ibc-worker.service` and `cloud-init.yaml` are unexecuted. The compose file's coordinator service was written
-  before the coordinator existed, and `cloud-init.yaml` points at a release download that does not exist yet.
-  Done: `docker compose up` brings up a coordinator and two workers that play a ranked batch; a fresh Linux VM
-  booted with the cloud-init file registers and plays.
-- [ ] **Drain on SIGTERM has only been tested through the drain file.** Windows kills the process outright.
-  Test on Linux before relying on it for spot instances.
-- [ ] **`--allow-runner-fetch` and side-by-side runner directories have no test.** This is the path that lets
-  a fleet change patch without redeploying; it downloads and runs native code, so it needs a careful test.
+- [x] **Deployment files have never been run.** Done (2026-11-27, Docker Desktop 28.3 on Windows):
+  `docker compose up` built both images, served the web front end and viewer, registered two trusted workers
+  and played ranked series for four teams. `deploy/cloud-init.yaml` (only its variables filled in) booted a
+  fresh Debian 12 with systemd 252 (an imported WSL distro, not a cloud VM): it downloaded and checked the
+  archive, installed and started `ibc-worker.service` (dynamic user, `LoadCredential`, full hardening),
+  registered with the untrusted token, emptied it, and played 12 matches. Fixed on the way: compose set
+  `IBC_DISTRIBUTION` to an empty string, which the coordinator refuses to start with. Left over: the archive
+  was packed by hand from the image's glibc binaries, not the musl one `cargo xtask dist` makes (section 4);
+  `ibc-coordinator.service` has not run; systemd inside a Docker container cannot test `LoadCredential`.
+- [x] **Drain on SIGTERM has only been tested through the drain file.** Done on Linux: a unit test sends real
+  SIGTERMs to the binary (one drains, two abort), and `docker stop`, `systemctl stop` and the drain file all
+  end in exit 0 with no restart. A job granted by a long poll that was open when the drain began is now
+  released unstarted; an idle worker still takes up to `--poll-ms` (25 s) to exit.
+- [x] **`--allow-runner-fetch` and side-by-side runner directories have no test.** Done:
+  `crates/worker/tests/runners.rs` (Windows and Linux) covers a side-by-side runner, one naming another
+  patch, no download without the flag or for another platform, a single download then reuse, a wrong hash, a
+  fetched binary naming another patch (deleted), and a patch that is not a plain directory name (nothing
+  downloaded or written).
 - [x] **No web platform.** Done: `web/` (unit 13) with email + password accounts, sessions and device-code
   CLI login (unit 8), served by the coordinator at `/` with the viewer at `/viewer/`. Was: There is an HTTP API and nothing for a human: no sign-in, team pages, submission
   upload, ladder, match list or embedded viewer. This is the largest missing piece for an event. The
@@ -190,9 +229,9 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [x] **Language fuel multipliers are self-declared.** Done (unit 12): the server's table decides; `ibc build`
   embeds an `ibc.language` section. Was: Harmless while only Rust and C++ exist (both 1x). Before
   Python arrives the server must decide the multiplier itself, not trust the upload.
-- [ ] **SQLite and local disk only.** Fine for one box. `crates/coordinator` keeps SQL in `src/db/` and blobs
-  behind a trait for a later Postgres and S3 backend. Not needed until a second coordinator or off-box storage
-  is.
+- [ ] **SQLite and local disk only.** Fine for one box, and decided (2026-11-27) to stay for the prototype.
+  `crates/coordinator` keeps SQL in `src/db/` and blobs behind a trait for a later Postgres and S3 backend.
+  Not needed until a second coordinator or off-box storage is.
 - [x] **Backups and retention.** Done: `ibc-coordinator backup`, `prune-replays`, `deploy/backup.sh` (unit 16),
   per-team submission retention (unit 11). Was: Document and automate copying the SQLite file and blobs. Add a replay
   retention policy: replays can be regenerated from (patch, map, bots, seed), so unranked and bench replays
@@ -202,23 +241,32 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [ ] **Cost prior in the budget governor.** `series_per_batch` falls back to 10 core-seconds per game when it
   has no measurement; measured cost is about 0.03. Unit 9 made it schedule at least one series per round until
   games are timed, and the fill-up (which uses the same prior) keeps an idle fleet busy regardless; the prior
-  itself is still 10.
-- [ ] **Plagiarism and duplicate detection.** Identical wasm across teams is flagged (unit 11); near duplicates
-  are not.
+  itself is still 10. Measured 2026-11-27 with `bots/burner` (every unit spends its whole fuel every tick;
+  all 14 maps, 4 seeds, both sides, native `ibc` on an i7-12700H): 0.53 core-s per game mean, 0.66 max doing
+  nothing, 0.47 / 0.66 on top of `forcer`; the longest legal match projects to about 0.9. Cache-missing code
+  reaches 20 to 31 core-s. The bound only holds once host calls are priced (section 2).
+- [x] **Plagiarism and duplicate detection.** Decided (2026-11-27): no near-duplicate detection. Teams are
+  responsible for keeping their own source private; the platform never shows source, never serves one team's
+  compiled module to another (teams list only their own submissions, public replays are redacted per viewer)
+  and runs every match server-side. Identical wasm across teams is still flagged (unit 11).
 - [ ] **Accounts:** emails are not verified, so register the `IBC_ADMIN_EMAILS` accounts before the site is
   public; login throttling is per email only (put per-IP limits in the reverse proxy).
-- [ ] **Any worker token can read any full replay blob** by hash. Fine while workers are trusted.
-- [ ] **Double elimination has no bracket reset** in the grand final (documented in `docs/api/tournaments.md`).
-- [ ] **Docker images have never been built** (no daemon on the dev machine); `docker compose config` accepts
-  the file.
+- [ ] **Any worker token can read any blob** by hash, not only replays: every team's compiled module, every
+  map (hidden tournament maps too) and unredacted replays. No worker needs it: workers only download the
+  bots, map and runner of a job they hold. `GET /v1/blobs` accepts the admin or any worker token for any
+  blob. Fine while every worker is ours; scope worker reads to blobs a held lease names before untrusted
+  workers.
+- [x] **Double elimination has no bracket reset.** Done: when the losers-bracket champion wins the grand
+  final, a reset between the same two teams decides (`docs/api/tournaments.md`). Was: The grand final was
+  played once, so the winners-bracket champion was out after its first loss.
+- [x] **Docker images have never been built.** Done (2026-11-27): both targets build from a clean export of
+  `HEAD` (coordinator 53 MB, worker 73 MB) and run under compose (above).
 
 ## 4. Never executed
 
 - [ ] **Cross-platform determinism.** `.github/workflows/determinism.yml` (Linux arm64, Windows, macOS arm64)
   has never run. Results are proven identical on Windows x64 and Linux x64 only. Trigger it by hand from the
   Actions tab now that the file is on `main`; this is the proof behind "runs the same on any hardware".
-- [ ] **Release pipeline.** `.github/workflows/release.yml` (six targets, zig cross build, pip wheel, draft
-  release) has never run. Use its `workflow_dispatch` dry run before the first tag.
 - [ ] **`ibc toolchain install` download.** The sha256 pins are the digests GitHub publishes, but no archive
   was ever fetched.
 - [ ] **Workflow lint.** The YAML was parsed, not linted. Run `actionlint`.
@@ -256,16 +304,20 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 
 ## 6. Second wave (planned, not started)
 
-- [ ] **Python SDK.** Stock CPython 3.14 or 3.15 on WASI, a Wizer snapshot after importing the bot's modules,
-  and the host API either through a statically linked extension module (needs a custom CPython build) or over
-  a file descriptor the WASI shim implements (no rebuild). Cambridge gave Python 25x the fuel; that multiplier
-  is the main running-cost lever, so choose it deliberately.
+- [ ] **Ladder cadence.** Ranked series are now 3 games (sides alternate per game), a round every 600 s plus
+  fill-ups whenever the workers have less than 120 s of work queued, at most 5 series per team per 15 minutes
+  (up to 10 when drawn as an opponent). Rematches are allowed and weighted down, not capped per day. The cap
+  and backlog are first guesses: measure storage per day on a real ladder before the event.
+- [ ] **Python SDK.** Not being tackled yet. It will need more fuel than Rust or C++ (Cambridge gave Python
+  25x); that multiplier is the main running-cost lever, so choose the number deliberately when the work starts.
+  The plan: stock CPython 3.14 or 3.15 on WASI, a Wizer snapshot after importing the bot's modules, and the
+  host API either through a statically linked extension module (needs a custom CPython build) or over a file
+  descriptor the WASI shim implements (no rebuild).
 - [ ] **Per-language allowances.** One table per language holding the fuel multiplier and a memory multiplier,
   ideally in `rules/` so it is hashed and identical for local runs and the ladder. Today fuel multipliers are
   coordinator config (`--language`), recorded per bot in the replay header (`BotInfo.fuel_multiplier`). A
   memory multiplier would scale the `memory_bytes` cap in the runner and in the upload check.
 - [x] **Map editor** in the browser: `ibc view --editor` (unit 20).
-- [ ] **Bot parameter tuner** (SPSA, as `tools/evotune` did for the Cambridge bot) on top of `ibc-bench`.
 - [x] **Handbook generator:** rules pages from `rules/*.toml`, the ABI reference from `crates/abi`, and a
   single Markdown bundle for AI agents, as Cambridge's "Download for LLM". `cargo xtask docs`, output in
   `docs/generated/`, checked in CI. Left over: serve `llm.md` from the platform as a download.
@@ -274,12 +326,19 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 - [ ] **More bot languages** once the ABI has settled (Go, Zig, AssemblyScript are cheap on `wasm32-wasip1`).
 - [ ] **Shadow runs before a patch goes live:** replay yesterday's ranked inputs on the new engine and compare
   outcome distributions (`docs/release.md` describes it; nothing implements it).
+- [ ] **Release pipeline.** `.github/workflows/release.yml` (six targets, zig cross build, pip wheel, draft
+  release) has never run. Use its `workflow_dispatch` dry run before the first tag.
+- [ ] **Bot parameter tuner** (low priority). A tool for balancing the game, not part of the platform.
+  `evotune`, the SPSA tuner I wrote as a participant for my own Cambridge Battlecode bot, can be adapted to
+  tune the reference bots on top of `ibc-bench`.
 
-## 7. Decisions needed
+## 7. Decisions
 
-- Eligibility categories for the event (sign-in is email + password, decided).
-- Ladder cadence. Ranked series are now 3 games (sides alternate per game), a round every 600 s plus fill-ups
-  whenever the workers have less than 120 s of work queued, at most 5 series per team per 15 minutes (up to
-  10 when drawn as an opponent). Rematches are allowed and weighted down, not capped per day. The cap and
-  backlog are first guesses: measure storage per day on a real ladder before the event.
-- Team shared memory size (64 bytes now). (Sightings and sounds are now shared automatically.)
+- [x] **Eligibility.** Decided: every student at a school or university, or anyone under 23, as Cambridge and
+  MIT Battlecode define it. Left over: write the rule into the event
+  rules and decide how a team declares it (MIT uses a field on the team profile and asks for proof of
+  enrolment for qualifiers). The platform records nothing about eligibility yet.
+- [ ] **Peek timing.** Should a unit be able to pull the trigger while moving and glide to a stop during the
+  startup, so a peek's shot can leave as it clears cover? `vision.md` says "by the end of the start up, you
+  have come to a complete stop". Today a move cancels a startup and a pull on a tick you move is refused, so
+  a peeker fires no earlier than a standing holder who has just seen it.
