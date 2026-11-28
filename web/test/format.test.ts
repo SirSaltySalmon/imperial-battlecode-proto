@@ -116,6 +116,8 @@ describe("brackets", () => {
     expect(pairingSide(pairing({ a_name: "Alpha" }), "a")).toBe("Alpha");
     expect(pairingSide(pairing(), "b")).toBe("t2");
     expect(pairingSide(pairing({ b: null }), "b")).toBe("bye");
+    expect(pairingSide(pairing({ b: null, state: "bye" }), "b")).toBe("bye");
+    expect(pairingSide(pairing({ b: null, state: "waiting" }), "b")).toBe("to be decided");
   });
   it("wants an odd map count", () => {
     expect(checkTournamentMaps([])).not.toBeNull();

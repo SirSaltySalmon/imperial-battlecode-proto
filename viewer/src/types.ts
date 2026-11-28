@@ -145,6 +145,8 @@ export interface DropFrame {
   x: number;
   y: number;
   item: number;
+  /** A weapon's magazine on the ground. */
+  ammo: number;
 }
 
 export interface EventFrame {

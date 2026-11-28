@@ -18,6 +18,7 @@ const RULE_NUMBERS = [
   "plant_ticks",
   "defuse_ticks",
   "fuse_ticks",
+  "blast_radius",
 ] as const;
 
 interface EngineExports {

@@ -31,12 +31,14 @@ function side(p: Pairing, s: "a" | "b"): HTMLElement {
     "div",
     { class: won ? "side winner" : "side" },
     h("span", { class: "seed" }, seed !== null ? String(seed) : ""),
-    id ? link(href(`/teams/${id}`), pairingSide(p, s)) : h("span", { class: "muted" }, "bye"),
+    id ? link(href(`/teams/${id}`), pairingSide(p, s)) : h("span", { class: "muted" }, pairingSide(p, s)),
     h("span", { class: "maps-won" }, maps !== null ? String(maps) : ""),
   );
 }
 
 export function pairingBox(p: Pairing, admin: boolean): HTMLElement {
+  // Nobody plays it: the bracket reset when the winners-bracket champion won the grand final, or two byes.
+  if (p.state === "empty") return h("div", { class: "pairing" }, h("span", { class: "muted" }, "Not needed"));
   const flagged = admin && isFlagged(p);
   return h(
     "div",
@@ -56,7 +58,7 @@ function bracket(t: Tournament, admin: boolean, onlyFlagged: boolean): HTMLEleme
       h(
         "div",
         { class: "round" },
-        h("h3", {}, `Round ${i + 1}`),
+        h("h3", {}, round.name ?? `Round ${i + 1}`),
         round.pairings.filter((p) => !onlyFlagged || isFlagged(p)).map((p) => pairingBox(p, admin)),
       ),
     ),

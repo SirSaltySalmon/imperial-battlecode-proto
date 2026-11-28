@@ -189,8 +189,9 @@ impl Map {
             return Some(a);
         }
         let (ex, ey) = (b.0.div_euclid(TILE), b.1.div_euclid(TILE));
-        let dx = (b.0 - a.0) as i64;
-        let dy = (b.1 - a.1) as i64;
+        // Widened before subtracting: both ends come from bots, and any two i32s are a valid segment.
+        let dx = b.0 as i64 - a.0 as i64;
+        let dy = b.1 as i64 - a.1 as i64;
         let (sx, sy) = (dx.signum() as i32, dy.signum() as i32);
         let (adx, ady) = (dx.abs(), dy.abs());
         // Distance along each axis to the next tile boundary.

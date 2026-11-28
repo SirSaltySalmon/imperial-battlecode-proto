@@ -23,12 +23,15 @@ export interface Track {
   rules: ViewRules;
   /** Units per team, for unit views. */
   teamSize: number;
-  /** Drawing on top of the frame, in tile coordinates (the lab's fan marks); `pos` is the playback position. */
-  marks?: (pen: Pen, i: number, pos: number) => void;
+  /**
+   * Drawing on top of the frame, in tile coordinates (the lab's fan marks). `pos` is the playback position and
+   * `held` the ticks playback has held on it so far (see `hold`).
+   */
+  marks?: (pen: Pen, i: number, pos: number, held: number) => void;
   /** Drawing on top of everything, in CSS pixels. */
-  overlay?: (ctx: CanvasRenderingContext2D, width: number, height: number, pos: number) => void;
-  /** Ticks playback runs on past the final frame, which stays on screen (for an ending drawn over it). */
-  tail?: number;
+  overlay?: (ctx: CanvasRenderingContext2D, width: number, height: number, pos: number, held: number) => void;
+  /** Ticks playback holds on frame `i` before moving on (a round's ending is drawn over the held frame). */
+  hold?: (i: number) => number;
   /** Camera to fit to; the default is the whole map. */
   fit?: (width: number, height: number) => Camera;
 }
@@ -45,6 +48,8 @@ export type Layer = "vision" | "sounds" | "debug";
 
 export class Player {
   track: Track | null = null;
+  /** Ticks of playback spent so far holding on the whole frame `pos` (`Track.hold`). */
+  held = 0;
   /** Playback position in frames; the fraction is the way towards the next frame. */
   pos = 0;
   playing = false;
@@ -75,6 +80,7 @@ export class Player {
   load(track: Track | null): void {
     this.track = track;
     this.pos = 0;
+    this.held = 0;
     this.perspective = ALL;
     this.setPlaying(false);
     this.fit();
@@ -84,12 +90,6 @@ export class Player {
   invalidate(page = false): void {
     if (page) this.pageFrame = -1;
     if (!this.raf) this.raf = requestAnimationFrame((now) => this.onFrame(now));
-  }
-
-  /** Where playback stops: the final frame plus the track's tail. */
-  end(): number {
-    const tr = this.track;
-    return tr ? tr.count - 1 + (tr.tail ?? 0) : 0;
   }
 
   /** The frame under the playback position, the next one, and how far playback is between them. */
@@ -104,7 +104,10 @@ export class Player {
   setPlaying(on: boolean): void {
     const tr = this.track;
     if (on && (!tr || tr.count < 2)) on = false;
-    if (on && tr && this.pos >= this.end()) this.pos = 0;
+    if (on && tr && this.pos >= tr.count - 1) {
+      this.pos = 0;
+      this.held = 0;
+    }
     this.playing = on;
     this.lastTime = performance.now();
     this.hooks.playing(on);
@@ -114,6 +117,7 @@ export class Player {
   seek(frame: number): void {
     if (!this.track) return;
     this.pos = Math.max(0, Math.min(this.track.count - 1, Math.round(frame)));
+    this.held = 0;
     this.invalidate();
   }
 
@@ -310,16 +314,44 @@ export class Player {
     return best;
   }
 
+  /**
+   * Move playback on by `ticks`, holding on frames the track asks to hold on. False once it is at the final
+   * frame with any hold there done.
+   */
+  advance(ticks: number): boolean {
+    const tr = this.track;
+    if (!tr) return false;
+    let left = ticks;
+    for (;;) {
+      const whole = this.pos === Math.floor(this.pos);
+      const hold = whole ? (tr.hold?.(this.pos) ?? 0) : 0;
+      if (this.held < hold) {
+        const take = Math.min(left, hold - this.held);
+        this.held += take;
+        left -= take;
+        if (this.held < hold) return true;
+        continue;
+      }
+      const next = Math.floor(this.pos) + 1;
+      if (next > tr.count - 1) return false;
+      if (left <= 0) return true;
+      const move = Math.min(left, next - this.pos);
+      this.pos += move;
+      left -= move;
+      if (this.pos >= next) {
+        this.pos = next;
+        this.held = 0;
+      }
+    }
+  }
+
   private onFrame(now: number): void {
     this.raf = 0;
     const tr = this.track;
     if (this.playing && tr) {
-      const last = this.end();
       // A background tab can stall for seconds; do not jump forward when it comes back. The timestamp of a
       // frame can also lie slightly before the input event that started playback.
-      this.pos += (Math.max(0, Math.min(now - this.lastTime, 100)) / 1000) * BASE_TPS * this.speed;
-      if (this.pos >= last) {
-        this.pos = last;
+      if (!this.advance((Math.max(0, Math.min(now - this.lastTime, 100)) / 1000) * BASE_TPS * this.speed)) {
         this.setPlaying(false);
       }
     }
@@ -350,11 +382,11 @@ export class Player {
       palette,
       show: this.show,
       selected: p.kind === "unit" ? p.id : null,
-      marks: tr.marks ? (pen) => tr.marks!(pen, m.i, this.pos) : undefined,
+      marks: tr.marks ? (pen) => tr.marks!(pen, m.i, this.pos, this.held) : undefined,
     });
     if (tr.overlay) {
       this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-      tr.overlay(this.ctx, this.width, this.height, this.pos);
+      tr.overlay(this.ctx, this.width, this.height, this.pos, this.held);
     }
     if (m.i !== this.pageFrame) {
       this.pageFrame = m.i;

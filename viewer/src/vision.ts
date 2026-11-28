@@ -17,6 +17,8 @@ export interface ViewRules {
   plant_ticks: number;
   defuse_ticks: number;
   fuse_ticks: number;
+  /** Detonation blast radius; absent for a build that predates it (the viewer then draws no radius). */
+  blast_radius?: number;
   /** Weapon names by weapon id. */
   weapons: string[];
   /** How far each weapon's bullets fly, by weapon id. Empty for a build that predates it. */
