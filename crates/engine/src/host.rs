@@ -262,7 +262,7 @@ impl Host for Match {
     fn raycast(&self, x: i32, y: i32, angle: i32, max: i32) -> i32 {
         let max = max.clamp(0, 128 * TILE);
         let d = fixed::polar(angle, max);
-        match self.world.map.segment_wall((x, y), (x + d.0, y + d.1)) {
+        match self.world.map.segment_wall((x, y), (x.saturating_add(d.0), y.saturating_add(d.1))) {
             Some(hit) => fixed::dist((x, y), hit).min(max),
             None => max,
         }

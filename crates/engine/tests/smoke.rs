@@ -154,6 +154,23 @@ fn a_map_row_past_the_last_is_out_of_range_however_far() {
 }
 
 #[test]
+fn los_and_raycast_take_any_coordinates_a_bot_passes() {
+    let m = Match::new(Ruleset::builtin(), Map::parse(OPEN).unwrap(), 1);
+    let inside = m.world.units[0].pos;
+    // Far outside the map, either way: a wall (the map's edge) is in the way, and nothing overflows.
+    for far in [(i32::MAX, i32::MAX), (i32::MIN, i32::MIN), (i32::MAX, i32::MIN)] {
+        assert_eq!(m.los(inside.0, inside.1, far.0, far.1), 0, "to {far:?}");
+        assert_eq!(m.los(far.0, far.1, inside.0, inside.1), 0, "from {far:?}");
+    }
+    let max = 128 * TILE;
+    for (x, y) in [(i32::MAX, 0), (i32::MIN, 0), (0, i32::MAX)] {
+        for angle in [0, 16384, 32768, 49152] {
+            assert!((0..=max).contains(&m.raycast(x, y, angle, max)), "from ({x}, {y}) at {angle}");
+        }
+    }
+}
+
+#[test]
 fn summary_lists_plants_and_kills_and_its_digest_leaves_out_the_seed() {
     let summary = |m: &Match| -> serde_json::Value { serde_json::from_str(&m.summary_json()).unwrap() };
     let sum = |s: &serde_json::Value, key: &str| -> i64 {
