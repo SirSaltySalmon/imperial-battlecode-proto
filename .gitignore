@@ -7,5 +7,6 @@ dist/
 !fixtures/**/*.wasm
 .ibc/
 .claude/
+.gstack/
 deploy/release/
 packaging/pip/wheel-data/

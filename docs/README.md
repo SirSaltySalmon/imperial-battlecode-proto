@@ -16,7 +16,7 @@ Start with the glossary: every page uses its words in exactly its sense.
 | [hillclimb.md](hillclimb.md) | Measuring balance with `ibc-bench` |
 | [TODO.md](TODO.md) | What is left to do |
 | [DEPRECATED.md](DEPRECATED.md) | Features we dropped, one line each |
-| [informal/](informal/) | The vision notes and the review of them |
+| [informal/](informal/) | The vision notes and the review of them, the weapons vision, and the design vision for the site and viewer |
 
 ## Generated
 
