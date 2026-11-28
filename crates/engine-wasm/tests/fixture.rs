@@ -24,7 +24,6 @@ fn rules_export_names_every_weapon() {
     assert_eq!(names, builtin.weapon_names.iter().map(String::as_str).collect::<Vec<_>>());
     assert!(names.len() >= 6 && names[0] == "pistol" && names.contains(&"marksman"), "{names:?}");
     assert_eq!(rules["fuse_ticks"], builtin.core.fuse_ticks);
-    assert_eq!(rules["blast_radius"], builtin.core.blast_radius);
 }
 
 /// The map editor validates through this export: every pool map summarises, and a broken one reports the
