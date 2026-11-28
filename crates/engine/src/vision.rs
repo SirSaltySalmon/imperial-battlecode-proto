@@ -99,16 +99,27 @@ impl World {
     /// unit), so there every read lists afresh. In the other phases acts are queued as intents or refused, so
     /// nothing a bot reads changes until the next step: the first read of a tick lists the rows into the
     /// team's view, and later reads, by any unit of the team, reuse them. A bot reading n rows pays for one
-    /// pass, not n. Code that edits `world` directly must do so before the tick's first read; debug builds
-    /// check it.
+    /// pass, not n. Code that edits `world` directly must do so before the tick's first read, or call
+    /// `forget_perceived` after; debug builds check it.
     pub fn perceived(&self, team: i32, table: u32) -> Cow<'_, [u32]> {
         let Some(slot) = PERCEIVED.iter().position(|&t| t == table) else { return Cow::Borrowed(&[]) };
         if self.phase == PHASE_DRAFT || self.phase == PHASE_BUY {
             return Cow::Owned(self.list_perceived(team, table));
         }
         let rows = self.views[team as usize].listed[slot].get_or_init(|| self.list_perceived(team, table));
-        debug_assert!(*rows == self.list_perceived(team, table), "`world` was edited after a read this tick");
+        debug_assert!(
+            *rows == self.list_perceived(team, table),
+            "`world` was edited after a read this tick: call `forget_perceived` after editing it"
+        );
         Cow::Borrowed(rows)
+    }
+
+    /// Drop what each team's view listed this tick, so the next read lists afresh. Only for code that edits
+    /// `world` directly between reads (tests, tools); a match never needs it, since `step` clears them.
+    pub fn forget_perceived(&mut self) {
+        for v in &mut self.views {
+            v.listed = Default::default();
+        }
     }
 
     fn list_perceived(&self, team: i32, table: u32) -> Vec<u32> {

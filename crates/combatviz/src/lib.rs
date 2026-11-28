@@ -238,12 +238,12 @@ mod tests {
         assert_eq!(guns.len(), 1);
         assert_eq!(guns[0]["item"], 1, "the rifle");
 
-        let picked = &scene(&lab, "pickup-empty").frames.last().unwrap().frame;
+        let picked = &scene(&lab, "pickup-rounds").frames.last().unwrap().frame;
         let (kit, u) = (&picked["loadout"][3], &picked["units"][3]);
         assert_eq!(
             (&kit["weapons"][0], &kit["ammo"][0], &u["weapon"]),
-            (&1.into(), &0.into(), &0.into()),
-            "rifle with an empty magazine, pistol still in hand"
+            (&1.into(), &ibc_engine::Ruleset::builtin().weapons[1].magazine.into(), &0.into()),
+            "rifle with the full magazine it fell with, pistol still in hand"
         );
     }
 }

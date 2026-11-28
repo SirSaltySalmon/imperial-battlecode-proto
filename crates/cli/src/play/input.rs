@@ -408,6 +408,7 @@ mod tests {
             item: 1,
             ammo: 0,
         });
+        m.world.forget_perceived(); // the test edits the world between reads
         c.apply(parse(r#"{"interact":false}"#));
         c.apply(parse(r#"{"interact":true}"#));
         assert_eq!(
@@ -438,6 +439,7 @@ mod tests {
             item: 0,
             ammo: 0,
         });
+        m.world.forget_perceived();
         c.apply(parse(r#"{"interact":false}"#));
         c.apply(parse(r#"{"interact":true}"#));
         let want = if attacking { A_PICKUP } else { A_DEFUSE };
@@ -455,6 +457,7 @@ mod tests {
             item: 1,
             ammo: 0,
         };
+        m.world.forget_perceived();
         c.apply(parse(r#"{"interact":false}"#));
         c.apply(parse(r#"{"interact":true}"#));
         assert_eq!(primary(&mut c, &m), Some(channel), "out of reach");

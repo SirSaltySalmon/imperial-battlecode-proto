@@ -158,9 +158,9 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 - `A_PICKUP` takes the nearest drop within `pickup_reach`. A weapon goes into its own slot; a weapon already
   there is put down in its place, so picking up swaps. The unit keeps using the slot it had in hand, unless
   its hands were empty.
-- **A weapon on the ground holds no ammunition.** A weapon picked up has an empty magazine and must be
-  reloaded. Dropping and picking up is therefore never a faster reload, and handing a teammate a weapon
-  costs them one reload.
+- **A weapon on the ground keeps its rounds.** A drop holds what was in its magazine when it fell
+  (`DropInfo.ammo`), and a pickup gets exactly that. A reload in progress is lost, not finished, so dropping
+  and picking up is never a faster reload; handing a teammate a loaded weapon hands them its rounds.
 - Dropping, or picking up into the slot in hand, cancels startup and reload, like a swap.
 - The displaced weapon lies at your feet, so it is the nearest drop for your next `A_PICKUP`: repeating the
   action swaps back and forth. Step away to reach something else.

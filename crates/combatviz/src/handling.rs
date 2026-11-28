@@ -12,7 +12,7 @@ pub fn add(cat: &mut Catalog) {
     killed_winding(cat);
     swap_keeps_cooldown(cat);
     death_drops(cat);
-    pickup_empty(cat);
+    pickup_rounds(cat);
     drop_at_feet(cat);
     handoff(cat);
 }
@@ -179,7 +179,7 @@ fn death_drops(cat: &mut Catalog) {
     );
 }
 
-fn pickup_empty(cat: &mut Catalog) {
+fn pickup_rounds(cat: &mut Catalog) {
     let rifle = weapon_id("rifle");
     let pistol = weapon_id("pistol");
     let mut m = setup::room();
@@ -203,9 +203,9 @@ fn pickup_empty(cat: &mut Catalog) {
         cat,
         take::meta(
             "drops",
-            "pickup-empty",
-            "A picked-up rifle has an empty magazine",
-            "combat_drops::a_picked_up_weapon_goes_to_its_slot_with_an_empty_magazine. The first pickup is out of reach and does nothing. Stepping into pickup_reach takes the rifle into its own slot, empty, and the unit keeps the pistol in hand.",
+            "pickup-rounds",
+            "A picked-up rifle keeps the rounds it fell with",
+            "combat_drops::a_picked_up_weapon_goes_to_its_slot_with_the_rounds_it_fell_with. The first pickup is out of reach and does nothing. Stepping into pickup_reach takes the rifle into its own slot with the full magazine it fell with, and the unit keeps the pistol in hand.",
             &format!("rifle ammo {ammo}"),
         ),
     );
@@ -230,7 +230,7 @@ fn drop_at_feet(cat: &mut Catalog) {
             "drops",
             "drop-feet",
             "Drop both guns, pick the rifle back up",
-            "combat_drops::a_drop_puts_the_weapon_in_hand_at_the_units_feet. Dropping puts the gun in hand at your feet and switches to the other one. With empty hands the next pickup takes the nearest gun (the rifle, dropped first) straight into that slot. A gun on the ground holds no ammunition.",
+            "combat_drops::a_drop_puts_the_weapon_in_hand_at_the_units_feet. Dropping puts the gun in hand at your feet and switches to the other one. With empty hands the next pickup takes the nearest gun (the rifle, dropped first) straight into that slot. A gun on the ground keeps the rounds it had.",
             &format!("holding weapon {held}, ammo {ammo}"),
         ),
     );
@@ -253,7 +253,7 @@ fn handoff(cat: &mut Catalog) {
             "drops",
             "handoff",
             "Hand a teammate the LMG",
-            "combat_drops::a_teammate_can_be_handed_a_weapon_and_keeps_it_next_round. The teammate is placed on the drop. The LMG arrives with an empty magazine, so handing a gun costs them a reload. Dropping and picking up is never a faster reload.",
+            "combat_drops::a_teammate_can_be_handed_a_weapon_and_keeps_it_next_round. The teammate is placed on the drop. The LMG arrives with the rounds it was dropped with. A reload in progress is lost, so dropping and picking up is never a faster reload.",
             &format!("lmg ammo {ammo}"),
         ),
     );

@@ -173,7 +173,7 @@ fn enemy_hp_and_armor_read_zero() {
 fn drop_behind_team_a(m: &mut Match) {
     place(m, 0, c(3, 6), WEST);
     place(m, 1, c(3, 7), WEST);
-    m.world.drops.push(DropInfo { kind: DROP_WEAPON, x: c(8, 6).0, y: c(8, 6).1, item: 0 });
+    m.world.drops.push(DropInfo { kind: DROP_WEAPON, x: c(8, 6).0, y: c(8, 6).1, item: 0, ammo: 0 });
 }
 
 #[test]
