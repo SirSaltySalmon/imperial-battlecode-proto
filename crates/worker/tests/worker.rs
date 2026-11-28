@@ -1,7 +1,7 @@
 //! The worker against a mock coordinator, with the REAL runner binary and real wasm bots.
 //!
 //! Needs `IBC_RUNNER=/path/to/ibc` (a built `ibc` binary). Without it every test here is skipped with a
-//! message. The reference bots are built to wasm with `ibc build` on first use.
+//! message, or fails when `CI` is set. The reference bots are built to wasm with `ibc build` on first use.
 
 mod common;
 
@@ -27,10 +27,7 @@ struct Fixture {
 fn fixture() -> Option<&'static Fixture> {
     static F: OnceLock<Option<Fixture>> = OnceLock::new();
     F.get_or_init(|| {
-        let Some(runner) = std::env::var_os("IBC_RUNNER").map(PathBuf::from).filter(|p| p.is_file()) else {
-            eprintln!("SKIPPED: set IBC_RUNNER to a built `ibc` binary to run the worker integration tests");
-            return None;
-        };
+        let runner = common::runner("the worker integration tests")?;
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let build = |bot: &str| {
             let dir = root.join("bots").join(bot);
@@ -468,9 +465,11 @@ fn drain_finishes_in_flight_work_and_leases_nothing_more() {
     }
     let cfg = r.cfg.clone();
     let worker = std::thread::spawn(move || ibc_worker::run(cfg, Arc::new(Shutdown::default())));
+    // A started job, not just a lease: the mock records the lease before the worker has the reply, and a
+    // drain that lands before the job starts gives it back unplayed.
     r.mock
-        .wait_for("the first lease", Duration::from_secs(20), |st| {
-            !st.leased.is_empty()
+        .wait_for("the first job to start", Duration::from_secs(20), |st| {
+            st.blob_gets > 0
         });
     std::fs::write(&drain_file, b"spot interruption notice").unwrap();
     let stats = worker.join().unwrap().unwrap();
@@ -517,10 +516,7 @@ fn a_job_from_a_poll_open_when_the_drain_began_is_released_unstarted() {
         }
     );
     let st = r.mock.state();
-    assert_eq!(
-        st.released,
-        [("j1".to_string(), "worker shutting down".to_string())]
-    );
+    assert_eq!(st.released, [("j1".to_string(), "worker shutting down".to_string())]);
     assert_eq!(st.blob_gets, 0, "nothing was downloaded for it");
 }
 
@@ -551,9 +547,10 @@ fn sigterm_drains_the_worker_process_and_a_second_one_aborts() {
             .stdin(Stdio::null())
             .spawn()
             .expect("starting ibc-worker");
+        // A started job, as in the drain-file test above.
         r.mock
-            .wait_for("the first lease", Duration::from_secs(20), |st| {
-                !st.leased.is_empty()
+            .wait_for("the first job to start", Duration::from_secs(20), |st| {
+                st.blob_gets > 0
             });
         for _ in 0..signals {
             let pid = child.id().to_string();
@@ -566,10 +563,7 @@ fn sigterm_drains_the_worker_process_and_a_second_one_aborts() {
             if let Some(s) = child.try_wait().unwrap() {
                 break s;
             }
-            assert!(
-                Instant::now() < deadline,
-                "the worker did not exit after SIGTERM"
-            );
+            assert!(Instant::now() < deadline, "the worker did not exit after SIGTERM");
             std::thread::sleep(Duration::from_millis(50));
         };
         assert!(status.success(), "{signals} SIGTERM(s): exit {status}");

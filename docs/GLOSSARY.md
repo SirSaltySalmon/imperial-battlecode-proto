@@ -147,13 +147,15 @@ attackers.
 
 **Credits.** Money, per unit, capped at `max_credits`, spent in the buy phase.
 
-**Armour.** Points bought in the shop; absorbs `armor_absorb_pct` of each hit until used up.
+**Armour.** Points bought in the shop; absorbs `armor_absorb_pct` of each hit until used up. At 100 it is plain
+extra health: a hit takes armour first, point for point, then hp.
 
 ## What a bot can know and spend
 
-**Fuel.** The compute budget of a turn: WebAssembly instructions counted by Wasmtime plus a fixed charge per host
-call (`FUEL_*`). Each unit gets `fuel_per_tick` per tick, times `fuel_first_tick_mult` on the draft tick and
-`fuel_buy_mult` in the buy phase. Unused fuel is lost; a bot that runs out is paused and resumes next tick.
+**Fuel.** The compute budget of a turn: WebAssembly instructions counted by Wasmtime plus a charge per host call
+(`FUEL_*`; `log`, `fuel_remaining` and `end_turn` are free). Each unit gets `fuel_per_tick` per tick, times
+`fuel_first_tick_mult` on the draft tick and `fuel_buy_mult` in the buy phase. Unused fuel is lost; a bot that
+runs out is paused and resumes next tick.
 
 **Stack limit.** `stack_limit`, the deepest call stack a bot may build, in **stack units**: each call that has
 not returned costs its function's parameters + locals + largest operand stack height + 2. Going deeper traps

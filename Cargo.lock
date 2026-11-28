@@ -862,11 +862,11 @@ dependencies = [
 
 [[package]]
 name = "ibc-abi"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "ibc-bench"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibc",
  "ibc-abi",
@@ -879,7 +879,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-combatviz"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibc-engine",
  "ibc-engine-wasm",
@@ -908,7 +908,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-coordinator"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibc-abi",
  "serde_json",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-engine-wasm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibc-engine",
  "ibc-replay",
@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-maptool"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibc-engine",
  "serde",
@@ -959,25 +959,26 @@ dependencies = [
 
 [[package]]
 name = "ibc-rating"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "ibc-replay"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibc-engine",
  "miniz_oxide",
  "serde",
  "serde_json",
  "sha2",
+ "wasmparser",
 ]
 
 [[package]]
 name = "ibc-runner"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "ibc-abi",
@@ -993,7 +994,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-sim"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "forcer",
  "holder",
@@ -1012,7 +1013,7 @@ dependencies = [
 
 [[package]]
 name = "ibc-worker"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ctrlc",
  "ibc-coordinator",
@@ -2491,7 +2492,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibc-abi",
  "ibc-engine",

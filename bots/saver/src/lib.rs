@@ -7,7 +7,8 @@
 use ibc::Bot;
 use squad::{Attack, Buy, Defence, Squad, Style};
 
-const STYLE: Style = Style { attack: Attack::Execute, defence: Defence::Hold, buy: Buy::Eco, mixed_arms: false };
+const STYLE: Style =
+    Style { attack: Attack::Execute, defence: Defence::Hold, buy: Buy::Eco, mixed_arms: false, loadout: None };
 
 pub struct Saver(Squad);
 

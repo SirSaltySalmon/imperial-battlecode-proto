@@ -362,9 +362,10 @@ async fn a_scrim_reaches_only_the_live_bot_or_the_one_already_played() {
 
 #[tokio::test]
 async fn the_scheduler_starts_by_itself_before_anything_is_measured() {
-    // Five-second rounds on one 4-core worker: the 10 s prior fits less than one 3-map series a round.
+    // One-second rounds on one 4-core worker: 2.8 core-seconds a round, less than one 3-map series at
+    // the 2 s prior.
     let h = Harness::new(|c| {
-        c.ranked_interval_ms = 5_000;
+        c.ranked_interval_ms = 1_000;
         c.ranked_games = 3;
     });
     h.league(&["alpha", "beta"]).await;

@@ -23,7 +23,8 @@ buffered, so a feeder gets back-pressure; the process may be kept alive and fed 
 | `map` | string | path of a `.ibcmap` file |
 | `seed` | u64 | |
 | `out_dir` | string | created if missing; receives `replay.ibcr`, `summary.json`, `team-a.log`, `team-b.log` |
-| `fuel_mult_a`, `fuel_mult_b` | number, optional | language fuel multiplier, default 1.0, range 0.001..=1000, resolution 0.001 |
+| `language_a`, `language_b` | string, optional | the bot's language, which picks its `[[language]]` row of the ruleset (fuel and memory multipliers). Default: what the module says (`ibc.language` or `producers` section), else `default` |
+| `fuel_mult_a`, `fuel_mult_b` | number, optional | replaces the row's fuel multiplier (experiments, bench jobs), range 0.001..=1000, resolution 0.001 |
 | `max_ticks` | u32, optional | stop early; the result is then `"outcome":"unfinished"` |
 | `name_a`, `name_b` | string, optional | display names stored in the replay header. Default: first 12 hex digits of the module's SHA-256, so `replay_sha256` never depends on file paths. Workers must not set them |
 
@@ -53,8 +54,9 @@ if any match failed.
 HTTPS, JSON bodies (`Content-Type: application/json`), UTF-8. Times are RFC 3339 UTC strings. All SHA-256
 values are 64 lower-case hex digits. Every request except `register` carries
 `Authorization: Bearer <worker token>`. Errors are `{"error": "<code>", "message": "..."}` with status 400
-(malformed), 401 (bad token), 404 (unknown job or blob), 409 (lease lost: wrong or expired `lease_token`;
-the worker must drop the job), 429/503 (retry with exponential backoff, 1 s doubling to 60 s, with jitter).
+(malformed), 401 (bad token), 403 (a blob that no lease of this worker names), 404 (unknown job or blob), 409
+(lease lost: wrong or expired `lease_token`, or an upload without a lease; the worker must drop the job),
+429/503 (retry with exponential backoff, 1 s doubling to 60 s, with jitter).
 
 **Revision 1.1** (marked *1.1* below) only adds optional fields and one endpoint; peers of either revision
 interoperate. A 1.1 coordinator uses the summary's `outcome` when a 1.0 worker sends none; a 1.1 worker whose
@@ -91,8 +93,8 @@ Job = {
   "lease_secs": 180,           // 1.1, optional: the lease length this coordinator grants
   "kind": "match",
   "patch": {"engine": "0.1.0", "ruleset_hash": "<16 hex>", "wasmtime": "51.0.0"},
-  "bot_a": {"sha256": "...", "fuel_mult": 1.0},
-  "bot_b": {"sha256": "...", "fuel_mult": 1.0},
+  "bot_a": {"sha256": "...", "language": "rust"},   // language optional; "fuel_mult" optional override
+  "bot_b": {"sha256": "...", "language": "cpp"},
   "map": {"sha256": "..."},
   "seed": 12345,
   "max_ticks": 3000,           // optional
@@ -115,6 +117,11 @@ going through a double. Unknown fields must be ignored; a job of an unknown `kin
 result where it does not. `wall_ms` is not part of the match's determinism (it is not compared); the
 coordinator uses it to size ranked batches to the fleet.
 
+`blobs`: a worker reads only what a job it holds a live lease on names: `bot_a`, `bot_b`, `map` and the
+`runner_blobs` sent with the lease (even if the organisers replace them meanwhile). Any other hash is 403,
+whether the blob exists or not; a 404 means a blob the lease names is missing. A worker uploads only while it holds a live lease (otherwise 409 `lease_lost`), and
+its replay is named by no lease, so it is not read back. The organisers' admin token reads and writes any blob.
+
 The ladder is rated per series, not per job: when every map of a ranked series has finished, the series'
 `outcome`s (maps won, lost, drawn) move the two ratings once, from the pre-series ratings
 (`docs/api/league.md`). A ranked series is `IBC_RANKED_GAMES` maps (default 3), queued by the built-in
@@ -128,11 +135,14 @@ workers, so an idle fleet keeps playing; a per-team series cap bounds how much.
    side-by-side runner's. If not: `release` with `reason: "patch mismatch"`. Never run a job on a different
    patch.
 2. Fetch `bot_a`, `bot_b` and `map` with `GET /v1/blobs/{sha256}` (cache by hash; verify the hash of what
-   was received). A 404 is `fail` with `retryable: false`.
-3. Run it (`run-batch --jsonl`, mapping `fuel_mult` to `fuel_mult_a/b`), sending `heartbeat` six times per
+   was received). A 404 is `fail` with `retryable: false`; a 403 (the lease is no longer held) is `fail`
+   with `retryable: true`.
+3. Run it (`run-batch --jsonl`, mapping `language` to `language_a/b` and `fuel_mult`, when present, to
+   `fuel_mult_a/b`), sending `heartbeat` six times per
    lease: every `lease_secs / 6` (30 s for 180 s). A worker that got no `lease_secs` assumes 180 s.
 4. On `finished`: `PUT /v1/blobs/{replay_sha256}` with the replay bytes, then `complete`. The coordinator
    rejects (400) a blob whose content does not hash to the path, and a `complete` whose replay blob is absent.
+   A 409 on the `PUT` means the worker holds no lease any more: drop the job.
 5. On `failed`: `fail`. `retryable: false` when the input itself is bad (invalid wasm or map), `true` for
    anything environmental (I/O error, crash).
 6. A match that runs past the worker's wall-clock limit is killed and failed with `retryable: true,
@@ -160,8 +170,9 @@ workers, so an idle fleet keeps playing; a per-team series cap bounds how much.
 - `complete`, `fail` and `release` are idempotent for the same `lease_token` (repeat calls return 200).
   Any of them with a stale lease returns 409 and is discarded.
 - **Idempotency key** of a match job: `sha256(engine "\n" ruleset_hash "\n" wasmtime "\n" map.sha256 "\n"
-  bot_a.sha256 "\n" bot_a.fuel_mult "\n" bot_b.sha256 "\n" bot_b.fuel_mult "\n" seed "\n" max_ticks-or-empty)`,
-  numbers in shortest decimal form. Submitting a job whose key already exists returns the existing job (and
+  bot_a.sha256 "\n" bot_a.fuel_mult "\n" bot_a.language "\n" bot_b.sha256 "\n" bot_b.fuel_mult "\n"
+  bot_b.language "\n" seed "\n" max_ticks-or-empty)`, numbers in shortest decimal form, an absent field
+  empty. Submitting a job whose key already exists returns the existing job (and
   its result if done) instead of queueing a second one. Team order matters: A-vs-B and B-vs-A are different.
 - **Priority classes**: `tournament` (0) > `ranked` (1) > `unranked` (2) > `bench` (3). `lease` hands out
   the lowest class number first, oldest job first within a class. No pre-emption of running jobs.
@@ -211,16 +222,23 @@ current patch (`POST /v1/admin/patch`), nothing is voided:
 The response of `POST /v1/admin/patch` says what happened: `switched`, `replanned_series`, `kept_series`
 (running series still on an older patch), `ratings_widened`, `revalidated` and `invalid_submissions`.
 
-### Languages and fuel multipliers
+### Languages and their allowances
 
-A submission's fuel multiplier is decided by the coordinator from its language table (`--language
-name=mult`, default `rust=1`, `cpp=1`), never by the upload: `POST /v1/submissions?language=<name>` names
-the language, an unknown one is a 400 `unknown_language` listing the accepted ones, and a `fuel_mult`
-parameter is refused. The coordinator also reads what the module says about itself: an `ibc.language`
+A submission's fuel and memory multipliers are its language's `[[language]]` row of the ruleset
+(`rules/core.toml`, docs/RULES.md), never the upload's: `POST /v1/submissions?language=<name>` names the
+language, one without a row is a 400 `unknown_language` listing the accepted ones (every row but `default`),
+and a `fuel_mult` parameter is refused. The answer shows the row (`fuel_mult`, `memory_mult`). Jobs carry
+the submission's language, not a multiplier: the runner applies the row of the job's patch, so a balance
+patch that changes a row applies to every submission at once. The upload check caps a module's initial
+memory at `memory_bytes` times its language's memory multiplier, from the coordinator's own build of the
+ruleset, which ships with the patch's runner (docs/release.md). The coordinator had a `--language
+name=mult` flag before the table existed; it is gone, since a multiplier outside the ruleset would make a
+ladder match differ from the same match run locally. The coordinator also reads what the module says about itself: an `ibc.language`
 custom section (UTF-8 language name, for toolchains to embed), or else the `producers` section (`language`
 Rust, C or C++; `processed-by` rustc or clang). If the module names languages and the declared one is not
 among them, the upload is a 400 `language_mismatch`; without `?language=` a module naming exactly one
-language is entered as that language, anything else as `rust`. This catches mistakes, not fraud: a module
+language is entered as that language, anything else as `default` (and played with the `default` row, as a
+local run of the same module would be). This catches mistakes, not fraud: a module
 can be stripped of both sections, and release builds often are.
 
 An upload may carry `?note=<text>` (at most 200 characters, `ibc submit --note`); it is stored with the

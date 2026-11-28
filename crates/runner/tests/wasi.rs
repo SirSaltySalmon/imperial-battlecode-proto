@@ -67,12 +67,51 @@ const BAD_WRITES: &str = r#"(module
       (call $end_turn)
       (br $l))))"#;
 
+/// Most fuel the instructions around a measured call may add to its fee in `fee_checker`.
+const CALL: u64 = 24;
+
+/// Every turn, measured with `fuel_remaining` around each call: `fd_write` of 100 one-byte iovecs (64 honoured
+/// and charged), `random_get` of 4096 bytes and of 4097 (refused, and charged as 4096), and `ibc.log`, which
+/// is free. Traps unless each call cost its fee plus at most `CALL` fuel of instructions.
+fn fee_checker() -> String {
+    let iovs = "\\00\\00\\00\\00\\01\\00\\00\\00".repeat(100); // { 0, 1 } x 100
+    let write = 64 * ibc_abi::FUEL_IOV;
+    let random = 4096 / 8 * ibc_abi::FUEL_RANDOM;
+    format!(
+        r#"(module
+  (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "random_get" (func $random (param i32 i32) (result i32)))
+  (import "ibc" "log" (func $log (param i32 i32) (result i32)))
+  (import "ibc" "fuel_remaining" (func $fuel (result i64)))
+  (import "ibc" "end_turn" (func $end_turn))
+  (memory (export "memory") 1)
+  (data (i32.const 0) "o")
+  (data (i32.const 1024) "{iovs}")
+  (func $paid (param $before i64) (param $fee i64) (local $cost i64)
+    (local.set $cost (i64.sub (local.get $before) (call $fuel)))
+    (if (i64.lt_s (local.get $cost) (local.get $fee)) (then (unreachable)))
+    (if (i64.gt_s (local.get $cost) (i64.add (local.get $fee) (i64.const {CALL}))) (then (unreachable))))
+  (func (export "_start") (local $f i64)
+    (loop $l
+      (local.set $f (call $fuel))
+      (if (call $fd_write (i32.const 1) (i32.const 1024) (i32.const 100) (i32.const 128)) (then (unreachable)))
+      (call $paid (local.get $f) (i64.const {write}))
+      (local.set $f (call $fuel))
+      (if (call $random (i32.const 4096) (i32.const 4096)) (then (unreachable)))
+      (call $paid (local.get $f) (i64.const {random}))
+      (local.set $f (call $fuel))
+      (if (i32.ne (call $random (i32.const 4096) (i32.const 4097)) (i32.const 28)) (then (unreachable)))
+      (call $paid (local.get $f) (i64.const {random}))
+      (local.set $f (call $fuel))
+      (if (call $log (i32.const 0) (i32.const 1)) (then (unreachable)))
+      (call $paid (local.get $f) (i64.const 0))
+      (call $end_turn)
+      (br $l))))"#
+    )
+}
+
 fn bot(name: &str, wat: &str) -> BotSpec {
-    BotSpec {
-        name: name.into(),
-        wasm: wat::parse_str(wat).unwrap(),
-        fuel_multiplier: 1.0,
-    }
+    BotSpec::new(name, wat::parse_str(wat).unwrap())
 }
 
 fn run(wat: &str, log_limit: usize) -> MatchOutput {
@@ -145,6 +184,23 @@ fn the_cap_truncates_with_a_notice_and_writes_still_succeed() {
         assert_eq!(
             out.units[unit].turns, TICKS as u64,
             "the bot kept printing and was never faulted"
+        );
+    }
+}
+
+#[test]
+fn fd_write_and_random_get_pay_by_size_and_log_is_free() {
+    let out = run(&fee_checker(), 1 << 20);
+    let units = recorded_logs(&out);
+    assert!(!units.is_empty());
+    for (unit, _) in units {
+        assert_eq!(out.units[unit].turns, TICKS as u64);
+        // 64 bytes from the iovecs honoured, "o\n" from the log call, every turn
+        assert_eq!(
+            out.logs[unit],
+            [b"o".repeat(64), b"o\n".to_vec()]
+                .concat()
+                .repeat(TICKS as usize)
         );
     }
 }

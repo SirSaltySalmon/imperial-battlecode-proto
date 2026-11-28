@@ -1,7 +1,7 @@
 //! Coordinator <-> worker lease protocol v1, exactly as in docs/JOBS.md part B.
 
 use super::{auth_admin, auth_worker, parse, AppState};
-use crate::db::{self, jobs};
+use crate::db::{self, jobs, WorkerRow};
 use crate::error::{ApiError, ApiResult};
 use crate::model::Class;
 use crate::util::{is_sha256, new_token, now_ms, rfc3339, secret_eq, sha256_hex};
@@ -356,9 +356,12 @@ pub async fn release(
     Ok(Json(json!({})))
 }
 
-/// Blobs are readable and writable by workers and by the organisers.
-fn auth_blob(app: &App, headers: &HeaderMap) -> ApiResult<()> {
-    auth_admin(app, headers).or_else(|_| auth_worker(app, headers).map(|_| ()))
+/// Blobs are readable and writable by the organisers (`None`) and, within their leases, by workers.
+fn auth_blob(app: &App, headers: &HeaderMap) -> ApiResult<Option<WorkerRow>> {
+    match auth_admin(app, headers) {
+        Ok(()) => Ok(None),
+        Err(_) => auth_worker(app, headers).map(Some),
+    }
 }
 
 async fn blocking<T: Send + 'static>(
@@ -381,22 +384,47 @@ pub(crate) async fn blob_response(app: Arc<App>, sha256: String) -> ApiResult<Re
     }
 }
 
+/// A worker reads only the bots, map and runners of a job leased to it. Anything else is 403, whether the
+/// blob exists or not, so a worker learns nothing about other blobs. The worker fails the job as retryable
+/// on a 403, and as not retryable on a 404 (a blob its lease names is missing).
 pub async fn get_blob(
     State(app): AppState,
     Path(sha256): Path<String>,
     headers: HeaderMap,
 ) -> ApiResult<Response> {
-    auth_blob(&app, &headers)?;
+    if let Some(worker) = auth_blob(&app, &headers)? {
+        let named = app
+            .db
+            .tx(|tx| jobs::lease_names_blob(tx, &worker.id, &sha256, now_ms()))?;
+        if !named {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "not_leased",
+                "a worker may only read the bots, map and runner of a job leased to it",
+            ));
+        }
+    }
     blob_response(app, sha256).await
 }
 
+/// A worker uploads (its replay) only while it holds a lease: otherwise 409, and it drops the job.
 pub async fn put_blob(
     State(app): AppState,
     Path(sha256): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Response> {
-    auth_blob(&app, &headers)?;
+    if let Some(worker) = auth_blob(&app, &headers)? {
+        if !app
+            .db
+            .tx(|tx| jobs::holds_lease(tx, &worker.id, now_ms()))?
+        {
+            return Err(ApiError::conflict(
+                "lease_lost",
+                "this worker holds no lease; drop the job",
+            ));
+        }
+    }
     if !is_sha256(&sha256) {
         return Err(ApiError::bad_request(
             "the blob name must be 64 lower-case hex digits",

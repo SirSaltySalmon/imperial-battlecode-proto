@@ -26,8 +26,8 @@ services:
       IBC_RANKED_INTERVAL_SECS: ${IBC_RANKED_INTERVAL_SECS:-300}
       IBC_RANKED_GAMES: ${IBC_RANKED_GAMES:-3}
       # What `ibc update` offers participants: a distribution.json from `cargo xtask dist` in ./release
-      # (IBC_DISTRIBUTION=/release/distribution.json). Passed through only when set: the coordinator refuses
-      # to start with an empty value.
+      # (IBC_DISTRIBUTION=/release/distribution.json). Passed through only when set; unset or empty, the
+      # coordinator publishes no distribution.
       IBC_DISTRIBUTION:
     ports:
       - "127.0.0.1:8080:8080" # put a TLS-terminating proxy in front; do not publish this port to the world

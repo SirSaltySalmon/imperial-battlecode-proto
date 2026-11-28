@@ -22,7 +22,7 @@ const IDLE: &str = r#"(module
   (func (export "_start") (loop $l (call $end_turn) (br $l))))"#;
 
 fn idle(name: &str) -> BotSpec {
-    BotSpec { name: name.into(), wasm: wat::parse_str(IDLE).unwrap(), fuel_multiplier: 1.0 }
+    BotSpec::new(name, wat::parse_str(IDLE).unwrap())
 }
 
 /// Drafts kit 1 and walks right, every turn.
@@ -38,11 +38,7 @@ fn walker(name: &str) -> BotSpec {
       (drop (call $act (i32.const {A_MOVE}) (i32.const 0) (i32.const 100) (i32.const 0)))
       (call $end_turn) (br $l))))"#
     );
-    BotSpec {
-        name: name.into(),
-        wasm: wat::parse_str(wat).unwrap(),
-        fuel_multiplier: 1.0,
-    }
+    BotSpec::new(name, wat::parse_str(wat).unwrap())
 }
 
 struct Running {
@@ -80,7 +76,10 @@ fn start_with_kit(
     .unwrap();
     let s = Arc::clone(&session);
     let game = std::thread::spawn(move || ibc_runner::run_driven(cfg, &mut s.driver()).unwrap());
-    let site = Site { root: base.join("dist").canonicalize().unwrap(), session };
+    let site = Site {
+        root: base.join("dist").canonicalize().unwrap(),
+        session,
+    };
     Running { site, base, game }
 }
 
@@ -98,7 +97,12 @@ impl Running {
 
     fn json(&self, method: &str, path: &str, body: &str) -> Value {
         let r = self.call(method, path, body);
-        assert_eq!(r.status, "200 OK", "{method} {path}: {}", String::from_utf8_lossy(&r.body));
+        assert_eq!(
+            r.status,
+            "200 OK",
+            "{method} {path}: {}",
+            String::from_utf8_lossy(&r.body)
+        );
         serde_json::from_slice(&r.body).unwrap()
     }
 
@@ -191,9 +195,17 @@ fn a_scripted_turn_based_session_replays() {
     }
     let draft_ticks = s["tick"].as_u64().unwrap();
 
-    let s = p.json("POST", "/step", r#"{"actions":[{"act":"buy","item":1}, {"act":"buy","item":999}]}"#);
+    let s = p.json(
+        "POST",
+        "/step",
+        r#"{"actions":[{"act":"buy","item":1}, {"act":"buy","item":999}]}"#,
+    );
     assert_eq!(s["last_acts"][0]["result"], json!("ok"), "{s}");
-    assert_eq!(s["last_acts"][1]["result"], json!("bad argument"), "the engine's answer reaches the page");
+    assert_eq!(
+        s["last_acts"][1]["result"],
+        json!("bad argument"),
+        "the engine's answer reaches the page"
+    );
     let mut s = s;
     while s["view"]["match"]["phase"] != json!(PHASE_ACTION) {
         s = p.json("POST", "/step", "");
@@ -208,9 +220,30 @@ fn a_scripted_turn_based_session_replays() {
     for _ in 0..8 {
         s = p.json("POST", "/step", &aim);
     }
-    assert_ne!(s["view"]["me"]["x"].as_i64().unwrap(), x0, "the unit moved: {}", s["view"]["me"]);
+    assert_ne!(
+        s["view"]["me"]["x"].as_i64().unwrap(),
+        x0,
+        "the unit moved: {}",
+        s["view"]["me"]
+    );
     let units = s["view"]["frame"]["units"].as_array().unwrap();
-    assert!(units.iter().filter(|u| u["team"] == json!(0)).all(|u| u["credits"] == json!(0)), "enemy credits hidden");
+    assert!(
+        units
+            .iter()
+            .filter(|u| u["team"] == json!(0))
+            .all(|u| u["credits"] == json!(0)),
+        "enemy credits hidden"
+    );
+    // A pull is refused on a tick the unit moves, and a refused act leaves no input: fire standing still.
+    let still = format!(r#"{{"move":[0,0],"aim":[{},{}],"fire":true}}"#, mx + 5000, my);
+    let s = p.json("POST", "/step", &still);
+    let fire = s["last_acts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["act"] == json!("fire"))
+        .cloned();
+    assert_eq!(fire.map(|a| a["result"].clone()), Some(json!("ok")), "{s}");
 
     // Possessed and idle, then given back: the bot walks again only once it has the unit back.
     let t0 = s["tick"].as_u64().unwrap();
@@ -248,6 +281,9 @@ fn a_scripted_turn_based_session_replays() {
         out.replay.header.bots[1].sha256, "",
         "the team's module ran"
     );
+    // A refused act leaves no input, and kits are unique within a team: of the bot's kit-1 drafts (one per
+    // unit, the possessed one included) only the first is accepted, so that is the one the replay holds.
+    let team = team_size..2 * team_size;
     let drafts: Vec<i32> = out.replay.ticks[..draft_ticks as usize]
         .iter()
         .flat_map(|t| &t.events)
@@ -257,14 +293,11 @@ fn a_scripted_turn_based_session_replays() {
                 kind: A_DRAFT,
                 a,
                 ..
-            }) if *unit == me => Some(*a),
+            }) if team.contains(unit) => Some(*a),
             _ => None,
         })
         .collect();
-    assert!(
-        !drafts.is_empty() && drafts.iter().all(|&k| k == 1),
-        "the team's bot drafted: {drafts:?}"
-    );
+    assert_eq!(drafts, [1], "the team's bot drafted");
     let kinds = recorded(&out, me, draft_ticks..t0);
     for k in [A_BUY, A_MOVE, A_FACE, A_FIRE] {
         assert!(kinds.contains(&k), "act {k} recorded: {kinds:?}");
@@ -367,12 +400,21 @@ fn realtime_runs_on_its_clock_once_started() {
 fn serves_the_page_and_rejects_what_it_must() {
     let p = start("http", Mode::Turn, 0, None);
     let page = p.call("GET", "/", "");
-    assert_eq!((page.status, page.body.as_slice()), ("200 OK", &b"<!doctype html>play"[..]));
+    assert_eq!(
+        (page.status, page.body.as_slice()),
+        ("200 OK", &b"<!doctype html>play"[..])
+    );
     for path in ["/../secret.txt", "/%2e%2e/secret.txt", "/missing.js"] {
         assert_ne!(p.call("GET", path, "").status, "200 OK", "{path}");
     }
-    assert_eq!(p.call("POST", "/input", "{not json").status, "400 Bad Request");
-    assert_eq!(p.call("POST", "/input", r#"{"teleport":[1,1]}"#).status, "400 Bad Request");
+    assert_eq!(
+        p.call("POST", "/input", "{not json").status,
+        "400 Bad Request"
+    );
+    assert_eq!(
+        p.call("POST", "/input", r#"{"teleport":[1,1]}"#).status,
+        "400 Bad Request"
+    );
     assert_eq!(p.call("POST", "/input", "").status, "400 Bad Request");
     assert_eq!(p.call("POST", "/run", "{}").status, "400 Bad Request");
     assert_eq!(p.call("POST", "/possess", "{}").status, "400 Bad Request");
@@ -386,9 +428,17 @@ fn serves_the_page_and_rejects_what_it_must() {
     );
     assert_eq!(p.call("POST", "/nope", "{}").status, "404 Not Found");
     assert_eq!(p.call("PUT", "/state", "").status, "405 Method Not Allowed");
-    let unmarked =
-        Request { method: "POST".into(), path: "/step".into(), host: Some("localhost".into()), ..Request::default() };
-    assert_eq!(respond(&p.site, &unmarked).status, "403 Forbidden", "POST without X-IBC-Play");
+    let unmarked = Request {
+        method: "POST".into(),
+        path: "/step".into(),
+        host: Some("localhost".into()),
+        ..Request::default()
+    };
+    assert_eq!(
+        respond(&p.site, &unmarked).status,
+        "403 Forbidden",
+        "POST without X-IBC-Play"
+    );
     let foreign = Request {
         method: "GET".into(),
         path: "/state".into(),
@@ -396,7 +446,11 @@ fn serves_the_page_and_rejects_what_it_must() {
         ..Request::default()
     };
     assert_eq!(respond(&p.site, &foreign).status, "403 Forbidden");
-    assert_eq!(p.json("GET", "/state", "")["tick"], json!(0), "nothing above advanced the match");
+    assert_eq!(
+        p.json("GET", "/state", "")["tick"],
+        json!(0),
+        "nothing above advanced the match"
+    );
     ibc_replay::verify(&p.quit().replay).unwrap();
 }
 

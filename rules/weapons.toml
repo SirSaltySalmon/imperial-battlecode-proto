@@ -7,8 +7,9 @@
 # unsteady_max. Movement adds no spread. Formulas, a table of these values and measured time-to-kill figures are
 # in docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
 
-# Free sidearm everyone carries: exact single shots and a short startup even off a run, but it reaches only ten
-# tiles and loses damage from four.
+# Free sidearm everyone carries: exact single shots and a short startup even off a run. It reaches fifteen tiles
+# and loses damage only from twelve, so four hits kill (five through light armour, six through heavy) out to
+# about twelve and a half tiles. A bought gun earns its price by killing faster where it is meant to fight.
 [[weapon]]
 name = "pistol"
 slot = 1
@@ -24,9 +25,9 @@ cooldown = 1
 magazine = 12
 reload_ticks = 3
 bullet_speed = 8192
-range = 10240
-falloff_start = 4096
-falloff_min_pct = 50
+range = 15360
+falloff_start = 12288
+falloff_min_pct = 85
 move_pct = 100
 kill_reward = 300
 unsteady_gain = 4
@@ -35,6 +36,7 @@ unsteady_max = 4
 startup_per_point = 25
 
 # All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
+# Fires at the pistol's rate, slower than the smg and a braced lmg.
 [[weapon]]
 name = "rifle"
 slot = 0
@@ -60,19 +62,20 @@ unsteady_decay = 2
 unsteady_max = 12
 startup_per_point = 25
 
-# Run-and-gun: running barely unsteadies it and it carries at full speed, but short reach and steep falloff.
+# Run-and-gun: the fastest fire rate (a pull every tick) with small hits that armour soaks. Running barely
+# unsteadies it and it carries at full speed, but short reach and steep falloff.
 [[weapon]]
 name = "smg"
 slot = 0
 price = 1500
-damage = 17
+damage = 12
 pellets = 2
 spread = 200
 recoil_spread = 100
 recoil_per_shot = 2
 recoil_recovery = 1
 windup = 1
-cooldown = 1
+cooldown = 0
 magazine = 15
 reload_ticks = 3
 bullet_speed = 9216
@@ -112,13 +115,15 @@ unsteady_decay = 2
 unsteady_max = 8
 startup_per_point = 25
 
-# Long range: one fast bullet with no falloff, two hits kill. Slow to cycle, very slow to start after moving,
+# Long range: one fast bullet. Two hits kill a bare or light-armoured unit and three a heavy-armoured one,
+# anywhere in its reach: a shallow falloff past its 24-tile sight takes 74 down to 63, never across a breakpoint
+# (63 kills light armour in two, 75 would kill heavy in two). Slow to cycle, very slow to start after moving,
 # and the two-tick startup warns the target.
 [[weapon]]
 name = "marksman"
 slot = 0
 price = 3200
-damage = 75
+damage = 74
 pellets = 1
 spread = 0
 recoil_spread = 300
@@ -129,9 +134,9 @@ cooldown = 4
 magazine = 5
 reload_ticks = 5
 bullet_speed = 20480
-range = 40960
-falloff_start = 40960
-falloff_min_pct = 100
+range = 30720
+falloff_start = 24576
+falloff_min_pct = 86
 move_pct = 80
 kill_reward = 100
 unsteady_gain = 12
@@ -139,20 +144,20 @@ unsteady_decay = 2
 unsteady_max = 16
 startup_per_point = 25
 
-# Heavy and slow: a five-bullet wall every pull, a deep magazine and almost no recoil, for holding a lane.
+# Fast once braced: a five-bullet wall every tick from a deep magazine, for holding a lane against a group.
 # Slow to carry, very slow to start firing after moving and very slow to reload.
 [[weapon]]
 name = "lmg"
 slot = 0
 price = 2300
-damage = 16
+damage = 13
 pellets = 5
 spread = 300
 recoil_spread = 60
 recoil_per_shot = 2
 recoil_recovery = 1
 windup = 2
-cooldown = 2
+cooldown = 0
 magazine = 20
 reload_ticks = 7
 bullet_speed = 12288
@@ -161,6 +166,33 @@ falloff_start = 14336
 falloff_min_pct = 60
 move_pct = 70
 kill_reward = 150
+unsteady_gain = 12
+unsteady_decay = 2
+unsteady_max = 16
+startup_per_point = 25
+
+# Eco long gun: the marksman's bullet, damage and startup tell for little money, so a saving team can still hold
+# a long angle. A miss costs a long wait, and it reaches only its own 24 tiles of sight.
+[[weapon]]
+name = "hunter"
+slot = 0
+price = 1200
+damage = 74
+pellets = 1
+spread = 0
+recoil_spread = 300
+recoil_per_shot = 4
+recoil_recovery = 1
+windup = 2
+cooldown = 5
+magazine = 5
+reload_ticks = 5
+bullet_speed = 20480
+range = 24576
+falloff_start = 24576
+falloff_min_pct = 100
+move_pct = 80
+kill_reward = 400
 unsteady_gain = 12
 unsteady_decay = 2
 unsteady_max = 16

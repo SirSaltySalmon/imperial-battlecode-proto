@@ -12,12 +12,21 @@ fn wat(text: &str) -> Vec<u8> {
     wat::parse_str(text).unwrap()
 }
 
-/// The upload check refuses what the runner would refuse at instantiation: more memory than `memory_bytes`.
+/// The upload check refuses what the runner would refuse at instantiation: more memory than `memory_bytes`
+/// times the language's row.
 #[test]
 fn the_upload_memory_cap_is_the_rule() {
-    let rule = ibc_engine::Ruleset::builtin().memory_bytes as u64;
+    let rules = ibc_engine::Ruleset::builtin();
+    let rule = rules.memory_bytes as u64;
     assert_eq!(Limits::default().max_memory_bytes, rule);
-    assert_eq!(ibc_coordinator::config::Config::default().max_memory_bytes, rule);
+    let cfg = ibc_coordinator::config::Config::default();
+    for language in ["rust", "cpp", "default", "zig"] {
+        assert_eq!(
+            cfg.memory_cap(language),
+            rules.language(language).memory_cap(rules.memory_bytes)
+        );
+    }
+    assert_eq!(cfg.languages(), ["cpp", "rust"]);
 }
 
 #[test]
@@ -143,12 +152,18 @@ async fn upload_validates_stores_and_switches_the_live_submission() {
         .as_str()
         .unwrap()
         .contains("env.something"));
-    // The validated module is a blob workers can fetch.
+    // The validated module is stored as a blob; a worker reads it only for a job it holds.
+    assert_eq!(
+        h.raw("GET", &format!("/v1/blobs/{first}"), Some(ADMIN), vec![])
+            .await,
+        (StatusCode::OK, bot_wasm("alpha"))
+    );
     let w = MockWorker::register(&h, "w", false).await;
     assert_eq!(
         h.raw("GET", &format!("/v1/blobs/{first}"), Some(&w.token), vec![])
-            .await,
-        (StatusCode::OK, bot_wasm("alpha"))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
     );
 
     // Unknown language, missing auth, someone else's token class.

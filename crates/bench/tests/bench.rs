@@ -246,8 +246,13 @@ fn sprt_stops_early_and_deterministically() {
     assert_eq!(rep.wins, rep.games);
     // With a small pool the run stops because a batch adds nothing new; with a larger one the SPRT decides.
     assert!(
-        rep.sprt.as_ref().is_some_and(|s| !matches!(s.decision, ibc_bench::stats::SprtDecision::Continue))
-            || rep.warnings.iter().any(|w| w.contains("no new distinct pair")),
+        rep.sprt
+            .as_ref()
+            .is_some_and(|s| !matches!(s.decision, ibc_bench::stats::SprtDecision::Continue))
+            || rep
+                .warnings
+                .iter()
+                .any(|w| w.contains("no new distinct pair")),
         "{:?}",
         rep.warnings
     );
@@ -289,7 +294,12 @@ fn sprt_stops_early_and_deterministically() {
 
 /// Every key path in a JSON value; keys under the listed dynamic maps collapse to `*`.
 fn shape(v: &Value, path: &str, out: &mut BTreeSet<String>) {
-    const DYNAMIC: [&str; 3] = ["metrics", "loadouts.attack", "loadouts.defend"];
+    const DYNAMIC: [&str; 4] = [
+        "metrics",
+        "loadouts.attack",
+        "loadouts.defend",
+        "per_weapon.carrier_rounds",
+    ];
     match v {
         Value::Object(map) => {
             for (k, child) in map {
@@ -377,7 +387,7 @@ fn report_json_schemas_match_their_snapshots() {
     assert_eq!(league_report.schema, "ibc-bench/league/1");
     assert_snapshot("league.schema.txt", &shape_of(&league_report));
     let balance_report = balance::build(&games, Vec::new());
-    assert_eq!(balance_report.schema, "ibc-bench/balance/1");
+    assert_eq!(balance_report.schema, "ibc-bench/balance/2");
     assert_snapshot("balance.schema.txt", &shape_of(&balance_report));
     // The report survives a round trip through its file format, which is what `--compare` reads.
     let text = report::to_json(&balance_report).unwrap();
@@ -475,6 +485,89 @@ fn details_agree_with_the_engine_summary() {
         report.rounds,
         games.iter().map(|g| g.rounds.len() as u64).sum::<u64>()
     );
+}
+
+#[test]
+fn kill_index_accounts_for_every_kill_and_old_details_still_load() {
+    let (_, mut games) = small_league();
+    let report = balance::build(&games, Vec::new());
+    let p = &report.per_weapon;
+    assert_eq!(p.games, games.len() as u64);
+    assert!(!p.weapons.is_empty() && p.armor_classes.first().map(String::as_str) == Some("none"));
+    let metric = |k: String| report.metrics.get(&k).copied();
+    // Every enemy kill is credited to exactly one carried weapon, so the kill index averages to 1 over the
+    // carrier-rounds, and kills per carrier-round add up to all kills.
+    let total: u64 = p.carrier_rounds.values().sum();
+    let (mut weighted, mut kills) = (0.0, 0.0);
+    for w in &p.weapons {
+        let rounds = p.carrier_rounds.get(w).copied().unwrap_or(0) as f64;
+        if let Some(e) = metric(format!("weapon.{w}.kill_index")) {
+            weighted += e.value * rounds / total as f64;
+            assert!(e.lo.is_some() && e.n <= report.distinct_games, "{w}: {e:?}");
+        }
+        if let Some(e) = metric(format!("weapon.{w}.kills_per_carrier_round")) {
+            kills += e.value * rounds;
+        }
+        for side in ["attack", "defend"] {
+            if rounds > 0.0 {
+                assert!(metric(format!("weapon.{w}.kill_index.side.{side}")).is_some());
+            }
+        }
+    }
+    assert!(
+        (weighted - 1.0).abs() < 1e-9,
+        "carrier-weighted index {weighted}"
+    );
+    let enemy_kills: i64 = games
+        .iter()
+        .map(|g| g.totals[0].kills + g.totals[1].kills)
+        .sum();
+    assert!(
+        (kills - enemy_kills as f64).abs() < 1e-6,
+        "{kills} vs {enemy_kills}"
+    );
+    // Distance bands of each weapon partition its kills.
+    for w in &p.weapons {
+        let bands: f64 = report
+            .metrics
+            .iter()
+            .filter(|(k, _)| k.starts_with(&format!("weapon.{w}.kills.distance.")))
+            .map(|(_, e)| e.value)
+            .sum();
+        assert!(bands == 0.0 || (bands - 1.0).abs() < 1e-9, "{w}: {bands}");
+    }
+    let md = balance::render_markdown(&report);
+    assert!(md.contains("## Weapons per carrier-round") && md.contains("### Kill index by bot"));
+
+    // A games.jsonl line written before the attribution existed: the new fields are absent.
+    let mut line: Value = serde_json::to_value(&games[0]).unwrap();
+    let detail = line["detail"].as_object_mut().unwrap();
+    for field in [
+        "version",
+        "kill_rewards",
+        "ability_kill_reward",
+        "armor_classes",
+        "damage_by_carried",
+    ] {
+        detail.remove(field);
+    }
+    for k in detail["kills"].as_array_mut().unwrap() {
+        for field in ["weapon", "carried", "team", "victim_team", "victim_armor"] {
+            k.as_object_mut().unwrap().remove(field);
+        }
+    }
+    let old: GameResult = serde_json::from_value(line).expect("old details load");
+    assert_eq!(old.detail.as_ref().unwrap().version, 0);
+    games
+        .iter_mut()
+        .for_each(|g| g.detail.as_mut().unwrap().version = 0);
+    games[0] = old;
+    let report = balance::build(&games, Vec::new());
+    assert_eq!(report.per_weapon.games, 0);
+    assert!(!report.metrics.keys().any(|k| k.starts_with("weapon.")));
+    assert!(report.metrics.contains_key("kill_distance_tiles.mean"));
+    assert!(report.warnings.iter().any(|w| w.contains("unavailable")));
+    assert!(balance::render_markdown(&report).contains("Unavailable"));
 }
 
 #[test]

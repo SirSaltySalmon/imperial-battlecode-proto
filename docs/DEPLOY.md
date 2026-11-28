@@ -65,7 +65,8 @@ Workers on the same box register with the trusted token (`deploy/README.md`); re
 
 ### Configuration
 
-Every flag has an `IBC_*` variable (`ibc-coordinator --help`). The ones a deployment sets:
+Every flag has an `IBC_*` variable (`ibc-coordinator --help`); one set to the empty string counts as unset.
+The ones a deployment sets:
 
 | Variable | Meaning |
 |---|---|
@@ -107,8 +108,9 @@ the archive URL and its SHA-256 for their platform). Nothing is ever downloaded 
    `/var/lib/ibc-coordinator/distribution.json` (`/etc/ibc-coordinator` is root-only).
 3. The file is read on every request: replacing it publishes the new release, no restart needed.
 
-`GET /v1/distribution` answers 404 with an explanation while `IBC_DISTRIBUTION` is unset. A workspace can
-also pin the engine for everyone who checks it out: `ibc.toml` with `[engine] version = "x.y.z"`.
+`GET /v1/distribution` answers 404 with an explanation while `IBC_DISTRIBUTION` is unset or names a file that
+does not exist yet (the coordinator warns about the latter at start), and 500 while the file is malformed. A
+workspace can also pin the engine for everyone who checks it out: `ibc.toml` with `[engine] version = "x.y.z"`.
 
 ## Backups
 

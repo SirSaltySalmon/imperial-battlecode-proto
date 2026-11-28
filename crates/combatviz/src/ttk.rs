@@ -10,7 +10,8 @@ use ibc_engine::abi::*;
 use ibc_engine::combat::{self, startup_ticks};
 use ibc_engine::fixed::{self, V2};
 
-const DISTANCES: [i32; 3] = [5, 10, 20];
+/// The distances of `combat_ttk::DISTANCES`; a test checks the two lists agree.
+pub const DISTANCES: [i32; 5] = [2, 5, 10, 15, 20];
 const CAP: i32 = 100;
 const UNITS_PER_RADIAN: i64 = 10430;
 /// Ticks of strafing before the first pull of a running duel (they are recorded before the clock starts).
@@ -24,27 +25,55 @@ fn strafe_angle(tick: i32) -> i32 {
     }
 }
 
-pub fn add(cat: &mut Catalog, heavy: i32) {
+/// The armour on the target in each duel: none, then the lightest and the heaviest the shop sells, as
+/// `combat_ttk` tabulates them (a value the shop does not sell twice is played once).
+pub fn armors(rules: &ibc_engine::Ruleset) -> Vec<i32> {
+    let values = || {
+        rules
+            .items
+            .iter()
+            .filter(|item| item.kind == ITEM_KIND_ARMOR)
+            .map(|item| item.value)
+    };
+    let mut out = vec![0];
+    for v in [values().min(), values().max()].into_iter().flatten() {
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    out
+}
+
+pub fn add(cat: &mut Catalog, armors: &[i32]) {
     let rules = ibc_engine::Ruleset::builtin();
+    let heavy = armors.iter().copied().max().unwrap_or(0);
     for (w, name) in rules.weapons.iter().zip(&rules.weapon_names) {
         for &tiles in &DISTANCES {
             for &running in &[false, true] {
-                for &armor in &[0, heavy] {
-                    add_one(cat, w.id, name, tiles, running, armor);
+                for &armor in armors {
+                    add_one(cat, w.id, name, tiles, running, armor, heavy);
                 }
             }
         }
     }
 }
 
-fn add_one(cat: &mut Catalog, id: i32, name: &str, tiles: i32, running: bool, armor: i32) {
+fn add_one(
+    cat: &mut Catalog,
+    id: i32,
+    name: &str,
+    tiles: i32,
+    running: bool,
+    armor: i32,
+    heavy: i32,
+) {
     let mut t = Take::begin(prepare(id, tiles, armor));
     let died = play(&mut t, id, tiles, running);
     let gait = if running { "after running" } else { "standing" };
-    let plate = if armor == 0 {
-        "no armour"
-    } else {
-        "heavy armour"
+    let plate = match armor {
+        0 => "no armour".to_string(),
+        a if a == heavy => format!("heavy armour ({a})"),
+        a => format!("light armour ({a})"),
     };
     let outcome = match died {
         Some(tick) => tick.to_string(),

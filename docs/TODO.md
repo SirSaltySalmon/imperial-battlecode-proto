@@ -91,14 +91,29 @@ it on the current ten-map pool before acting; the numbers below predate the new 
 
 - [ ] **Fuel does not bound a match's CPU or memory: some host calls cost far more than they charge.**
   Found 2026-11-27 with the kernels in `bots/burner/examples`, full idle-length games, native `ibc`:
-  - `mem_write` stores `Input::MemWrite { data }` in the replay before any phase, scope or range check
-    (`crates/engine/src/host.rs`), at 20 fuel per call. Refused 1 MiB writes grew the runner by about 23 MB
-    a tick (923 MB after 40 ticks): a submission can exhaust a worker's memory. Record only accepted writes.
-  - `mem_read` allocates a zeroed buffer of the requested length (`h_mem_read` in `crates/runner/src/vm.rs`)
-    before the engine refuses it, for a flat 20 fuel: about 750 to 1,200 core-s a match, past the worker's
-    300 s job timeout. Check the length against the scope first, or charge per byte.
-  - `debug_draw` costs 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB replay, 568 MB peak.
-  - `count`/`get` and `los` spend about 1.9 ns per fuel, about 5 core-s per game.
+  - Fixed: `mem_write` stored `Input::MemWrite { data }` in the replay before any check, so refused 1 MiB
+    writes grew the runner by about 23 MB a tick. Now a refused `mem_write` or `act` leaves no input,
+    accepted writes are kept once per team and scope a tick (the bytes they left), and `act` accepts at most
+    `MAX_ACTS` (64) per unit and tick (docs/REPLAY.md, "Inputs"). Mirrors on crossfire: `mem_write` took
+    705 MB after 25 ticks before, 26 MB for the whole match after; looping accepted 64-byte writes took
+    760 MB after 100 ticks before, 16 MB and a 58 KB replay for the whole match after; looping moves took
+    a 7.6 MB replay after 100 ticks before, 2.8 MB for the whole match after.
+  - Fixed: `mem_read` allocated a zeroed buffer of the requested length before the engine refused it. The
+    engine now checks first and lends its bytes, which the runner copies straight into guest memory, and
+    `mem_write` passes the guest's bytes in place. The first 60 ticks of the `mem_read` mirror took 166
+    core-s before and 2.7 after (on a loaded machine, where the plain burner took 3 core-s a match). A
+    whole match is 68 core-s, as for any other host call made back to back at 20 fuel (`mem_spam`: 56).
+  - Done (`fix/host-call-fees`): `debug_draw` cost 0 fuel and about 280 ns a call: 74 core-s per game, a 14 MB
+    replay, 568 MB peak. Now 140 fuel and 2,048 drawings per team and tick: 33 core-s (84 before, same
+    machine and hour). The rest is storing 4,096 drawings a tick at about 3 µs each; a lower cap is the next
+    lever. WASI `fd_write` (64 iovecs) and `random_get` (4 KiB) were worse, 53 and 242 ns per fuel; now 5 per
+    iovec and 2 per 8 bytes, at the table-read rate. `log` and `fuel_remaining` are no dearer per fuel than a
+    table read and stay free. Fees need the engine patch bump (`docs/release.md`).
+  - `count`/`get` and `los` spend about 1.9 ns per fuel, about 5 core-s per game. Partly fixed: reading a
+    perceived table row by row redid the visibility pass per row (n passes, now one a tick: 11 times
+    faster for 14 of 64 drops), `get` allocated a row buffer per call, and the `los` walk divided at
+    every step. The `reads` kernel costs 12 to 15% less, `los` about 3% (noise). What is left is mostly
+    the fixed cost of any host call (the charge, the game lock, Wasmtime's async call path).
   Per unit of fuel, arithmetic costs 0.18 ns, `count`/`get` and `los` about 11 times that, cache-missing
   loads about 43 times, `mem_read` about 1,600 times, and `debug_draw` is free. Fix these before trusting
   the cost prior (section 3).
@@ -238,24 +253,27 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   need not be kept forever.
 - [x] **Abuse limits.** Done (unit 11): per-token and per-IP request limits, uploads per hour, module size,
   429 with `Retry-After`, suspend/ban for teams and users. Was: Upload rate and size per team, total submissions kept per team, API rate limits.
-- [ ] **Cost prior in the budget governor.** `series_per_batch` falls back to 10 core-seconds per game when it
-  has no measurement; measured cost is about 0.03. Unit 9 made it schedule at least one series per round until
-  games are timed, and the fill-up (which uses the same prior) keeps an idle fleet busy regardless; the prior
-  itself is still 10. Measured 2026-11-27 with `bots/burner` (every unit spends its whole fuel every tick;
+- [x] **Cost prior in the budget governor.** Done: the prior is 2 core-seconds per game (about twice the
+  longest legal match below, for slower cloud vCPUs) and the floor 0.05 (0.25 held a ladder of today's bots to an eighth
+  of the fleet). Measured 2026-11-27 with `bots/burner` (every unit spends its whole fuel every tick;
   all 14 maps, 4 seeds, both sides, native `ibc` on an i7-12700H): 0.53 core-s per game mean, 0.66 max doing
   nothing, 0.47 / 0.66 on top of `forcer`; the longest legal match projects to about 0.9. Cache-missing code
-  reaches 20 to 31 core-s. The bound only holds once host calls are priced (section 2).
+  reaches 20 to 31 core-s. The bound only holds once host calls are priced (section 2). Was:
+  `series_per_batch` fell back to 10 core-seconds per game when it had no measurement, against a measured
+  cost of about 0.03, with a floor of 0.25; unit 9 made it schedule at least one series per round until games
+  are timed, and devstack uses a 30 s interval.
 - [x] **Plagiarism and duplicate detection.** Decided (2026-11-27): no near-duplicate detection. Teams are
   responsible for keeping their own source private; the platform never shows source, never serves one team's
   compiled module to another (teams list only their own submissions, public replays are redacted per viewer)
   and runs every match server-side. Identical wasm across teams is still flagged (unit 11).
 - [ ] **Accounts:** emails are not verified, so register the `IBC_ADMIN_EMAILS` accounts before the site is
   public; login throttling is per email only (put per-IP limits in the reverse proxy).
-- [ ] **Any worker token can read any blob** by hash, not only replays: every team's compiled module, every
-  map (hidden tournament maps too) and unredacted replays. No worker needs it: workers only download the
-  bots, map and runner of a job they hold. `GET /v1/blobs` accepts the admin or any worker token for any
-  blob. Fine while every worker is ours; scope worker reads to blobs a held lease names before untrusted
-  workers.
+- [x] **Any worker token can read any blob.** Done: a worker reads only the bots, map and runner of a job it
+  holds a live lease on (anything else is 403: the worker fails the job as retryable) and uploads only while
+  it holds a lease (otherwise 409 `lease_lost`); the admin is unrestricted (`docs/JOBS.md`, `blobs`). Still
+  open: a worker holding any lease can upload any content up to the blob size limit. Was: `GET /v1/blobs`
+  accepted the admin or any worker token for any blob by hash: every team's compiled module, every map
+  (hidden tournament maps too) and unredacted replays.
 - [x] **Double elimination has no bracket reset.** Done: when the losers-bracket champion wins the grand
   final, a reset between the same two teams decides (`docs/api/tournaments.md`). Was: The grand final was
   played once, so the winners-bracket champion was out after its first loss.
@@ -271,7 +289,11 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   was ever fetched.
 - [ ] **Workflow lint.** The YAML was parsed, not linted. Run `actionlint`.
 - [ ] **The three shell wrappers in `tools/`.** (`tools/devstack.sh` has run green.)
-- [ ] **CI did not run on PR 15.** Check why (path filters or a trigger) so job-system changes are covered.
+- [x] **CI on PR 15.** It did run, on both commits, and passed, but the PR was merged 26 s before the last
+  `check` job finished (`main` has no required checks; a private repository needs GitHub Pro for them), and
+  the worker's real-runner tests had skipped: CI never set `IBC_RUNNER`, so `tests/e2e.rs` "passed" in
+  0.00 s. CI now sets it, those tests fail instead of skipping when `CI` is set, and `determinism.yml` also
+  runs them, on all four platforms.
 - [x] **A full workspace test run.** 488 passed on the integration branch.
 
 ## 5. Tests and code health
@@ -313,10 +335,10 @@ it on the current ten-map pool before acting; the numbers below predate the new 
   The plan: stock CPython 3.14 or 3.15 on WASI, a Wizer snapshot after importing the bot's modules, and the
   host API either through a statically linked extension module (needs a custom CPython build) or over a file
   descriptor the WASI shim implements (no rebuild).
-- [ ] **Per-language allowances.** One table per language holding the fuel multiplier and a memory multiplier,
-  ideally in `rules/` so it is hashed and identical for local runs and the ladder. Today fuel multipliers are
-  coordinator config (`--language`), recorded per bot in the replay header (`BotInfo.fuel_multiplier`). A
-  memory multiplier would scale the `memory_bytes` cap in the runner and in the upload check.
+- [x] **Per-language allowances.** `[[language]]` rows in `rules/core.toml` (fuel and memory multipliers, a
+  `default` row), hashed with the ruleset, applied by the runner by the bot's language and by the upload
+  check; jobs carry the language, the replay header the applied multipliers. The coordinator's `--language`
+  flag is gone. Left over: real numbers for each row, measured on the reference bots in each language.
 - [x] **Map editor** in the browser: `ibc view --editor` (unit 20).
 - [x] **Handbook generator:** rules pages from `rules/*.toml`, the ABI reference from `crates/abi`, and a
   single Markdown bundle for AI agents, as Cambridge's "Download for LLM". `cargo xtask docs`, output in

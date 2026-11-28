@@ -142,7 +142,7 @@ fn run_recurser(frame: Frame, stack_limit: i32) -> MatchOutput {
       (memory (export "memory") 1)
       (func (export "_start") (loop $l (call $end_turn) (br $l))))"#;
     let bot =
-        |name: &str, wat: &str| BotSpec { name: name.into(), wasm: wat::parse_str(wat).unwrap(), fuel_multiplier: 1.0 };
+        |name: &str, wat: &str| BotSpec::new(name, wat::parse_str(wat).unwrap());
     run_match(MatchConfig {
         rules,
         map_text: include_str!("../../../maps/crossfire.ibcmap").into(),
@@ -206,7 +206,7 @@ fn a_limit_above_what_the_runner_supports_is_refused() {
     let mut rules = Ruleset::builtin();
     rules.stack_limit = MAX_STACK_UNITS as i32 + 1;
     let wasm = wat::parse_str(recurser(Frame::Thin)).unwrap();
-    let bot = || BotSpec { name: "recurser".into(), wasm: wasm.clone(), fuel_multiplier: 1.0 };
+    let bot = || BotSpec::new("recurser", wasm.clone());
     let cfg = MatchConfig {
         rules,
         map_text: include_str!("../../../maps/crossfire.ibcmap").into(),

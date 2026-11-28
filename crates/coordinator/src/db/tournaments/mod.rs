@@ -454,6 +454,10 @@ fn bracket_state(
 /// Queue every pairing whose two seats are known and that has no series yet (the bracket reset only once
 /// the losers champion has won the grand final); close the tournament once its champion is decided.
 fn advance(tx: &Transaction, t: &Tournament, now: i64) -> ApiResult<()> {
+    // A finished tournament keeps its result, even if its bracket would now grow (a reset under newer rules).
+    if t.status == "finished" {
+        return Ok(());
+    }
     let entrants = load_entrants(tx, &t.id)?;
     let rows = load_matches(tx, &t.id)?;
     let (_, states) = bracket_state(t, entrants.len(), &rows);
@@ -514,14 +518,9 @@ fn queue_pairing(
         .ok_or_else(|| ApiError::internal("tournament started without map hashes"))?;
     let bot = |sub: &str| -> ApiResult<BotRef> {
         Ok(tx.query_row(
-            "SELECT sha256, fuel_mult FROM submissions WHERE id = ?1",
+            "SELECT sha256, language FROM submissions WHERE id = ?1",
             [sub],
-            |r| {
-                Ok(BotRef {
-                    sha256: r.get(0)?,
-                    fuel_mult: r.get(1)?,
-                })
-            },
+            |r| Ok(BotRef::submission(r.get(0)?, r.get(1)?)),
         )?)
     };
     let (bot_a, bot_b) = (bot(p.a.1)?, bot(p.b.1)?);

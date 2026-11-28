@@ -8,7 +8,8 @@
 use ibc::Bot;
 use squad::{Attack, Buy, Defence, Squad, Style};
 
-const STYLE: Style = Style { attack: Attack::Slow, defence: Defence::Retake, buy: Buy::Best, mixed_arms: false };
+const STYLE: Style =
+    Style { attack: Attack::Slow, defence: Defence::Retake, buy: Buy::Best, mixed_arms: false, loadout: None };
 
 pub struct Retaker(Squad);
 

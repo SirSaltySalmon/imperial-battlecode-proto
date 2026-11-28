@@ -7,7 +7,8 @@
 use ibc::Bot;
 use squad::{Attack, Buy, Defence, Squad, Style};
 
-const STYLE: Style = Style { attack: Attack::Split, defence: Defence::Hold, buy: Buy::Best, mixed_arms: true };
+const STYLE: Style =
+    Style { attack: Attack::Split, defence: Defence::Hold, buy: Buy::Best, mixed_arms: true, loadout: None };
 
 pub struct Lurker(Squad);
 

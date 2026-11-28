@@ -205,7 +205,8 @@ fn trade_in_refunds_purchases_of_the_same_buy_phase() {
     assert_eq!((m.world.units[0].weapons[0], credits(&m, 0)), (1, 1300));
     // Sidearm: buying the free default back returns the upgrade's price.
     assert_eq!(buy(&mut m, 0, revolver), OK);
-    assert_eq!((m.world.units[0].weapons[1], credits(&m, 0)), (6, 700));
+    let revolver_weapon = m.world.rules.items[revolver as usize].value;
+    assert_eq!((m.world.units[0].weapons[1], credits(&m, 0)), (revolver_weapon, 700));
     assert_eq!(buy(&mut m, 0, PISTOL), OK);
     assert_eq!((m.world.units[0].weapons[1], credits(&m, 0)), (0, 1300));
     // The trade-in can make an otherwise unaffordable swap affordable, and never mints credits.
@@ -346,7 +347,7 @@ fn survivors_carry_their_loadout_and_the_dead_start_over() {
     assert_eq!(buy(&mut m, 2, KIT), OK);
     assert_eq!(buy(&mut m, 2, LIGHT), OK);
     to_phase(&mut m, PHASE_ACTION);
-    m.world.damage(0, 30, None, -1); // armour soaks half
+    m.world.damage(0, 30, None, -1); // armour is extra health: it takes all 30 before hp
     m.world.units[0].ammo[0] = 1;
     kill(&mut m, 2, 1, 0);
     play_round(&mut m, TEAM_A, ROUND_WIN_ELIMINATION);
@@ -355,7 +356,7 @@ fn survivors_carry_their_loadout_and_the_dead_start_over() {
     let u0 = &m.world.units[0];
     assert_eq!(
         (u0.weapons, u0.slot, u0.armor),
-        ([1, 0], 0, 35),
+        ([1, 0], 0, 20),
         "survivor keeps weapons and what is left of the armour"
     );
     assert_eq!(

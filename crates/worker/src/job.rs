@@ -86,9 +86,9 @@ fn process(
     dir: &Path,
     seq: u64,
 ) -> Result<Finished, Stop> {
-    // Granted by a long poll that was still open when the drain began: nothing has started, so give it back
-    // now (no attempt spent) rather than start a match the machine may not live to finish.
-    if ctx.shutdown.is_draining() {
+    // Granted by a long poll that returned after the drain began: nothing has started, so give it back now
+    // (no attempt spent) rather than start a match the machine may not live to finish.
+    if active.leased_while_draining {
         return Err(Stop::Release("worker shutting down".into()));
     }
     if lease.kind != "match" {
@@ -118,8 +118,15 @@ fn process(
         "id": seq,
         "bot_a": path(bot_a.path()), "bot_b": path(bot_b.path()), "map": path(map.path()),
         "seed": spec.seed, "out_dir": path(dir),
-        "fuel_mult_a": spec.bot_a.fuel_mult, "fuel_mult_b": spec.bot_b.fuel_mult,
     });
+    for (bot, side) in [(&spec.bot_a, "a"), (&spec.bot_b, "b")] {
+        if let Some(l) = &bot.language {
+            job[format!("language_{side}")] = json!(l);
+        }
+        if let Some(m) = bot.fuel_mult {
+            job[format!("fuel_mult_{side}")] = json!(m);
+        }
+    }
     if let Some(t) = spec.max_ticks {
         job["max_ticks"] = json!(t);
     }

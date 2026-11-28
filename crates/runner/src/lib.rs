@@ -42,8 +42,29 @@ const HOST_STACK_BYTES: usize = 3 << 19;
 pub struct BotSpec {
     pub name: String,
     pub wasm: Vec<u8>,
-    /// Language multiplier on the engine's per-tick fuel budget (1.0 for Rust). Resolution 0.001.
-    pub fuel_multiplier: f64,
+    /// The bot's language, which picks its row of the ruleset's `[[language]]` table (fuel and memory
+    /// multipliers); a language without a row gets the `default` row. `language_of` reads it from a module.
+    pub language: String,
+    /// Replaces the fuel multiplier of the language's row (a local experiment, a bench job). Resolution 0.001.
+    pub fuel_override: Option<f64>,
+}
+
+impl BotSpec {
+    /// A bot whose language is what its module says (`language_of`), with no override.
+    pub fn new(name: impl Into<String>, wasm: Vec<u8>) -> BotSpec {
+        let language = language_of(&wasm);
+        BotSpec { name: name.into(), wasm, language, fuel_override: None }
+    }
+}
+
+/// The language a module names, as the coordinator's upload check reads it (`ibc_replay::detect_languages`):
+/// the one it names if it names exactly one, else `default`.
+pub fn language_of(wasm: &[u8]) -> String {
+    let named = ibc_replay::detect_languages(wasm);
+    match (named.len(), named.into_iter().next()) {
+        (1, Some(only)) => only,
+        _ => ibc_engine::language::DEFAULT_LANGUAGE.to_string(),
+    }
 }
 
 pub struct MatchConfig {
@@ -273,7 +294,13 @@ pub fn run_match(cfg: MatchConfig) -> Result<MatchOutput> {
 pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutput> {
     let env = host()?;
     let map = Map::parse(&cfg.map_text).map_err(|e| anyhow!("map: {e}"))?;
-    let mults = [milli(cfg.bots[0].fuel_multiplier)?, milli(cfg.bots[1].fuel_multiplier)?];
+    // Each team's allowances: its language's row, the fuel multiplier unless the run overrides it.
+    let rows = [cfg.rules.language(&cfg.bots[0].language), cfg.rules.language(&cfg.bots[1].language)];
+    let fuel_milli = |t: usize| match cfg.bots[t].fuel_override {
+        Some(m) => milli(m),
+        None => Ok(rows[t].fuel_milli as u64),
+    };
+    let mults = [fuel_milli(0)?, fuel_milli(1)?];
     let stack_limit = cfg.rules.stack_limit as u32;
     if stack_limit > MAX_STACK_UNITS {
         bail!("rules: stack_limit {stack_limit} is above what this runner supports ({MAX_STACK_UNITS})");
@@ -281,8 +308,9 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
     let ruleset_hash = hash_hex(cfg.rules.hash());
     let header_rules = HeaderRules::of(&cfg.rules);
     let map_hash = hash_hex(map.hash());
-    // Each unit's linear memory cap (`memory_bytes`), read before the ruleset moves into the match.
-    let memory_limit = usize::try_from(cfg.rules.memory_bytes).unwrap_or(0);
+    // Each team's linear memory cap per unit (`memory_bytes` times its language's row), read before the
+    // ruleset moves into the match.
+    let memory_limit = rows.clone().map(|r| usize::try_from(r.memory_cap(cfg.rules.memory_bytes)).unwrap_or(usize::MAX));
     let game = Arc::new(Mutex::new(Match::new(cfg.rules, map, cfg.seed)));
     let n = lock(&game).unit_count();
     let teams: Vec<i32> = (0..n).map(|u| lock(&game).unit_team(u)).collect();
@@ -294,6 +322,8 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
         sha256: shas[i].clone(),
         // what was actually applied
         fuel_multiplier: mults[i] as f64 / 1000.0,
+        language: cfg.bots[i].language.clone(),
+        memory_multiplier: rows[i].memory_milli as f64 / 1000.0,
     };
     let header = Header {
         engine_version: ibc_engine::ENGINE_VERSION.to_string(),
@@ -363,7 +393,7 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
             unit,
             cfg.seed,
             cfg.log_limit,
-            memory_limit,
+            memory_limit[team as usize],
             stack_limit,
         ) {
             Ok(vm) => vms.push(Some(vm)),
@@ -466,6 +496,8 @@ pub fn run_driven(cfg: MatchConfig, driver: &mut dyn Driver) -> Result<MatchOutp
         name: replay.header.bots[i].name.clone(),
         wasm_sha256: replay.header.bots[i].sha256.clone(),
         fuel_multiplier: replay.header.bots[i].fuel_multiplier,
+        language: replay.header.bots[i].language.clone(),
+        memory_multiplier: replay.header.bots[i].memory_multiplier,
         fuel: team_fuel[i].clone(),
         faults: faults.iter().filter(|f| f.team == i as i32).count() as u32,
     };

@@ -34,11 +34,7 @@ fn grower(pages: i32) -> String {
 }
 
 fn bot(name: &str, wat: &str) -> BotSpec {
-    BotSpec {
-        name: name.into(),
-        wasm: wat::parse_str(wat).unwrap(),
-        fuel_multiplier: 1.0,
-    }
+    BotSpec::new(name, wat::parse_str(wat).unwrap())
 }
 
 fn run(rules: Ruleset, a: BotSpec, b: BotSpec, ticks: u32) -> MatchOutput {
@@ -145,4 +141,30 @@ fn a_huge_memory_copy_finishes_and_is_paid_for_in_later_turns() {
         // That turn overruns its budget; the overrun is taken out of the next turns, which run nothing.
         assert!(u.out_of_fuel_turns >= 3, "{u:?}");
     }
+}
+
+/// A ruleset whose `python` row doubles the memory cap and triples fuel; every other language gets x1.
+fn with_python_row() -> Ruleset {
+    let mut rules = Ruleset::builtin();
+    rules.languages.push(ibc_engine::LanguageRules { name: "python".into(), fuel_milli: 3000, memory_milli: 2000 });
+    rules
+}
+
+#[test]
+fn a_language_row_scales_the_memory_cap_and_fuel_of_its_team_only() {
+    let pages = Ruleset::builtin().memory_bytes / PAGE;
+    let mut a = bot("a", &grower(2 * pages));
+    a.language = "python".into();
+    // Team B is not python: it grows to the plain cap.
+    let out = run(with_python_row(), a, bot("b", &grower(pages)), 3);
+    assert!(out.summary.faults.is_empty(), "{:?}", out.summary.faults);
+    let h = &out.replay.header.bots;
+    assert_eq!((h[0].language.as_str(), h[0].fuel_multiplier, h[0].memory_multiplier), ("python", 3.0, 2.0));
+    assert_eq!((h[1].language.as_str(), h[1].fuel_multiplier, h[1].memory_multiplier), ("default", 1.0, 1.0));
+    assert_eq!(out.summary.teams[0].fuel.granted, 3 * out.summary.teams[1].fuel.granted);
+    assert_eq!(out.summary.teams[0].language, "python");
+
+    // The same module on team B, not python, cannot grow past the plain cap.
+    let out = run(with_python_row(), bot("a", &grower(pages)), bot("b", &grower(2 * pages)), 3);
+    assert!(out.summary.faults.iter().all(|f| f.team == 1) && !out.summary.faults.is_empty());
 }

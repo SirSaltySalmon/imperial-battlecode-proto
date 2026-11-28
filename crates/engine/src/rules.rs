@@ -2,6 +2,7 @@
 //! Bots read the same values at runtime through T_RULES_CORE / T_WEAPON / T_ABILITY / T_ITEM / T_KIT.
 
 use ibc_abi::{AbilityRules, CoreRules, ItemRules, KitRules, WeaponRules};
+use crate::language::{self, LanguageRules};
 use toml::Table;
 
 /// Economy numbers that bots do not need as a table (they see prices through items and weapons).
@@ -55,6 +56,9 @@ pub struct Ruleset {
     /// locals and largest operand stack height, plus 2. Going deeper traps. Enforced by the runner, which
     /// counts it in the module so that it is the same on every CPU.
     pub stack_limit: i32,
+    /// Per-language allowances (`[[language]]` in core.toml), sorted by name. Empty: every language gets x1.
+    /// Read through `language()`.
+    pub languages: Vec<LanguageRules>,
     pub weapons: Vec<WeaponRules>,
     pub weapon_names: Vec<String>,
     pub abilities: Vec<AbilityRules>,
@@ -237,13 +241,14 @@ impl Ruleset {
             loss_streak_cap: gi(&e, "loss_streak_cap", 2),
             plant_reward: gi(&e, "plant_reward", 300),
             default_sidearm: gi(&e, "default_sidearm", 0).clamp(0, weapons.len() as i32 - 1),
-            armor_absorb_pct: gi(&e, "armor_absorb_pct", 50),
+            armor_absorb_pct: gi(&e, "armor_absorb_pct", 100),
         };
         Ok(Ruleset {
             core,
             round_end_ticks: gi(&c, "round_end_ticks", 2).max(1),
             memory_bytes: gi(&c, "memory_bytes", 8 << 20).max(0),
             stack_limit: gi(&c, "stack_limit", 65536).clamp(1, 1 << 30),
+            languages: language::parse(&c)?,
             weapons,
             weapon_names,
             abilities,
@@ -258,6 +263,11 @@ impl Ruleset {
         })
     }
 
+    /// The allowances of a bot written in `language`: its row, else the `default` row, else x1.
+    pub fn language(&self, language: &str) -> LanguageRules {
+        language::lookup(&self.languages, language)
+    }
+
     /// Hash of every number that affects simulation. Part of the patch identity.
     pub fn hash(&self) -> u64 {
         let mut h = crate::Fnv::new();
@@ -265,6 +275,7 @@ impl Ruleset {
         h.i32(self.round_end_ticks);
         h.i32(self.memory_bytes);
         h.i32(self.stack_limit);
+        language::hash(&self.languages, &mut h);
         for w in &self.weapons {
             h.bytes(ibc_abi::bytes_of(w));
         }

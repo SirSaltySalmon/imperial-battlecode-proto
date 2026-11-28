@@ -25,7 +25,7 @@ Imports come from module `ibc`:
 | `los(x0, y0, x1, y1) -> i32` | 1 if no wall lies between the points (static map only) |
 | `raycast(x, y, angle, max) -> i32` | Distance to the first wall, capped at `max` |
 | `mem_read(scope, off, ptr, len) -> i32`, `mem_write(...)` | Team, draft and buy memory (`MEM_*`; each writable in one phase) |
-| `debug_draw(kind, x0, y0, x1, y1, color) -> i32` | Overlay in the replay viewer; free |
+| `debug_draw(kind, x0, y0, x1, y1, color) -> i32` | Overlay in the replay viewer; each team keeps up to 2,048 a tick |
 | `log(ptr, len) -> i32` | Append to the unit's log |
 
 Only a small WASI preview1 subset exists: `fd_write` to stdout/stderr (captured, size-capped), a deterministic
@@ -80,11 +80,22 @@ clock and random source, empty args and environment. There is no filesystem, net
   `UnitInfo.blind`, as before.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
   resolves with everyone else's when the tick is stepped. One move, one facing and one primary action per tick.
+  A unit gets at most 64 accepted actions a tick (`MAX_ACTS` in `crates/engine`); later calls return
+  `ERR_NOT_ALLOWED` and change nothing.
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;
   balance patches change them without changing the ABI.
 - **Reserved fields.** A field whose meaning is retired keeps its slot, is renamed `_reservedN` and always reads 0,
   so compiled bots keep their layout. `WeaponRules._reserved0` was `move_spread` (movement no longer adds spread).
-- **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed.
+- **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed, paid before its
+  arguments are checked: `debug_draw` 140, `fd_write` 5 per iovec, `random_get` 2 per 8 bytes, and the
+  constants in `crates/abi` for the rest. `end_turn`, `fuel_remaining`, `log` and the other WASI calls are
+  free. An `ibc` call that costs at least what is left of the turn waits for the next turn, so it acts on
+  the tick that pays for it; one that costs a whole turn's budget or more takes what is left and owes the
+  rest, and goes through once the following turns have paid it. A WASI call is paid like an instruction: at
+  once, and what runs past the turn is owed by the next turns. Fees are prices, not layout: they can change
+  with the engine version (`docs/release.md`).
+- **Debug drawings** are kept up to 2,048 per team and tick, in call order; later calls that tick still
+  succeed and are dropped.
 
 ## Additions in v1
 
@@ -118,9 +129,9 @@ still loads and reads the prefix of each record it knows; what changed is what s
   (lowest `ty`, then lowest `tx`). A unit there is on the site, which the box centre need not be: sites may be
   any shape (L-shaped, hollow). On a filled rectangle with odd sides it equals `centre_x`, `centre_y`. A bot
   that reads only the first 28 bytes of the record sees no change.
-- `DropInfo.ammo` (after engine 0.2.0; the record grows from 16 to 20 bytes): the rounds in a dropped
-  weapon's magazine, 0 for the charge. A weapon used to fall empty; it now keeps its magazine and whoever
-  picks it up gets those rounds.
+- `DropInfo.ammo` (engine 0.3.0): the rounds a dropped weapon still holds, 0 for the charge. A pickup gets
+  exactly those, where it used to get an empty magazine. The record grows from 16 to 20 bytes; a bot that
+  reads only the first 16 sees no change.
 
 ## For engine and SDK authors
 

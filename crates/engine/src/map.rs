@@ -180,15 +180,18 @@ impl Map {
     }
 
     /// Walk the segment a->b through the grid (exact integer DDA). Returns the first point where it enters a
-    /// wall tile, or `None` if the way is clear. Low cover does not stop sight or bullets.
+    /// wall tile, or `None` if the way is clear. Low cover does not stop sight or bullets. Each step is a
+    /// comparison and a tile lookup; the entry point (two divisions) is worked out only for the wall the walk
+    /// stops at.
     pub fn segment_wall(&self, a: V2, b: V2) -> Option<V2> {
         let (mut tx, mut ty) = (a.0.div_euclid(TILE), a.1.div_euclid(TILE));
         if self.tile(tx, ty) == TILE_WALL {
             return Some(a);
         }
         let (ex, ey) = (b.0.div_euclid(TILE), b.1.div_euclid(TILE));
-        let dx = (b.0 - a.0) as i64;
-        let dy = (b.1 - a.1) as i64;
+        // Widened before subtracting: both ends come from bots, and any two i32s are a valid segment.
+        let dx = b.0 as i64 - a.0 as i64;
+        let dy = b.1 as i64 - a.1 as i64;
         let (sx, sy) = (dx.signum() as i32, dy.signum() as i32);
         let (adx, ady) = (dx.abs(), dy.abs());
         // Distance along each axis to the next tile boundary.
@@ -205,18 +208,18 @@ impl Map {
             } else {
                 nx * ady <= ny * adx
             };
-            let hit;
             if step_x {
-                hit = (a.0 + (sx as i64 * nx) as i32, a.1 + (dy * nx / adx) as i32);
                 tx += sx;
+                if self.tile(tx, ty) == TILE_WALL {
+                    return Some((a.0 + (sx as i64 * nx) as i32, a.1 + (dy * nx / adx) as i32));
+                }
                 nx += TILE as i64;
             } else {
-                hit = (a.0 + (dx * ny / ady) as i32, a.1 + (sy as i64 * ny) as i32);
                 ty += sy;
+                if self.tile(tx, ty) == TILE_WALL {
+                    return Some((a.0 + (dx * ny / ady) as i32, a.1 + (sy as i64 * ny) as i32));
+                }
                 ny += TILE as i64;
-            }
-            if self.tile(tx, ty) == TILE_WALL {
-                return Some(hit);
             }
         }
         None

@@ -32,8 +32,11 @@ pub struct Config {
     pub verify_fraction: f64,
 
     pub max_wasm_bytes: usize,
-    /// Largest declared initial memory of an upload: the ruleset's `memory_bytes`, which the runner enforces.
-    pub max_memory_bytes: u64,
+    /// The ruleset of this build (`rules/*.toml`). Its `[[language]]` rows are the languages a submission may
+    /// be entered as, and `memory_bytes` times a language's row caps the initial memory of an upload in that
+    /// language. Matches apply the rows of the job's patch in the runner; the coordinator and the runner of
+    /// a patch come from one release (docs/release.md), so the two agree.
+    pub rules: ibc_engine::Ruleset,
     /// Largest accepted blob upload (replays) and request body in general.
     pub max_blob_bytes: usize,
     pub max_map_bytes: usize,
@@ -67,9 +70,6 @@ pub struct Config {
     /// every rating from the event ledger at start.
     pub rating_system: String,
 
-    /// Language name -> fuel multiplier applied to submissions in that language. The only source of a
-    /// submission's multiplier: an upload names its language, never its multiplier.
-    pub languages: Vec<(String, f64)>,
     /// A worker counts as live in `/metrics` if it called within this window.
     pub worker_live_ms: i64,
     /// Ladder snapshots kept (older ones are pruned; they can be recomputed from the series table).
@@ -143,7 +143,7 @@ impl Default for Config {
             sweep_ms: 2_000,
             verify_fraction: 0.05,
             max_wasm_bytes: 16 << 20,
-            max_memory_bytes: 8 << 20,
+            rules: ibc_engine::Ruleset::builtin(),
             max_blob_bytes: 64 << 20,
             max_map_bytes: 1 << 20,
             unranked_daily_games: 100,
@@ -157,7 +157,6 @@ impl Default for Config {
             ranked_cap_window_ms: 900_000,
             ranked_games: 3,
             rating_system: "weng-lin".to_string(),
-            languages: vec![("rust".to_string(), 1.0), ("cpp".to_string(), 1.0)],
             worker_live_ms: 90_000,
             ladder_snapshots_kept: 200,
             auth: crate::accounts::AuthConfig::default(),
@@ -196,10 +195,27 @@ impl Config {
         }
     }
 
-    pub fn fuel_multiplier(&self, language: &str) -> Option<f64> {
-        self.languages
+    /// The languages a submission may be entered as: the ruleset's rows but `default`.
+    pub fn languages(&self) -> Vec<&str> {
+        self.rules
+            .languages
             .iter()
-            .find(|(name, _)| name == language)
-            .map(|&(_, m)| m)
+            .map(|r| r.name.as_str())
+            .filter(|&n| n != ibc_engine::language::DEFAULT_LANGUAGE)
+            .collect()
+    }
+
+    /// The allowances of a submission entered as `language`, if the ruleset has a row for it.
+    pub fn allowance(&self, language: &str) -> Option<ibc_engine::LanguageRules> {
+        self.languages()
+            .contains(&language)
+            .then(|| self.rules.language(language))
+    }
+
+    /// Largest initial memory of an upload in `language`: what the runner caps a unit of it at.
+    pub fn memory_cap(&self, language: &str) -> u64 {
+        self.rules
+            .language(language)
+            .memory_cap(self.rules.memory_bytes)
     }
 }

@@ -1,7 +1,7 @@
 {
   "patch": {
-    "engine": "0.2.0",
-    "ruleset_hash": "76bad4d5dc0354b6",
+    "engine": "0.3.0",
+    "ruleset_hash": "8738e66cbe90cb90",
     "abi": 1
   },
   "cases": [
@@ -12,13 +12,13 @@
       "a": "rusher",
       "b": "holder",
       "finished": true,
-      "winner": 1,
+      "winner": 0,
       "score": [
-        6,
-        8
+        9,
+        9
       ],
-      "ticks": 939,
-      "final_state_hash": "d5507c594468e994"
+      "ticks": 1317,
+      "final_state_hash": "6489a7949b059ce2"
     },
     {
       "name": "crossfire-holder-rusher-s2",
@@ -27,13 +27,13 @@
       "a": "holder",
       "b": "rusher",
       "finished": true,
-      "winner": 0,
+      "winner": 1,
       "score": [
-        7,
-        4
+        9,
+        9
       ],
-      "ticks": 712,
-      "final_state_hash": "53604f636c39b2bf"
+      "ticks": 1314,
+      "final_state_hash": "242472986a368ad1"
     },
     {
       "name": "tunnels-rusher-holder-s1",
@@ -45,10 +45,10 @@
       "winner": 0,
       "score": [
         7,
-        5
+        0
       ],
-      "ticks": 853,
-      "final_state_hash": "f8eb75b6ba10ddde"
+      "ticks": 450,
+      "final_state_hash": "8719bd6bbccba0ea"
     },
     {
       "name": "tunnels-holder-rusher-s2",
@@ -59,11 +59,11 @@
       "finished": true,
       "winner": 1,
       "score": [
-        9,
-        9
+        3,
+        7
       ],
-      "ticks": 1174,
-      "final_state_hash": "18ec6c4340a29471"
+      "ticks": 540,
+      "final_state_hash": "0db3074971e03479"
     },
     {
       "name": "crossfire-rusher-rusher-s3",
@@ -77,8 +77,8 @@
         9,
         9
       ],
-      "ticks": 897,
-      "final_state_hash": "792589cb9329af6c"
+      "ticks": 957,
+      "final_state_hash": "739b14b3f7ed77a9"
     },
     {
       "name": "tunnels-holder-idle-s4",
@@ -92,8 +92,8 @@
         7,
         0
       ],
-      "ticks": 587,
-      "final_state_hash": "a541b19bc2211276"
+      "ticks": 551,
+      "final_state_hash": "3e5d57954c588ed2"
     }
   ]
 }

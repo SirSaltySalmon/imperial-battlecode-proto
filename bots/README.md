@@ -33,8 +33,10 @@ What the squad bots do that the first three do not:
 - **Draft and use abilities for the objective.** Smoke on the line the enemy arrives on, or on the charge
   to defuse inside it; fire on a defuse in progress; a barrier in front of a plant or defuse; recon on the
   site before going in; flash, heal and dash as the fight asks. Kits are unique within a team.
-- **Buy by what a weapon is,** not by its name: longest range, biggest magazine, most pellets, cheapest.
-  The logic survives a change to `rules/weapons.toml`.
+- **Buy by what a weapon is,** not by its name: one bullet or a fan, longest range, biggest magazine, most
+  pellets, cheapest. The marksman slot that cannot afford the marksman rifle, or whose team is saving, takes
+  the hunter, the cheap single-bullet gun, for the same angles. The logic survives a change to
+  `rules/weapons.toml`.
 - **Stay inside the fuel budget.** The expensive questions (where does the enemy come into view of a site,
   how far is it) are asked one per buy tick, last in the turn, and kept for the match. Measured with the
   wasm runner: no out-of-fuel turns for the five squad bots on the pairings listed below. `holder` and
@@ -47,8 +49,9 @@ unit spends its whole budget on every tick and yields about 250 fuel short of ze
 `src/main.rs` does nothing else, like `idle`: the match then always plays all 18 rounds (2,305 ticks).
 `examples/` holds `forcer` plus burning, `forcer` alone from the same sources (the control: same final state
 hash), and kernels that spend the same fuel in costlier ways (`div`, `chase`, `fuel_calls`, `los`, `reads`,
-`draws`, `mem_read`, `mem_write`). Build them with `cargo build --release --target wasm32-wasip1 --examples`
-in `bots/burner` and pass the `.wasm` files to `ibc run`.
+`draws`, `mem_read`, `mem_write`, and `logs`, `prints`, `randoms` for `log`, WASI `fd_write` and
+`random_get`). Build them with `cargo build --release --target wasm32-wasip1 --examples` in `bots/burner` and
+pass the `.wasm` files to `ibc run`.
 
 Measured on 2026-11-27, ruleset `5795cbc069627a93`, wasm runner, one match per process, i7-12700H:
 
@@ -64,9 +67,69 @@ Measured on 2026-11-27, ruleset `5795cbc069627a93`, wasm runner, one match per p
 
 The fuel budget bounds CPU time only as well as host calls are priced. The same fuel costs 0.18 ns of CPU
 per unit as arithmetic, 0.37 as division, 2 as `los` or table reads, 8 as cache misses, 28 as `debug_draw`
-calls (free) and about 290 as 1 MiB `mem_read` calls (charged 20 fuel whatever the length). `mem_write` is
-worse: the engine records every call in the replay, refused or not, so one refused 1 MiB call per unit-turn
-grows the runner's memory by about 23 MB a tick.
+calls (free then) and about 290 as 1 MiB `mem_read` calls (charged 20 fuel whatever the length). `mem_write` was
+worse: the engine recorded every call in the replay, refused or not, so one refused 1 MiB call per unit-turn
+grew the runner's memory by about 23 MB a tick. Both are fixed: the engine checks a memory call before
+anything of the requested length exists, and the replay keeps only what accepted calls left
+(docs/REPLAY.md, "Inputs").
+
+Pricing `debug_draw` (140 fuel, and 2,048 kept drawings per team and tick instead of 4,096 for the world),
+`fd_write` (5 per iovec) and `random_get` (2 per 8 bytes), measured later that day on `crossfire`, seed 1,
+with the binaries before and after run alternately (the machine was slower than above: table reads at about
+4.5 ns per fuel, start-up of about 0.3 s included):
+
+| Mirror | Before | After |
+|---|---:|---:|
+| `draws`, whole match | 84.3 core-s, 566 MB peak, 14.3 MB replay | 32.8 core-s, 628 MB, 20.9 MB |
+| `prints` (64 one-byte iovecs per `fd_write`), 300 ticks | 19.2 core-s (53 ns per fuel) | 1.4 (4.0) |
+| `randoms` (4 KiB per `random_get`) | 306 ms a tick (242 ns per fuel) | 4.5 ms (3.8) |
+| `logs` / `reads` / `burner`, 300 ticks | 1.5 / 1.7 / 0.36 core-s | 1.6 / 1.6 / 0.33 |
+
+`log` and `fuel_remaining` cost no more per fuel than a table read and stay free. What is left of `draws` is
+storing the 4,096 drawings a tick that the cap keeps, about 3 µs of CPU each; the replay is larger because
+drawings from several units compress worse than one unit's run. Only a lower cap, or a cheaper replay writer,
+reduces that.
+
+## Loadout A/B
+
+What a weapon is worth to a bot is measured by playing the same bot with one slot's weapon swapped. Games
+are deterministic, so map, seed and side cancel out and the difference is the weapon (`docs/hillclimb.md`
+for the method). `Style::loadout` forces one unit slot's primary weapon; it is `None` for every bot in the
+pool, and with `None` the squad bots play exactly as before.
+
+The weapon is named by role (`squad::Arm`: `Rifle`, `Marksman`, `MachineGun`, `Shotgun`, `Smg`), because
+the ABI gives weapons no names. A role is resolved against the rules at runtime as the normal buy resolves
+it: the marksman is the longest-range weapon, the machine gun the biggest magazine, and so on. The override
+changes what the slot buys, never when:
+
+- An eco bot (`saver`) decides to save or buy on its usual weapon, so it saves in the same rounds.
+- When the slot can afford the forced weapon it buys it, then armour from what is left. A dearer weapon can
+  cost the slot its armour; that is part of the weapon's price.
+- When it cannot afford it, the slot buys what it would have bought without the override.
+- A slot that can afford the forced weapon buys it even over a dearer weapon it survived with, so the
+  rounds it plays something else are the rounds it could not pay for the forced one (the pistol round, and
+  poor rounds of a forced weapon dearer than the usual one). Those rounds dilute the result towards zero.
+
+Wasm bots have no runtime configuration, so a variant is its own crate. `tools/loadout.sh` writes one under
+`out/loadout/` (ignored by git), with one line of the base's `STYLE` changed:
+
+```
+tools/loadout.sh saver 3 Marksman          # -> out/loadout/saver-marksman-s3
+tools/bench.sh ab out/loadout/saver-marksman-s3 saver --seeds 3
+tools/bench.sh league --bots out/loadout/saver-marksman-s3,saver,rusher,holder,utility,sapper,retaker,lurker,forcer --seeds 3
+```
+
+`ab` plays the variant against its base on every map and seed, both sides, and reports W/D/L with the
+number of distinct games and a paired 95% interval. It is a near-mirror, so read it as a sanity check
+rather than the answer. The answer is the league: the variant and its base meet the same opponents on the
+same maps, seeds and sides, so compare their rows against each pool bot and their ratings with their
+intervals. Do not act on a difference inside the intervals.
+
+A variant given as a path plays only on the wasm backend (metered, the default and the one to report). It
+is not registered in `ibc-sim` and must not join the default pool; to run one natively for debugging,
+add it to `BOTS` and `make_bot` in `crates/sim/src/lib.rs` and to `crates/sim/Cargo.toml` locally, without
+committing that. Check that the slot holds the forced weapon in a replay (`ibc-bench why <replay> --round
+<R> --unit <id>` for a full-buy round, not the pistol round, or the viewer) before trusting a result.
 
 ## Measured
 
@@ -199,3 +262,15 @@ Fuel, wasm runner (measured before the timing change): 40 matches (every pair of
 `warrens`, seed 11) had no out-of-fuel turn and no fault; the largest single turn was 297,188 of the
 400,000 a buy tick allows. Native and wasm gave the same final state hash for `sapper` against `retaker`
 on `crossfire`, seed 1, and that replay was produced twice byte-identical and verified.
+
+### `holder` writes its site in the action phase (2026-11-27, ruleset `b884be2eabbb7c1e`)
+
+`holder` used to write the attack site to team memory while planning on the first buy tick, where team
+memory is read-only, so every attacker's write was refused every round. The first attacker to act on the
+first action tick now writes it, and the others read it there. Every attacker computes the same site
+from the seed and the round, so the games did not change. The native league (14 maps, 3 seeds, 3,024 games,
+672 per bot) is identical before and after: `holder` wins 28.7% [25.4, 32.3] of matches and 43.7% of its
+attacking rounds. On the wasm runner, where the extra memory calls cost fuel, `ibc replay dump` prints the
+same state on every tick (team memory aside) for `holder` against `rusher` on `tunnels`, seed 1, both ways
+round, and the goldens kept every score and length. Only the team memory part of the state hash moved. The
+`holder`-first replay now holds 6 accepted site writes where it held 18 refused ones.

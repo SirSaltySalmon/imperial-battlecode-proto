@@ -102,7 +102,7 @@ the earlier one.
   where the target will be.
 - Bullets are fast objects, not hitscan: they fly at `bullet_speed` per tick, are stopped by walls, and hit the
   first enemy circle on their path. Damage is full up to `falloff_start` and drops linearly to `falloff_min_pct`
-  at `range`. Armour absorbs a share of each hit until it is used up. There is no friendly fire.
+  at `range`. Armour is extra health: a hit takes it first. There is no friendly fire.
 - At long range sustained fire with a multi-pellet weapon loses its outer pellets (an even fan, all of them):
   read `UnitInfo.recoil` and pause to let it settle, at the price of a fresh startup.
 - Each shot adds `recoil_per_shot`; recoil recovers by `recoil_recovery` on ticks without a shot. Magazines hold
@@ -141,17 +141,28 @@ kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
 
 ## Compute and memory
 
-- Each unit gets `fuel_per_tick` fuel per tick (times a per-language multiplier), more on the draft tick and in
-  the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
+- Each unit gets `fuel_per_tick` fuel per tick (times its language's fuel multiplier), more on the draft tick
+  and in the buy phase. Fuel is counted WebAssembly instructions plus a charge per host call (`FUEL_*`), fixed
+  or by size: `debug_draw` 140, WASI `fd_write` 5 per iovec and `random_get` 2 per 8 bytes (`docs/ABI.md`).
   `memory.copy` and `memory.fill` cost 1 fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
   One `memory.copy` or `memory.fill` always runs to completion, even past the budget, and the excess is taken
   out of the following turns: one huge copy can leave a unit idle for several ticks.
-- Each bot instance has its own linear memory of at most `memory_bytes` (8 MiB); the stack counts. A module
+- Each bot instance has its own linear memory of at most `memory_bytes` (8 MiB, times its language's memory
+  multiplier, rounded down to whole 64 KiB pages); the stack counts. A module
   that declares more is refused at upload and faults at the start of a match; `memory.grow` past the cap
   returns -1, so the allocator reports out of memory. An instance may have one table of at most 65,536 entries.
   Exception objects (a wasm `throw`, 24 bytes each) live in a second heap of the same cap that is never freed
   during the match: about 350,000 throws per unit.
+- **Per-language allowances.** Languages compile differently, so each has a row in `rules/core.toml`
+  (`[[language]]`: `name`, `fuel_milli`, `memory_milli`, in thousandths) that multiplies its fuel and its
+  memory cap; the current rows are in `docs/generated/rules.md`. A bot's language is what its module says:
+  the `ibc.language` custom section `ibc build` writes, else the `producers` section rustc and clang write.
+  A module that names no single language, or one without a row, gets the `default` row. The rows are part
+  of the ruleset hash, so `ibc run`, `run-batch`, the upload check and the ladder apply the same numbers; the
+  replay header records each team's language and the multipliers it got. On the ladder the language is the
+  one the submission was entered as (docs/JOBS.md). The native harness (`ibc-sim`) is unmetered and uncapped,
+  so the rows do not apply there. `stack_limit` is the same for every language.
 - Recursion depth is limited deterministically, the same on every CPU. Each call that has not returned costs
   stack units: its function's parameters, plus its locals, plus the most values its operand stack ever holds,
   plus 2. A call that would take the total over `stack_limit` (65,536) traps, and the unit faults with "stack

@@ -7,6 +7,10 @@ use crate::{abilities, combat, economy, teamplay, Input, Match};
 use ibc_abi::*;
 use serde_json::json;
 
+/// Debug drawings kept per team and tick. Later calls in the tick succeed and are dropped, so one team cannot
+/// crowd out the other, and a tick stores at most 4,096 drawings in the replay.
+const DEBUG_DRAWS_PER_TEAM: usize = 2048;
+
 fn push<T: Copy>(out: &mut Vec<u8>, v: &T) -> i32 {
     let b = bytes_of(v);
     out.extend_from_slice(b);
@@ -68,18 +72,23 @@ fn unit_info(w: &World, i: usize, full: bool) -> UnitInfo {
     }
 }
 
-/// Indices of the rows of a list table as the calling unit's team perceives it, in a fixed order.
-fn rows(w: &World, me: usize, table: u32) -> Vec<usize> {
+/// The units listed in `T_ALLIES` or `T_ENEMIES` for the calling unit, in roster order. Walked, not listed:
+/// a team has a handful of units, and `count` and `get` then allocate nothing.
+fn unit_rows(w: &World, me: usize, table: u32) -> impl Iterator<Item = usize> + '_ {
     let team = w.units[me].team;
-    let view = &w.views[team as usize];
-    match table {
-        T_ALLIES => (0..w.units.len()).filter(|&j| j != me && w.units[j].team == team).collect(),
-        T_ENEMIES => (0..w.units.len())
-            .filter(|&j| w.units[j].team != team && w.units[j].alive && view.units & (1 << j) != 0)
-            .collect(),
-        T_PROJECTILES | T_EFFECTS | T_DROPS => w.perceived(team, table),
-        _ => Vec::new(),
-    }
+    let seen = w.views[team as usize].units;
+    (0..w.units.len()).filter(move |&j| {
+        let u = &w.units[j];
+        match table {
+            T_ALLIES => j != me && u.team == team,
+            _ => u.team != team && u.alive && seen & (1 << j) != 0,
+        }
+    })
+}
+
+/// Index of row `ix` of `T_PROJECTILES`, `T_EFFECTS` or `T_DROPS` as the calling unit's team perceives it.
+fn perceived_row(w: &World, me: usize, table: u32, ix: usize) -> Option<usize> {
+    w.perceived(w.units[me].team, table).get(ix).map(|&j| j as usize)
 }
 
 fn match_info(w: &World, me: usize) -> MatchInfo {
@@ -123,7 +132,8 @@ impl Host for Match {
         }
         match table {
             T_SELF | T_MATCH | T_MAP | T_RULES_CORE => 1,
-            T_ALLIES | T_ENEMIES | T_PROJECTILES | T_EFFECTS | T_DROPS => rows(w, me, table).len() as i32,
+            T_ALLIES | T_ENEMIES => unit_rows(w, me, table).count() as i32,
+            T_PROJECTILES | T_EFFECTS | T_DROPS => w.perceived(w.units[me].team, table).len() as i32,
             T_SOUNDS => w.team_sounds[w.units[me].team as usize].len() as i32,
             T_MAP_ROW => w.map.height,
             T_WEAPON => w.rules.weapons.len() as i32,
@@ -155,17 +165,17 @@ impl Host for Match {
         }
         match table {
             T_SELF => push(out, &unit_info(w, me, true)),
-            T_ALLIES => match rows(w, me, table).get(ix) {
-                Some(&j) => push(out, &unit_info(w, j, true)),
+            T_ALLIES => match unit_rows(w, me, table).nth(ix) {
+                Some(j) => push(out, &unit_info(w, j, true)),
                 None => -ERR_OUT_OF_RANGE,
             },
-            T_ENEMIES => match rows(w, me, table).get(ix) {
-                Some(&j) => push(out, &unit_info(w, j, false)),
+            T_ENEMIES => match unit_rows(w, me, table).nth(ix) {
+                Some(j) => push(out, &unit_info(w, j, false)),
                 None => -ERR_OUT_OF_RANGE,
             },
             T_SOUNDS => row!(w.team_sounds[w.units[me].team as usize]),
-            T_PROJECTILES => match rows(w, me, table).get(ix) {
-                Some(&j) => {
+            T_PROJECTILES => match perceived_row(w, me, table, ix) {
+                Some(j) => {
                     let p = &w.projectiles[j];
                     push(
                         out,
@@ -183,12 +193,12 @@ impl Host for Match {
                 }
                 None => -ERR_OUT_OF_RANGE,
             },
-            T_EFFECTS => match rows(w, me, table).get(ix) {
-                Some(&j) => push(out, &w.effects[j].info),
+            T_EFFECTS => match perceived_row(w, me, table, ix) {
+                Some(j) => push(out, &w.effects[j].info),
                 None => -ERR_OUT_OF_RANGE,
             },
-            T_DROPS => match rows(w, me, table).get(ix) {
-                Some(&j) => push(out, &w.drops[j]),
+            T_DROPS => match perceived_row(w, me, table, ix) {
+                Some(j) => push(out, &w.drops[j]),
                 None => -ERR_OUT_OF_RANGE,
             },
             T_MATCH => push(out, &match_info(w, me)),
@@ -215,7 +225,7 @@ impl Host for Match {
                 )
             }
             T_MAP_ROW => {
-                if index as i32 >= w.map.height {
+                if index >= w.map.height as u32 {
                     return -ERR_OUT_OF_RANGE;
                 }
                 let a = ix * w.map.width as usize;
@@ -235,80 +245,14 @@ impl Host for Match {
         }
     }
 
+    /// Recorded only if accepted: a refused call changes nothing, so re-simulation without it reaches the
+    /// same state. Every check of every phase must therefore run before anything is written.
     fn act(&mut self, unit: u32, kind: u32, a: i32, b: i32, c: i32) -> i32 {
-        self.inputs.push(Input::Act { unit, kind, a, b, c });
-        let w = &mut self.world;
-        let me = unit as usize;
-        if me >= w.units.len() {
-            return ERR_BAD_ARG;
+        let r = self.apply_act(unit, kind, a, b, c);
+        if r == OK {
+            self.inputs.push(Input::Act { unit, kind, a, b, c });
         }
-        if w.units[me].faulted {
-            return ERR_NOT_ALLOWED;
-        }
-        match w.phase {
-            PHASE_DRAFT => match kind {
-                A_DRAFT => abilities::draft(w, me, a),
-                A_DRAFT_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| abilities::draft(w, t, a)),
-                _ => ERR_NOT_ALLOWED,
-            },
-            PHASE_BUY => match kind {
-                A_BUY => economy::buy(w, me, a),
-                A_BUY_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| economy::buy_for(w, me, t, a)),
-                A_FACE => {
-                    w.units[me].facing = a & 0xFFFF;
-                    OK
-                }
-                _ => ERR_NOT_ALLOWED,
-            },
-            PHASE_ACTION | PHASE_PLANTED => {
-                if !w.units[me].alive {
-                    return ERR_NOT_ALLOWED;
-                }
-                let check = match kind {
-                    A_MOVE => {
-                        w.units[me].intent.mv = Some((a & 0xFFFF, b.max(0)));
-                        return OK;
-                    }
-                    A_FACE => {
-                        w.units[me].intent.face = Some(a & 0xFFFF);
-                        return OK;
-                    }
-                    A_FIRE => combat::can_fire(w, me),
-                    A_PLANT => {
-                        if w.units[me].channel_kind == CHANNEL_PLANT {
-                            OK
-                        } else {
-                            w.can_plant(me)
-                        }
-                    }
-                    A_DEFUSE => {
-                        if w.units[me].channel_kind == CHANNEL_DEFUSE {
-                            OK
-                        } else {
-                            w.can_defuse(me)
-                        }
-                    }
-                    A_ABILITY => abilities::can_use(w, me, a, (b, c)),
-                    A_SWAP => {
-                        if (0..2).contains(&a) && w.units[me].weapons[a as usize] >= 0 {
-                            OK
-                        } else {
-                            ERR_BAD_ARG
-                        }
-                    }
-                    A_RELOAD | A_PICKUP | A_DROP | A_CANCEL => OK,
-                    _ => ERR_UNSUPPORTED,
-                };
-                // Abilities unit: hands are busy during an ability's startup; only A_CANCEL gets through.
-                let check =
-                    if check == OK && kind != A_CANCEL && abilities::casting(w, me) { ERR_NOT_READY } else { check };
-                if check == OK {
-                    w.units[me].intent.primary = Some((kind, a, b, c));
-                }
-                check
-            }
-            _ => ERR_NOT_ALLOWED,
-        }
+        r
     }
 
     fn los(&self, x0: i32, y0: i32, x1: i32, y1: i32) -> i32 {
@@ -318,34 +262,95 @@ impl Host for Match {
     fn raycast(&self, x: i32, y: i32, angle: i32, max: i32) -> i32 {
         let max = max.clamp(0, 128 * TILE);
         let d = fixed::polar(angle, max);
-        match self.world.map.segment_wall((x, y), (x + d.0, y + d.1)) {
+        match self.world.map.segment_wall((x, y), (x.saturating_add(d.0), y.saturating_add(d.1))) {
             Some(hit) => fixed::dist((x, y), hit).min(max),
             None => max,
         }
     }
 
     fn mem_read(&self, unit: u32, scope: u32, off: u32, out: &mut [u8]) -> i32 {
-        let w = &self.world;
-        let team = match w.units.get(unit as usize) {
-            Some(u) => u.team as usize,
-            None => return ERR_BAD_ARG,
-        };
-        let mem = match scope {
-            MEM_TEAM => &w.team_mem[team],
-            MEM_DRAFT => &w.draft_mem[team],
-            MEM_BUY => &w.buy_mem[team],
-            _ => return ERR_BAD_ARG,
-        };
-        let off = off as usize;
-        if off.checked_add(out.len()).map_or(true, |end| end > mem.len()) {
-            return ERR_OUT_OF_RANGE;
+        match self.mem_view(unit, scope, off, out.len()) {
+            Ok(src) => {
+                out.copy_from_slice(src);
+                OK
+            }
+            Err(e) => e,
         }
-        out.copy_from_slice(&mem[off..off + out.len()]);
-        OK
     }
 
+    /// Accepted writes are recorded per team and scope, not per call (`flush_writes`).
     fn mem_write(&mut self, unit: u32, scope: u32, off: u32, data: &[u8]) -> i32 {
-        self.inputs.push(Input::MemWrite { unit, scope, off, data: data.to_vec() });
+        let r = self.apply_mem_write(unit, scope, off, data);
+        if r == OK && !data.is_empty() {
+            let team = self.world.units[unit as usize].team as usize;
+            let (lo, hi) = (off, off + data.len() as u32);
+            let w = self.written[team][scope as usize].get_or_insert(Written { unit, lo, hi });
+            *w = Written { unit, lo: w.lo.min(lo), hi: w.hi.max(hi) };
+        }
+        r
+    }
+
+    fn debug_draw(&mut self, unit: u32, kind: u32, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) -> i32 {
+        let Some(team) = self.world.units.get(unit as usize).map(|u| u.team as usize) else {
+            return ERR_BAD_ARG;
+        };
+        let kept = &mut self.world.debug[team];
+        if kept.len() < DEBUG_DRAWS_PER_TEAM {
+            kept.push((unit, kind, x0, y0, x1, y1, color));
+        }
+        OK
+    }
+}
+
+/// Most actions `act` accepts from one unit in one tick; later calls get `ERR_NOT_ALLOWED` and change
+/// nothing. A bot needs a handful (a move, a facing, a primary action, a purchase per teammate); the cap
+/// bounds what the replay stores for one that calls `act` in a loop.
+pub const MAX_ACTS: u32 = 64;
+
+/// What one team wrote to one memory scope since the inputs were last taken: every write lies in `lo..hi`,
+/// and `unit` made the last one.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Written {
+    unit: u32,
+    lo: u32,
+    hi: u32,
+}
+
+fn memory(w: &World, team: usize, scope: u32) -> Option<&[u8]> {
+    match scope {
+        MEM_TEAM => Some(&w.team_mem[team]),
+        MEM_DRAFT => Some(&w.draft_mem[team]),
+        MEM_BUY => Some(&w.buy_mem[team]),
+        _ => None,
+    }
+}
+
+impl Match {
+    /// `act` without recording it (the replay path). Counts against the unit's `MAX_ACTS` like a live call.
+    pub(crate) fn apply_act(&mut self, unit: u32, kind: u32, a: i32, b: i32, c: i32) -> i32 {
+        let me = unit as usize;
+        let Some(u) = self.world.units.get(me) else { return ERR_BAD_ARG };
+        if u.faulted || self.acts[me] >= MAX_ACTS {
+            return ERR_NOT_ALLOWED;
+        }
+        let r = act_now(&mut self.world, me, kind, a, b, c);
+        if r == OK {
+            self.acts[me] += 1;
+        }
+        r
+    }
+
+    /// Bytes `off..off + len` of the memory `unit`'s team has in `scope`, or the error `mem_read` returns.
+    /// `mem_read` is this and a copy; the wasm runner copies the bytes straight into the bot's memory.
+    pub fn mem_view(&self, unit: u32, scope: u32, off: u32, len: usize) -> Result<&[u8], i32> {
+        let team = self.world.units.get(unit as usize).ok_or(ERR_BAD_ARG)?.team as usize;
+        let mem = memory(&self.world, team, scope).ok_or(ERR_BAD_ARG)?;
+        let off = off as usize;
+        off.checked_add(len).and_then(|end| mem.get(off..end)).ok_or(ERR_OUT_OF_RANGE)
+    }
+
+    /// `mem_write` without recording it (the replay path).
+    pub(crate) fn apply_mem_write(&mut self, unit: u32, scope: u32, off: u32, data: &[u8]) -> i32 {
         let w = &mut self.world;
         let team = match w.units.get(unit as usize) {
             Some(u) if !u.faulted => u.team as usize,
@@ -366,11 +371,86 @@ impl Host for Match {
         OK
     }
 
-    fn debug_draw(&mut self, unit: u32, kind: u32, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) -> i32 {
-        if self.world.debug.len() < 4096 {
-            self.world.debug.push((unit, kind, x0, y0, x1, y1, color));
+    /// Turn what each team wrote since the last flush into inputs: per team and scope, one `MemWrite` of
+    /// the bytes as they are now, over the span of every write. Memory never feeds the simulation, so the
+    /// end state is all a replay needs, and that is at most a scope's size per team, however many calls.
+    pub(crate) fn flush_writes(&mut self) {
+        for team in 0..2 {
+            for scope in [MEM_TEAM, MEM_DRAFT, MEM_BUY] {
+                let Some(s) = self.written[team][scope as usize].take() else { continue };
+                let mem = memory(&self.world, team, scope).expect("a written scope exists");
+                let data = mem[s.lo as usize..s.hi as usize].to_vec();
+                self.inputs.push(Input::MemWrite { unit: s.unit, scope, off: s.lo, data });
+            }
         }
-        OK
+    }
+}
+
+/// An action of a unit that exists and has not faulted, in the current phase.
+fn act_now(w: &mut World, me: usize, kind: u32, a: i32, b: i32, c: i32) -> i32 {
+    match w.phase {
+        PHASE_DRAFT => match kind {
+            A_DRAFT => abilities::draft(w, me, a),
+            A_DRAFT_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| abilities::draft(w, t, a)),
+            _ => ERR_NOT_ALLOWED,
+        },
+        PHASE_BUY => match kind {
+            A_BUY => economy::buy(w, me, a),
+            A_BUY_FOR => teamplay::teammate(w, me, b).map_or_else(|e| e, |t| economy::buy_for(w, me, t, a)),
+            A_FACE => {
+                w.units[me].facing = a & 0xFFFF;
+                OK
+            }
+            _ => ERR_NOT_ALLOWED,
+        },
+        PHASE_ACTION | PHASE_PLANTED => {
+            if !w.units[me].alive {
+                return ERR_NOT_ALLOWED;
+            }
+            let check = match kind {
+                A_MOVE => {
+                    w.units[me].intent.mv = Some((a & 0xFFFF, b.max(0)));
+                    return OK;
+                }
+                A_FACE => {
+                    w.units[me].intent.face = Some(a & 0xFFFF);
+                    return OK;
+                }
+                A_FIRE => combat::can_fire(w, me),
+                A_PLANT => {
+                    if w.units[me].channel_kind == CHANNEL_PLANT {
+                        OK
+                    } else {
+                        w.can_plant(me)
+                    }
+                }
+                A_DEFUSE => {
+                    if w.units[me].channel_kind == CHANNEL_DEFUSE {
+                        OK
+                    } else {
+                        w.can_defuse(me)
+                    }
+                }
+                A_ABILITY => abilities::can_use(w, me, a, (b, c)),
+                A_SWAP => {
+                    if (0..2).contains(&a) && w.units[me].weapons[a as usize] >= 0 {
+                        OK
+                    } else {
+                        ERR_BAD_ARG
+                    }
+                }
+                A_RELOAD | A_PICKUP | A_DROP | A_CANCEL => OK,
+                _ => ERR_UNSUPPORTED,
+            };
+            // Abilities unit: hands are busy during an ability's startup; only A_CANCEL gets through.
+            let check =
+                if check == OK && kind != A_CANCEL && abilities::casting(w, me) { ERR_NOT_READY } else { check };
+            if check == OK {
+                w.units[me].intent.primary = Some((kind, a, b, c));
+            }
+            check
+        }
+        _ => ERR_NOT_ALLOWED,
     }
 }
 
@@ -381,8 +461,7 @@ pub fn rules_json(r: &crate::Ruleset) -> String {
     json!({
         "unit_radius": c.unit_radius, "fov_half": c.fov_half, "vision_range": c.vision_range,
         "sense_radius": c.sense_radius, "max_hp": c.max_hp, "plant_ticks": c.plant_ticks,
-        "defuse_ticks": c.defuse_ticks, "fuse_ticks": c.fuse_ticks, "blast_radius": c.blast_radius,
-        "weapons": r.weapon_names,
+        "defuse_ticks": c.defuse_ticks, "fuse_ticks": c.fuse_ticks, "weapons": r.weapon_names,
         "weapon_ranges": r.weapons.iter().map(|w| w.range).collect::<Vec<_>>(),
     })
     .to_string()
@@ -421,7 +500,7 @@ pub fn frame_json(w: &World) -> String {
         "events": w.events.iter().map(|e| json!({
             "kind": e.kind, "actor": e.actor, "target": e.target, "x": e.x, "y": e.y, "value": e.value,
             "dir": e.dir, "src_x": e.src_x, "src_y": e.src_y })).collect::<Vec<_>>(),
-        "debug": w.debug.iter().map(|d| json!([d.0, d.1, d.2, d.3, d.4, d.5, d.6])).collect::<Vec<_>>(),
+        "debug": w.debug.iter().flatten().map(|d| json!([d.0, d.1, d.2, d.3, d.4, d.5, d.6])).collect::<Vec<_>>(),
         "winner": w.winner,
     })
     .to_string()

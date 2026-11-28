@@ -30,6 +30,28 @@ const BURSTS: &str = r#"(module
         (br_if $count (i32.lt_u (local.get $j) (i32.const 2000))))
       (br $turn))))"#;
 
+/// One `debug_draw` per turn, forever.
+const DRAWER: &str = r#"(module
+  (import "ibc" "end_turn" (func $end_turn))
+  (import "ibc" "debug_draw" (func $draw (param i32 i32 i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (func (export "_start")
+    (loop $l
+      (drop (call $draw (i32.const 2) (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0)))
+      (call $end_turn)
+      (br $l))))"#;
+
+/// One `random_get` of 4096 bytes per turn, forever.
+const RANDOMS: &str = r#"(module
+  (import "ibc" "end_turn" (func $end_turn))
+  (import "wasi_snapshot_preview1" "random_get" (func $random (param i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (func (export "_start")
+    (loop $l
+      (drop (call $random (i32.const 0) (i32.const 4096)))
+      (call $end_turn)
+      (br $l))))"#;
+
 /// Budgets that shrink and grow by large factors, some below one check-free path (paid from debt), so a
 /// slice that kept its old size or an odometer that missed consumption shows at once.
 const BUDGETS: &[u64] = &[100_000, 1_000, 250_000, 40_000, 3, 7, 60_000, 1, 2_000_000, 500, 30_000, 10, 900, 5];
@@ -104,4 +126,57 @@ fn end_turn_and_out_of_fuel_suspensions_mix() {
     assert!(bursts.len() >= 4, "{turns:?}");
     assert!(bursts.iter().any(|b| b.1 == 1) && bursts.iter().any(|b| b.1 > 2), "{bursts:?}");
     assert!(bursts.iter().all(|b| b.0 == bursts[0].0), "bursts cost different fuel: {bursts:?}");
+}
+
+#[test]
+fn a_fee_above_every_budget_delays_the_call_and_never_blocks_it() {
+    let mut vm = unit_vm(DRAWER);
+    let (budget, turns) = (ibc_abi::FUEL_DEBUG / 3, 60);
+    let (mut used, mut drawn) = (0, 0);
+    for _ in 0..turns {
+        let turn = vm.run_turn(budget);
+        assert!(!matches!(turn.end, TurnEnd::Fault(_)));
+        used += turn.used;
+        drawn += lock(&vm.store_mut().data().game).take_debug().len() as u64;
+    }
+    // Each drawing takes what is left of its turn and pays the rest over the turns after.
+    assert!(drawn >= turns / 8, "only {drawn} drawings in {turns} turns");
+    // Every drawing paid its fee in full, and at most one fee is still owed at the end.
+    assert!(
+        used >= drawn * ibc_abi::FUEL_DEBUG,
+        "{drawn} drawings for {used} fuel"
+    );
+    assert!(
+        used <= turns * budget + ibc_abi::FUEL_DEBUG + PATH,
+        "used {used}"
+    );
+}
+
+#[test]
+fn a_wasi_fee_is_paid_at_once_and_an_overrun_is_owed() {
+    let fee = 4096 / 8 * ibc_abi::FUEL_RANDOM;
+    let mut vm = unit_vm(RANDOMS);
+    // On a budget that covers the fee, it is paid within the turn, which ends in `end_turn`.
+    let first = vm.run_turn(100_000);
+    assert!(
+        matches!(first.end, TurnEnd::Yielded) && first.used >= fee && first.used < fee + PATH,
+        "{}",
+        first.used
+    );
+    // On a budget below the fee, the call goes through at once and its turn runs over by the rest of the fee,
+    // which the next turns pay off before the bot runs again.
+    let (budget, turns) = (fee / 5, 60);
+    let (mut used, mut calls) = (0, 0);
+    for _ in 0..turns {
+        let rng = vm.store_mut().data().rng;
+        let turn = vm.run_turn(budget);
+        assert!(!matches!(turn.end, TurnEnd::Fault(_)));
+        calls += u64::from(vm.store_mut().data().rng != rng);
+        used += turn.used;
+    }
+    assert!(calls >= turns / 8, "only {calls} calls in {turns} turns");
+    assert!(
+        used >= calls * fee && used <= turns * budget + fee + PATH,
+        "{calls} calls for {used} fuel"
+    );
 }

@@ -168,13 +168,15 @@ attackers.
 
 **Credits.** Money, per unit, capped at `max_credits`, spent in the buy phase.
 
-**Armour.** Points bought in the shop; absorbs `armor_absorb_pct` of each hit until used up.
+**Armour.** Points bought in the shop; absorbs `armor_absorb_pct` of each hit until used up. At 100 it is plain
+extra health: a hit takes armour first, point for point, then hp.
 
 ## What a bot can know and spend
 
-**Fuel.** The compute budget of a turn: WebAssembly instructions counted by Wasmtime plus a fixed charge per host
-call (`FUEL_*`). Each unit gets `fuel_per_tick` per tick, times `fuel_first_tick_mult` on the draft tick and
-`fuel_buy_mult` in the buy phase. Unused fuel is lost; a bot that runs out is paused and resumes next tick.
+**Fuel.** The compute budget of a turn: WebAssembly instructions counted by Wasmtime plus a charge per host call
+(`FUEL_*`; `log`, `fuel_remaining` and `end_turn` are free). Each unit gets `fuel_per_tick` per tick, times
+`fuel_first_tick_mult` on the draft tick and `fuel_buy_mult` in the buy phase. Unused fuel is lost; a bot that
+runs out is paused and resumes next tick.
 
 **Stack limit.** `stack_limit`, the deepest call stack a bot may build, in **stack units**: each call that has
 not returned costs its function's parameters + locals + largest operand stack height + 2. Going deeper traps
@@ -329,7 +331,7 @@ the earlier one.
   where the target will be.
 - Bullets are fast objects, not hitscan: they fly at `bullet_speed` per tick, are stopped by walls, and hit the
   first enemy circle on their path. Damage is full up to `falloff_start` and drops linearly to `falloff_min_pct`
-  at `range`. Armour absorbs a share of each hit until it is used up. There is no friendly fire.
+  at `range`. Armour is extra health: a hit takes it first. There is no friendly fire.
 - At long range sustained fire with a multi-pellet weapon loses its outer pellets (an even fan, all of them):
   read `UnitInfo.recoil` and pause to let it settle, at the price of a fresh startup.
 - Each shot adds `recoil_per_shot`; recoil recovers by `recoil_recovery` on ticks without a shot. Magazines hold
@@ -368,17 +370,28 @@ kit 0 and nine kits with abilities (`docs/rules/abilities.md`).
 
 ## Compute and memory
 
-- Each unit gets `fuel_per_tick` fuel per tick (times a per-language multiplier), more on the draft tick and in
-  the buy phase. Fuel is counted WebAssembly instructions plus a fixed charge per host call (`FUEL_*`).
+- Each unit gets `fuel_per_tick` fuel per tick (times its language's fuel multiplier), more on the draft tick
+  and in the buy phase. Fuel is counted WebAssembly instructions plus a charge per host call (`FUEL_*`), fixed
+  or by size: `debug_draw` 140, WASI `fd_write` 5 per iovec and `random_get` 2 per 8 bytes (`docs/ABI.md`).
   `memory.copy` and `memory.fill` cost 1 fuel per byte, so large `memcpy`/`memset` calls are expensive.
 - A bot that runs out is paused where it is and continues on its next tick with a fresh budget. Unused fuel is lost.
   One `memory.copy` or `memory.fill` always runs to completion, even past the budget, and the excess is taken
   out of the following turns: one huge copy can leave a unit idle for several ticks.
-- Each bot instance has its own linear memory of at most `memory_bytes` (8 MiB); the stack counts. A module
+- Each bot instance has its own linear memory of at most `memory_bytes` (8 MiB, times its language's memory
+  multiplier, rounded down to whole 64 KiB pages); the stack counts. A module
   that declares more is refused at upload and faults at the start of a match; `memory.grow` past the cap
   returns -1, so the allocator reports out of memory. An instance may have one table of at most 65,536 entries.
   Exception objects (a wasm `throw`, 24 bytes each) live in a second heap of the same cap that is never freed
   during the match: about 350,000 throws per unit.
+- **Per-language allowances.** Languages compile differently, so each has a row in `rules/core.toml`
+  (`[[language]]`: `name`, `fuel_milli`, `memory_milli`, in thousandths) that multiplies its fuel and its
+  memory cap; the current rows are in `docs/generated/rules.md`. A bot's language is what its module says:
+  the `ibc.language` custom section `ibc build` writes, else the `producers` section rustc and clang write.
+  A module that names no single language, or one without a row, gets the `default` row. The rows are part
+  of the ruleset hash, so `ibc run`, `run-batch`, the upload check and the ladder apply the same numbers; the
+  replay header records each team's language and the multipliers it got. On the ladder the language is the
+  one the submission was entered as (docs/JOBS.md). The native harness (`ibc-sim`) is unmetered and uncapped,
+  so the rows do not apply there. `stack_limit` is the same for every language.
 - Recursion depth is limited deterministically, the same on every CPU. Each call that has not returned costs
   stack units: its function's parameters, plus its locals, plus the most values its operand stack ever holds,
   plus 2. A call that would take the total over `stack_limit` (65,536) traps, and the unit faults with "stack
@@ -526,7 +539,9 @@ otherwise:            damage * (100 - (100 - falloff_min_pct) * min(t - falloff_
                                        / (range - falloff_start)) / 100
 ```
 
-Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used up (`rules/economy.toml`).
+Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used up (`rules/economy.toml`). At 100
+it is plain extra health, taken point for point before hp: with no armour penetration, light armour (25) means 125
+damage to kill and heavy (50) means 150.
 
 ## Recoil
 
@@ -556,16 +571,15 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 ## Weapons on the ground
 
 - A unit that dies drops its weapons where it died, except the default sidearm everyone is handed each
-  round, as `T_DROPS` rows of kind `DROP_WEAPON` with `item` = weapon id and `ammo` = the rounds in its
-  magazine.
+  round, as `T_DROPS` rows of kind `DROP_WEAPON` with `item` = weapon id.
 - `A_DROP(DROP_WEAPON)` puts the weapon in hand at the unit's feet; the unit switches to its other weapon if
   it has one. With empty hands it does nothing.
 - `A_PICKUP` takes the nearest drop within `pickup_reach`. A weapon goes into its own slot; a weapon already
   there is put down in its place, so picking up swaps. The unit keeps using the slot it had in hand, unless
   its hands were empty.
-- **A weapon on the ground keeps its magazine.** It falls with the rounds it held (`DropInfo.ammo`, visible
-  to every team that sees the drop) and whoever picks it up gets exactly those. Dropping and picking up is
-  therefore never a reload, and a teammate is handed a weapon as loaded as it was.
+- **A weapon on the ground keeps its rounds.** A drop holds what was in its magazine when it fell
+  (`DropInfo.ammo`), and a pickup gets exactly that. A reload in progress is lost, not finished, so dropping
+  and picking up is never a faster reload; handing a teammate a loaded weapon hands them its rounds.
 - Dropping, or picking up into the slot in hand, cancels startup and reload, like a swap.
 - The displaced weapon lies at your feet, so it is the nearest drop for your next `A_PICKUP`: repeating the
   action swaps back and forth. Step away to reach something else.
@@ -577,31 +591,31 @@ Armour then absorbs `armor_absorb_pct` percent of each bullet until it is used u
 Values, straight from `rules/weapons.toml`:
 
 <!-- generated:weapons -->
-| field | pistol | rifle | smg | shotgun | marksman | lmg |
-|---|---:|---:|---:|---:|---:|---:|
-| `id` | 0 | 1 | 2 | 3 | 4 | 5 |
-| `slot` | sidearm | primary | primary | primary | primary | primary |
-| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |
-| `damage` | 26 | 22 | 17 | 15 | 75 | 16 |
-| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 |
-| `spread` | 0 | 250 | 200 | 260 | 0 | 300 |
-| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 |
-| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |
-| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |
-| `windup` | 1 | 1 | 1 | 1 | 2 | 2 |
-| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 |
-| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |
-| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |
-| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 |
-| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |
-| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 |
-| `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |
-| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 |
-| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |
-| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 |
-| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 |
-| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 |
-| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 |
+| field | pistol | rifle | smg | shotgun | marksman | lmg | hunter |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `id` | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+| `slot` | sidearm | primary | primary | primary | primary | primary | primary |
+| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 | 1200 |
+| `damage` | 26 | 22 | 12 | 15 | 74 | 13 | 74 |
+| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | 1 |
+| `spread` | 0 | 250 | 200 | 260 | 0 | 300 | 0 |
+| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 | 300 |
+| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 | 4 |
+| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 | 1 |
+| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | 2 |
+| `cooldown` | 1 | 1 | 0 | 3 | 4 | 0 | 5 |
+| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 | 5 |
+| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 | 5 |
+| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | 20480 |
+| `range` | 15360 | 30720 | 16384 | 9216 | 30720 | 28672 | 24576 |
+| `falloff_start` | 12288 | 16384 | 6144 | 3072 | 24576 | 14336 | 24576 |
+| `falloff_min_pct` | 85 | 70 | 40 | 25 | 86 | 60 | 100 |
+| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | 80 |
+| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 | 400 |
+| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 | 12 |
+| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
+| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 | 16 |
+| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 | 25 |
 <!-- /generated:weapons -->
 
 What they add up to (startup in ticks for a steady unit, one that has walked long enough to settle, and one
@@ -611,29 +625,39 @@ per tick with the standard kit; magazine time is holding the trigger braced from
 <!-- generated:derived -->
 | weapon | startup (steady / walked / ran) | ticks per braced shot | damage per pull (close / at range) | full fan width | top speed | range (tiles) | bullet (tiles/tick) | ticks to empty + reload |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| pistol | 1 / 1 / 2 | 2 | 26 / 13 | 0 | 700 | 10.0 | 8.0 | 24 + 3 |
+| pistol | 1 / 1 / 2 | 2 | 26 / 22 | 0 | 700 | 15.0 | 8.0 | 24 + 3 |
 | rifle | 1 / 2 / 4 | 2 | 66 / 45 | 500 | 630 | 30.0 | 14.0 | 16 + 4 |
-| smg | 1 / 1 / 1 | 2 | 34 / 12 | 200 | 700 | 16.0 | 9.0 | 30 + 3 |
+| smg | 1 / 1 / 1 | 1 | 24 / 8 | 200 | 700 | 16.0 | 9.0 | 16 + 3 |
 | shotgun | 1 / 2 / 3 | 4 | 105 / 21 | 1560 | 665 | 9.0 | 8.0 | 18 + 5 |
-| marksman | 2 / 6 / 6 | 5 | 75 / 75 | 0 | 560 | 40.0 | 20.0 | 23 + 5 |
-| lmg | 2 / 6 / 6 | 3 | 80 / 45 | 1200 | 490 | 28.0 | 12.0 | 60 + 7 |
+| marksman | 2 / 6 / 6 | 5 | 74 / 63 | 0 | 560 | 30.0 | 20.0 | 23 + 5 |
+| lmg | 2 / 6 / 6 | 1 | 65 / 35 | 1200 | 490 | 28.0 | 12.0 | 22 + 7 |
+| hunter | 2 / 6 / 6 | 6 | 74 / 74 | 0 | 560 | 24.0 | 20.0 | 27 + 5 |
 <!-- /generated:derived -->
 
 Roles:
 
-- **pistol**: the free sidearm. Exact single shots and a short startup even after running, but short reach:
-  it is spent at 10 tiles and loses damage from 4. Four hits kill out to about 5 tiles, eight at the edge of
-  its reach, so a team on pistols has to close the distance.
-- **smg**: cheap run-and-gun. Running barely unsteadies it, so it starts as fast off a run as standing, and
-  it carries at full speed; short reach, and its two-pellet fan opens fast under sustained fire.
+- **pistol**: the free sidearm, and a real gun. Exact single shots and a short startup even after running.
+  It reaches 15 tiles and loses damage only from 12: four hits kill an unarmoured unit, five a light-armoured
+  one and six a heavy one out to about 12.5 tiles, one more hit each at the edge of its reach. The bought
+  guns earn their price by killing faster where they are meant to fight, not by out-ranging it.
+- **smg**: cheap run-and-gun with the fastest fire rate, a pull every tick, and small hits. Running barely
+  unsteadies it, so it starts as fast off a run as standing, and it carries at full speed; short reach, its
+  two-pellet fan opens fast under sustained fire, and armour soaks many of its small hits.
 - **shotgun**: seven pellets in a wide fan. One pull kills an unarmoured unit inside about three tiles and
   the fan is hard to sidestep; nearly harmless past six tiles. Slow pump, small magazine.
 - **rifle**: the all-rounder. A tight three-bullet burst that kills in two pulls while all three land and
-  still reaches across the map, if you stand still and pace your fire.
-- **marksman**: one fast bullet, no falloff, two hits kill anything. Slow to cycle, and a two-tick startup
-  that the target can see, which grows the most of any weapon after moving.
-- **lmg**: heavy and slow. Five bullets a pull, a magazine that lasts sixty ticks and no recoil build-up, for
-  holding a lane; slow to carry, very slow to start after moving, and above all slow to reload.
+  still reaches across the map, if you stand still and pace your fire. It fires at the pistol's rate, slower
+  than the smg and a braced lmg; its damage per pull is what sets it apart.
+- **marksman**: one fast bullet out to 30 tiles, six past its own sight, so its longest shots need a teammate's
+  spot. Two hits kill a bare or light-armoured unit and three a heavy-armoured one, anywhere in its reach: its
+  shallow falloff never crosses a breakpoint. Slow to cycle, and a two-tick startup that the target can see,
+  which grows the most of any weapon after moving.
+- **lmg**: fast once braced. Five bullets a pull and, once it is firing, a pull every tick from a twenty-pull
+  magazine, for holding a lane against a group; the fan opens as it keeps firing. Slow to carry, very slow to
+  start after moving, and above all slow to reload.
+- **hunter**: the eco long gun. The marksman's bullet, damage, startup tell and handling for little money, so
+  a saving team can still hold a long angle; but it cycles slower than anything else and reaches only its
+  own 24 tiles of sight. A miss costs a long wait, and anyone who closes the distance beats it.
 
 ## Time to kill
 
@@ -641,32 +665,50 @@ Measured by `crates/engine/tests/combat_ttk.rs` in the engine, not computed: tic
 until a stationary target dies. The shooter stands, pulls whenever the weapon is ready and the pellets nearest
 the aim would still land on the target, and reloads when empty. "After running" means it strafed across the
 line of fire at the weapon's top speed for eight ticks just before the first pull, so that pull starts up
-unsteady. "no kill" means the target was still alive after 100 ticks.
+unsteady. "no kill" means the target was still alive after 100 ticks. Each distance has a standing and an
+after-running column: 2 tiles is shotgun range, 5 and 10 are fighting distances, 15 is where the rifle meets the
+marksman, and 20 is long range.
 
 Target with 100 health and no armour:
 
 <!-- generated:ttk -->
-| weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
-|---|---:|---:|---:|---:|---:|---:|
-| pistol | 8 | 9 | 17 | 18 | no kill | no kill |
-| rifle | 6 | 9 | 6 | 9 | 11 | 14 |
-| smg | 6 | 6 | 9 | 9 | no kill | no kill |
-| shotgun | 6 | 8 | no kill | no kill | no kill | no kill |
-| marksman | 8 | 12 | 8 | 12 | 8 | 12 |
-| lmg | 6 | 10 | 9 | 13 | 25 | 29 |
+| weapon | 2 tiles standing | 2 tiles after running | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 15 tiles standing | 15 tiles after running | 20 tiles standing | 20 tiles after running |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| pistol | 8 | 9 | 8 | 9 | 9 | 10 | 11 | 12 | no kill | no kill |
+| rifle | 4 | 7 | 6 | 9 | 6 | 9 | 11 | 14 | 11 | 14 |
+| smg | 6 | 6 | 6 | 6 | 14 | 14 | 28 | 28 | no kill | no kill |
+| shotgun | 2 | 4 | 6 | 8 | no kill | no kill | no kill | no kill | no kill | no kill |
+| marksman | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 |
+| lmg | 4 | 8 | 4 | 8 | 8 | 12 | 12 | 16 | 13 | 17 |
+| hunter | 9 | 13 | 9 | 13 | 9 | 13 | 9 | 13 | 9 | 13 |
 <!-- /generated:ttk -->
+
+Target with 100 health and the lightest armour in the shop:
+
+<!-- generated:ttk-light -->
+| weapon | 2 tiles standing | 2 tiles after running | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 15 tiles standing | 15 tiles after running | 20 tiles standing | 20 tiles after running |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| pistol | 10 | 11 | 10 | 11 | 11 | 12 | 13 | 14 | no kill | no kill |
+| rifle | 4 | 7 | 8 | 11 | 8 | 11 | 13 | 16 | 15 | 18 |
+| smg | 7 | 7 | 7 | 7 | 17 | 17 | 37 | 37 | no kill | no kill |
+| shotgun | 6 | 8 | 10 | 12 | no kill | no kill | no kill | no kill | no kill | no kill |
+| marksman | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 | 8 | 12 |
+| lmg | 4 | 8 | 5 | 9 | 10 | 14 | 14 | 18 | 15 | 19 |
+| hunter | 9 | 13 | 9 | 13 | 9 | 13 | 9 | 13 | 9 | 13 |
+<!-- /generated:ttk-light -->
 
 Target with 100 health and the heaviest armour in the shop:
 
 <!-- generated:ttk-armor -->
-| weapon | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 20 tiles standing | 20 tiles after running |
-|---|---:|---:|---:|---:|---:|---:|
-| pistol | 12 | 13 | 23 | 24 | no kill | no kill |
-| rifle | 10 | 13 | 10 | 13 | 17 | 20 |
-| smg | 10 | 10 | 15 | 15 | no kill | no kill |
-| shotgun | 10 | 12 | no kill | no kill | no kill | no kill |
-| marksman | 8 | 12 | 8 | 12 | 8 | 12 |
-| lmg | 6 | 10 | 12 | 16 | 37 | 41 |
+| weapon | 2 tiles standing | 2 tiles after running | 5 tiles standing | 5 tiles after running | 10 tiles standing | 10 tiles after running | 15 tiles standing | 15 tiles after running | 20 tiles standing | 20 tiles after running |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| pistol | 12 | 13 | 12 | 13 | 13 | 14 | 15 | 16 | no kill | no kill |
+| rifle | 6 | 9 | 10 | 13 | 10 | 13 | 15 | 18 | 17 | 20 |
+| smg | 8 | 8 | 10 | 10 | 23 | 23 | 43 | 43 | no kill | no kill |
+| shotgun | 6 | 8 | 10 | 12 | no kill | no kill | no kill | no kill | no kill | no kill |
+| marksman | 13 | 17 | 13 | 17 | 13 | 17 | 13 | 17 | 13 | 17 |
+| lmg | 5 | 9 | 6 | 10 | 12 | 16 | 16 | 20 | 17 | 21 |
+| hunter | 15 | 19 | 15 | 19 | 15 | 19 | 15 | 19 | 15 | 19 |
 <!-- /generated:ttk-armor -->
 
 These are duels against a target that stands still. A target that strafes at range dodges any single shot
@@ -720,6 +762,11 @@ positions in the `[[item]]` list and are append-only.
 | 4 | `pistol` | weapon | 0 | the default sidearm (only useful to trade back to it) |
 | 5 | `ability_charge_0` | ability charge | 0 + ability price | one charge of the ability in kit slot 0 |
 | 6 | `ability_charge_1` | ability charge | 0 + ability price | one charge of the ability in kit slot 1 |
+| 7 | `smg` | weapon | 1500 | primary weapon, full magazine |
+| 8 | `shotgun` | weapon | 1800 | primary weapon, full magazine |
+| 9 | `marksman` | weapon | 3200 | primary weapon, full magazine |
+| 10 | `lmg` | weapon | 2300 | primary weapon, full magazine |
+| 11 | `hunter` | weapon | 1200 | primary weapon, full magazine |
 
 Checks run in this order, and a refused purchase costs nothing:
 
@@ -1101,7 +1148,7 @@ Imports come from module `ibc`:
 | `los(x0, y0, x1, y1) -> i32` | 1 if no wall lies between the points (static map only) |
 | `raycast(x, y, angle, max) -> i32` | Distance to the first wall, capped at `max` |
 | `mem_read(scope, off, ptr, len) -> i32`, `mem_write(...)` | Team, draft and buy memory (`MEM_*`; each writable in one phase) |
-| `debug_draw(kind, x0, y0, x1, y1, color) -> i32` | Overlay in the replay viewer; free |
+| `debug_draw(kind, x0, y0, x1, y1, color) -> i32` | Overlay in the replay viewer; each team keeps up to 2,048 a tick |
 | `log(ptr, len) -> i32` | Append to the unit's log |
 
 Only a small WASI preview1 subset exists: `fd_write` to stdout/stderr (captured, size-capped), a deterministic
@@ -1156,11 +1203,22 @@ clock and random source, empty args and environment. There is no filesystem, net
   `UnitInfo.blind`, as before.
 - **Actions are intents.** `act` validates what it can immediately and returns an error code, but the action
   resolves with everyone else's when the tick is stepped. One move, one facing and one primary action per tick.
+  A unit gets at most 64 accepted actions a tick (`MAX_ACTS` in `crates/engine`); later calls return
+  `ERR_NOT_ALLOWED` and change nothing.
 - **Rules are data.** Read `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM`, `T_KIT` instead of hard-coding numbers;
   balance patches change them without changing the ABI.
 - **Reserved fields.** A field whose meaning is retired keeps its slot, is renamed `_reservedN` and always reads 0,
   so compiled bots keep their layout. `WeaponRules._reserved0` was `move_spread` (movement no longer adds spread).
-- **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed.
+- **Fuel.** Each host call costs its `FUEL_*` constant on top of the instructions executed, paid before its
+  arguments are checked: `debug_draw` 140, `fd_write` 5 per iovec, `random_get` 2 per 8 bytes, and the
+  constants in `crates/abi` for the rest. `end_turn`, `fuel_remaining`, `log` and the other WASI calls are
+  free. An `ibc` call that costs at least what is left of the turn waits for the next turn, so it acts on
+  the tick that pays for it; one that costs a whole turn's budget or more takes what is left and owes the
+  rest, and goes through once the following turns have paid it. A WASI call is paid like an instruction: at
+  once, and what runs past the turn is owed by the next turns. Fees are prices, not layout: they can change
+  with the engine version (`docs/release.md`).
+- **Debug drawings** are kept up to 2,048 per team and tick, in call order; later calls that tick still
+  succeed and are dropped.
 
 ## Additions in v1
 
@@ -1194,9 +1252,9 @@ still loads and reads the prefix of each record it knows; what changed is what s
   (lowest `ty`, then lowest `tx`). A unit there is on the site, which the box centre need not be: sites may be
   any shape (L-shaped, hollow). On a filled rectangle with odd sides it equals `centre_x`, `centre_y`. A bot
   that reads only the first 28 bytes of the record sees no change.
-- `DropInfo.ammo` (after engine 0.2.0; the record grows from 16 to 20 bytes): the rounds in a dropped
-  weapon's magazine, 0 for the charge. A weapon used to fall empty; it now keeps its magazine and whoever
-  picks it up gets those rounds.
+- `DropInfo.ammo` (engine 0.3.0): the rounds a dropped weapon still holds, 0 for the charge. A pickup gets
+  exactly those, where it used to get an empty magazine. The record grows from 16 to 20 bytes; a bot that
+  reads only the first 16 sees no change.
 
 ## For engine and SDK authors
 
@@ -1213,7 +1271,7 @@ still loads and reads the prefix of each record it knows; what changed is what s
 
 # Ruleset reference
 
-Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `8738e66cbe90cb90`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -1246,9 +1304,9 @@ Ruleset hash `76bad4d5dc0354b6`. Every value as the engine loads it, defaults an
 | `draft_mem_bytes` | 1024 |  |
 | `pickup_reach` | 900 |  |
 | `interact_reach` | 1200 |  |
-| `weapons` | 6 | *(not a key in rules/core.toml: set by the loader)* |
+| `weapons` | 7 | *(not a key in rules/core.toml: set by the loader)* |
 | `abilities` | 11 | *(not a key in rules/core.toml: set by the loader)* |
-| `items` | 11 | *(not a key in rules/core.toml: set by the loader)* |
+| `items` | 12 | *(not a key in rules/core.toml: set by the loader)* |
 | `kits` | 10 | *(not a key in rules/core.toml: set by the loader)* |
 | `max_ticks` | 4000 |  |
 | `blast_radius` | 12288 | On detonation every living unit within this distance of the charge dies, through walls. |
@@ -1271,36 +1329,54 @@ and largest operand stack height, plus 2. A call that would go deeper traps and 
 the module, not on the native stack, so the depth is the same on every CPU.
 
 On detonation every living unit within this distance of the charge dies, both teams, through walls.
+
+(above [[language]] "default")
+Per-language allowances. A bot's fuel budget every tick and its memory cap (`memory_bytes`, and the
+exception heap beside it) are multiplied by its language's row, in thousandths (1000 = x1). A bot's language
+is what its module says about itself (the `ibc.language` custom section `ibc build` writes, else the
+`producers` section rustc and clang write); a module that names no single language, or one without a row
+here, gets `default`. The upload check and the ladder use the same rows. The memory cap is rounded down to
+whole 64 KiB wasm pages. Rows must come after every other key of this file.
 ```
+
+## Languages
+
+| Language | Fuel | Memory | Memory cap (bytes) |
+| --- | --- | --- | --- |
+| `cpp` | x1 | x1 | 8388608 |
+| `default` | x1 | x1 | 8388608 |
+| `rust` | x1 | x1 | 8388608 |
+
+A language without a row gets the `default` row. The fuel multiplier scales every turn's budget (`fuel_per_tick` and its draft and buy multipliers); the memory multiplier scales `memory_bytes`, rounded down to whole 64 KiB pages.
 
 ## Weapons
 
-| Field | pistol | rifle | smg | shotgun | marksman | lmg | Meaning |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `id` | 0 | 1 | 2 | 3 | 4 | 5 |  |
-| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 |  |
-| `damage` | 26 | 22 | 17 | 15 | 75 | 16 |  |
-| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | Bullets per trigger pull. |
-| `spread` | 0 | 250 | 200 | 260 | 0 | 300 | Angle between adjacent pellets when standing still and settled. |
-| `_reserved0` | 0 | 0 | 0 | 0 | 0 | 0 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
-| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 | Extra spread between pellets per recoil point. |
-| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 |  |
-| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 |  |
-| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
-| `cooldown` | 1 | 1 | 1 | 3 | 4 | 2 | Ticks after a shot before the next pull is accepted. |
-| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 |  |
-| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 |  |
-| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | Units per tick. |
-| `range` | 10240 | 30720 | 16384 | 9216 | 40960 | 28672 |  |
-| `falloff_start` | 4096 | 16384 | 6144 | 3072 | 40960 | 14336 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
-| `falloff_min_pct` | 50 | 70 | 40 | 25 | 100 | 60 |  |
-| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | Percent of max run speed while holding this weapon. |
-| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 |  |
-| `slot` | 1 | 0 | 0 | 0 | 0 | 0 |  |
-| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 | Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered. |
-| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 | Unsteadiness lost per tick without moving. |
-| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 | Unsteadiness never exceeds this. |
-| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 | Startup added per point of unsteadiness, in hundredths of a tick (rounded half up). |
+| Field | pistol | rifle | smg | shotgun | marksman | lmg | hunter | Meaning |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `id` | 0 | 1 | 2 | 3 | 4 | 5 | 6 |  |
+| `price` | 0 | 2700 | 1500 | 1800 | 3200 | 2300 | 1200 |  |
+| `damage` | 26 | 22 | 12 | 15 | 74 | 13 | 74 |  |
+| `pellets` | 1 | 3 | 2 | 7 | 1 | 5 | 1 | Bullets per trigger pull. |
+| `spread` | 0 | 250 | 200 | 260 | 0 | 300 | 0 | Angle between adjacent pellets when standing still and settled. |
+| `_reserved0` | 0 | 0 | 0 | 0 | 0 | 0 | 0 | Reserved, always 0 (was `move_spread`: movement no longer adds spread). |
+| `recoil_spread` | 120 | 250 | 100 | 60 | 300 | 60 | 300 | Extra spread between pellets per recoil point. |
+| `recoil_per_shot` | 2 | 3 | 2 | 4 | 4 | 2 | 4 |  |
+| `recoil_recovery` | 1 | 1 | 1 | 2 | 1 | 1 | 1 |  |
+| `windup` | 1 | 1 | 1 | 1 | 2 | 2 | 2 | Ticks between `A_FIRE` and the bullets leaving for a steady unit that is not braced. |
+| `cooldown` | 1 | 1 | 0 | 3 | 4 | 0 | 5 | Ticks after a shot before the next pull is accepted. |
+| `magazine` | 12 | 8 | 15 | 5 | 5 | 20 | 5 |  |
+| `reload_ticks` | 3 | 4 | 3 | 5 | 5 | 7 | 5 |  |
+| `bullet_speed` | 8192 | 14336 | 9216 | 8192 | 20480 | 12288 | 20480 | Units per tick. |
+| `range` | 15360 | 30720 | 16384 | 9216 | 30720 | 28672 | 24576 |  |
+| `falloff_start` | 12288 | 16384 | 6144 | 3072 | 24576 | 14336 | 24576 | Damage is full up to `falloff_start`, then scales linearly to `falloff_min_pct` at `range`. |
+| `falloff_min_pct` | 85 | 70 | 40 | 25 | 86 | 60 | 100 |  |
+| `move_pct` | 100 | 90 | 100 | 95 | 80 | 70 | 80 | Percent of max run speed while holding this weapon. |
+| `kill_reward` | 300 | 200 | 400 | 500 | 100 | 150 | 400 |  |
+| `slot` | 1 | 0 | 0 | 0 | 0 | 0 | 0 |  |
+| `unsteady_gain` | 4 | 8 | 2 | 6 | 12 | 12 | 12 | Unsteadiness gained per tick moved, per 1024 units/tick of distance actually covered. |
+| `unsteady_decay` | 2 | 2 | 2 | 2 | 2 | 2 | 2 | Unsteadiness lost per tick without moving. |
+| `unsteady_max` | 4 | 12 | 4 | 8 | 16 | 16 | 16 | Unsteadiness never exceeds this. |
+| `startup_per_point` | 25 | 25 | 25 | 25 | 25 | 25 | 25 | Startup added per point of unsteadiness, in hundredths of a tick (rounded half up). |
 
 Notes from `rules/weapons.toml`:
 
@@ -1315,25 +1391,34 @@ unsteady_max. Movement adds no spread. Formulas, a table of these values and mea
 in docs/rules/combat.md; after editing this file regenerate its tables (that file says how).
 
 (above [[weapon]] "pistol")
-Free sidearm everyone carries: exact single shots and a short startup even off a run, but it reaches only ten
-tiles and loses damage from four.
+Free sidearm everyone carries: exact single shots and a short startup even off a run. It reaches fifteen tiles
+and loses damage only from twelve, so four hits kill (five through light armour, six through heavy) out to
+about twelve and a half tiles. A bought gun earns its price by killing faster where it is meant to fight.
 
 (above [[weapon]] "rifle")
 All-rounder: a tight three-bullet burst that reaches across the map if you stand still and pace your fire.
+Fires at the pistol's rate, slower than the smg and a braced lmg.
 
 (above [[weapon]] "smg")
-Run-and-gun: running barely unsteadies it and it carries at full speed, but short reach and steep falloff.
+Run-and-gun: the fastest fire rate (a pull every tick) with small hits that armour soaks. Running barely
+unsteadies it and it carries at full speed, but short reach and steep falloff.
 
 (above [[weapon]] "shotgun")
 Close quarters: a wide seven-bullet fan that kills in one pull inside three tiles and tickles beyond six.
 
 (above [[weapon]] "marksman")
-Long range: one fast bullet with no falloff, two hits kill. Slow to cycle, very slow to start after moving,
+Long range: one fast bullet. Two hits kill a bare or light-armoured unit and three a heavy-armoured one,
+anywhere in its reach: a shallow falloff past its 24-tile sight takes 74 down to 63, never across a breakpoint
+(63 kills light armour in two, 75 would kill heavy in two). Slow to cycle, very slow to start after moving,
 and the two-tick startup warns the target.
 
 (above [[weapon]] "lmg")
-Heavy and slow: a five-bullet wall every pull, a deep magazine and almost no recoil, for holding a lane.
+Fast once braced: a five-bullet wall every tick from a deep magazine, for holding a lane against a group.
 Slow to carry, very slow to start firing after moving and very slow to reload.
+
+(above [[weapon]] "hunter")
+Eco long gun: the marksman's bullet, damage and startup tell for little money, so a saving team can still hold
+a long angle. A miss costs a long wait, and it reaches only its own 24 tiles of sight.
 ```
 
 ## Abilities
@@ -1419,6 +1504,7 @@ Kit 0 is what a unit plays if it never drafts. Slot 0 is the kit's free ability,
 | 8 | `shotgun` | 1 (WEAPON) | 1800 | shotgun (3) |
 | 9 | `marksman` | 1 (WEAPON) | 3200 | marksman (4) |
 | 10 | `lmg` | 1 (WEAPON) | 2300 | lmg (5) |
+| 11 | `hunter` | 1 (WEAPON) | 1200 | hunter (6) |
 
 ## Armour
 
@@ -1427,7 +1513,7 @@ Kit 0 is what a unit plays if it never drafts. Slot 0 is the kit's free ability,
 | `light_armor` | 400 | 25 |
 | `heavy_armor` | 1000 | 50 |
 
-Armour absorbs `armor_absorb_pct` = 50% of each hit until its points are used up.
+Armour absorbs `armor_absorb_pct` = 100% of each hit until its points are used up.
 
 ## Economy and match flow
 
@@ -1441,7 +1527,7 @@ Armour absorbs `armor_absorb_pct` = 50% of each hit until its points are used up
 | `loss_streak_cap` | 3 |  |
 | `plant_reward` | 300 |  |
 | `default_sidearm` | 0 |  |
-| `armor_absorb_pct` | 50 |  |
+| `armor_absorb_pct` | 100 |  |
 | `defuse_reward` | 300 | Paid to every defender when a round is won by defusing. |
 | `ability_kill_reward` | 200 | Kill reward when the kill was not made with a weapon (ability damage). |
 | `refund_pct` | 100 | Share of the price returned when an item bought this buy phase is replaced in the same phase. |
@@ -1753,7 +1839,9 @@ Charged on top of the WebAssembly instructions the call itself runs.
 | `FUEL_LOS` | `60` | `u64` |  |
 | `FUEL_RAYCAST` | `80` | `u64` |  |
 | `FUEL_MEM` | `20` | `u64` |  |
-| `FUEL_DEBUG` | `0` | `u64` |  |
+| `FUEL_DEBUG` | `140` | `u64` | `debug_draw`, whether the drawing is kept or dropped at the per-team cap. |
+| `FUEL_IOV` | `5` | `u64` | Per iovec of a WASI `fd_write`, up to the 64 it honours. Paid like an instruction: at once, and a call that runs past the turn's budget is owed by the next turns. |
+| `FUEL_RANDOM` | `2` | `u64` | Per 8 bytes asked of a WASI `random_get` (rounded up), up to the 4096 it fills. Paid like `FUEL_IOV`. |
 
 ### Other constants
 
@@ -1907,7 +1995,7 @@ A unit as seen by the caller. For enemies, `hp`, `armor`, `credits`, `charges`, 
 | 4 | `x` | `i32` | 4 |  |
 | 8 | `y` | `i32` | 4 |  |
 | 12 | `item` | `i32` | 4 |  |
-| 16 | `ammo` | `i32` | 4 | `DROP_WEAPON`: the rounds in its magazine, which whoever picks it up gets. 0 for the charge. |
+| 16 | `ammo` | `i32` | 4 | `DROP_WEAPON`: the rounds that were in its magazine when it fell, which is what a pickup gets. 0 for the charge. Added in engine 0.3.0; a bot built against the 16-byte record gets the fields before it. |
 
 ### EventInfo
 

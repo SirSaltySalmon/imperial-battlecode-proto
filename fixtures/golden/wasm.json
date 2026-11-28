@@ -1,14 +1,14 @@
 {
   "patch": {
-    "engine": "0.2.0",
-    "ruleset_hash": "76bad4d5dc0354b6",
+    "engine": "0.3.0",
+    "ruleset_hash": "8738e66cbe90cb90",
     "wasmtime": "51.0.0",
     "abi": 1
   },
   "bots": {
-    "holder": "12a40eccdf9c3fec59cd949230e7aacfc28156f9cb916190abe532595aa691ff",
+    "holder": "bab0f8f1917689ed4877c1239a22f573a03370c2c92568b1a9cb13d5b87f6445",
     "idle": "0e7140f9ce2975afa7e688099f8939f85aef7e22f16c52d71bd0a01669f7fef8",
-    "rusher": "46d98be5db44c79e9f9e1bc4f9ce117e712924881263b11ada1d70cfb9d1cb68"
+    "rusher": "4f6b1429f6115213223515408c76a7125862635789b584db46dede72f6583d7a"
   },
   "cases": [
     {
@@ -18,14 +18,14 @@
       "a": "rusher",
       "b": "holder",
       "finished": true,
-      "winner": 1,
+      "winner": 0,
       "score": [
-        6,
-        8
+        9,
+        9
       ],
-      "ticks": 939,
-      "final_state_hash": "d5507c594468e994",
-      "replay_sha256": "bfc26ec22d046f2a58f04a2763caf8ec3584b876f37942b4767cce74e1b8fc6b"
+      "ticks": 1317,
+      "final_state_hash": "6489a7949b059ce2",
+      "replay_sha256": "dd6e7b041a6d632a0b5741f3373e7756a64333c248b8883aa681e64b1b70eaf4"
     },
     {
       "name": "tunnels-holder-rusher-s2",
@@ -36,12 +36,12 @@
       "finished": true,
       "winner": 1,
       "score": [
-        9,
-        9
+        3,
+        7
       ],
-      "ticks": 1174,
-      "final_state_hash": "18ec6c4340a29471",
-      "replay_sha256": "d0b9eb14e89b8a3098ccea1ddfe81a1caeca1a6c776e1f56d85eafcdb0840016"
+      "ticks": 540,
+      "final_state_hash": "0db3074971e03479",
+      "replay_sha256": "eb536a2662043b36016975aa1132b5e99794d43fe958f0aec54709f267fdf0b4"
     },
     {
       "name": "crossfire-idle-rusher-s5",
@@ -55,9 +55,9 @@
         0,
         7
       ],
-      "ticks": 463,
-      "final_state_hash": "04b7154a6b5e695c",
-      "replay_sha256": "68687f700b34126882f849998de56c369c8b2f63de18f268d3510111f329d285"
+      "ticks": 450,
+      "final_state_hash": "1a07ae8b4f774543",
+      "replay_sha256": "bf51bfe0d908cab01618c81ab7e64aa217cf16a6abd788687ddfc863c974d55b"
     }
   ]
 }

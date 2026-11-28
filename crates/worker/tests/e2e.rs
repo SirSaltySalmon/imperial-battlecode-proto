@@ -1,7 +1,10 @@
 //! End to end: the real coordinator (in-process, real HTTP) and real `ibc-worker` processes running real
 //! matches with the real runner. One worker is killed mid-run; its leases expire and the other finishes.
 //!
-//! Needs `IBC_RUNNER=/path/to/ibc` (a built `ibc` binary), like `tests/worker.rs`; skipped without it.
+//! Needs `IBC_RUNNER=/path/to/ibc` (a built `ibc` binary), like `tests/worker.rs`; skipped without it,
+//! or failed when `CI` is set.
+
+mod common;
 
 use ibc_coordinator::config::Config;
 use ibc_coordinator::App;
@@ -191,11 +194,7 @@ fn build_bot(runner: &Path, root: &Path, bot: &str) -> Vec<u8> {
 
 #[test]
 fn real_coordinator_and_workers_play_a_ranked_league_and_survive_a_killed_worker() {
-    let Some(runner) = std::env::var_os("IBC_RUNNER")
-        .map(PathBuf::from)
-        .filter(|p| p.is_file())
-    else {
-        eprintln!("SKIPPED: set IBC_RUNNER to a built `ibc` binary to run the end-to-end test");
+    let Some(runner) = common::runner("the end-to-end test") else {
         return;
     };
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

@@ -1,8 +1,9 @@
 //! `ibc-coordinator`: flags and environment in, one HTTP server out.
 
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser};
 use ibc_coordinator::config::Config;
 use ibc_coordinator::App;
+use std::ffi::{OsStr, OsString};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -11,7 +12,8 @@ use std::path::PathBuf;
     name = "ibc-coordinator",
     version,
     about = "Imperial Battlecode coordinator: job queue, submissions, ladder",
-    after_help = "Maintenance (docs/DEPLOY.md): ibc-coordinator backup DIR | \
+    after_help = "An IBC_* variable set to the empty string counts as unset: its flag above keeps its default.\n\n\
+                  Maintenance (docs/DEPLOY.md): ibc-coordinator backup DIR | \
                   ibc-coordinator prune-replays --older-than DAYS [--kinds unranked] [--dry-run]"
 )]
 struct Args {
@@ -107,9 +109,6 @@ struct Args {
     /// working directory
     #[arg(long, env = "IBC_VIEWER_DIR")]
     viewer_dir: Option<PathBuf>,
-    /// Language fuel multipliers, e.g. `--language rust=1.0 --language python=3.0`. Default: rust=1, cpp=1
-    #[arg(long = "language", value_parser = parse_language)]
-    languages: Vec<(String, f64)>,
     /// Seconds a live submission that stopped validating at a patch switch keeps playing ranked games
     #[arg(long, env = "IBC_INVALID_GRACE_SECS", default_value_t = 86_400)]
     invalid_grace_secs: u64,
@@ -122,16 +121,6 @@ struct Args {
     /// `distribution.json` (from `cargo xtask dist`) served at /v1/distribution for `ibc update`
     #[arg(long, env = "IBC_DISTRIBUTION")]
     distribution: Option<PathBuf>,
-}
-
-fn parse_language(s: &str) -> Result<(String, f64), String> {
-    let (name, mult) = s.split_once('=').ok_or("expected NAME=MULTIPLIER")?;
-    let mult: f64 = mult
-        .parse()
-        .map_err(|_| format!("bad multiplier {mult:?}"))?;
-    let mult = ibc_coordinator::model::normalize_fuel_mult(mult)
-        .ok_or("multiplier out of range (0.001 ..= 1000)")?;
-    Ok((name.to_string(), mult))
 }
 
 fn parse_tier_floors(s: &str) -> Result<[f64; 8], String> {
@@ -147,6 +136,22 @@ fn parse_tier_floors(s: &str) -> Result<[f64; 8], String> {
     }
     Ok(floors)
 }
+
+/// The parser of `Args`, with every flag whose variable `var` reports set to the empty string unbound from
+/// it, so the flag keeps its default (or, if required, is reported missing). `${VAR:-}` in a compose file
+/// and `VAR=` in an env file set such values, and clap would hand `""` to the flag's value parser, which a
+/// path, a number or a switch refuses: the coordinator would not start.
+fn command(var: impl Fn(&OsStr) -> Option<OsString>) -> clap::Command {
+    Args::command().mut_args(|arg| {
+        let empty = arg.get_env().and_then(&var).is_some_and(|v| v.is_empty());
+        if empty {
+            arg.env(None::<&'static str>)
+        } else {
+            arg
+        }
+    })
+}
+
 /// Longest grace period or drain window accepted.
 const MAX_WINDOW_SECS: u64 = 366 * 86_400;
 /// A page directory: the one given, else `<name>/dist` (or `<name>`) beside the binary, else `<name>/dist` under
@@ -175,6 +180,16 @@ fn page_dir(given: &Option<PathBuf>, name: &str) -> anyhow::Result<Option<PathBu
 fn config(args: &Args) -> anyhow::Result<Config> {
     if args.admin_token.is_empty() {
         anyhow::bail!("--admin-token must not be empty");
+    }
+    // No worker can register with an empty secret: leaving the flag out is how to get its default.
+    if [&args.registration_token, &args.trusted_registration_token]
+        .iter()
+        .any(|t| t.as_deref() == Some(""))
+    {
+        anyhow::bail!(
+            "--registration-token and --trusted-registration-token must not be empty (leave \
+             --registration-token out to register workers with the admin token)"
+        );
     }
     if !(0.0..=1.0).contains(&args.verify_fraction) {
         anyhow::bail!("--verify-fraction must be between 0 and 1");
@@ -234,11 +249,6 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         tier_floors: args.tier_floors.unwrap_or(defaults.tier_floors),
         tournament_pause_ms: i64::try_from(args.tournament_pause_secs.saturating_mul(1000))
             .unwrap_or(i64::MAX),
-        languages: if args.languages.is_empty() {
-            defaults.languages.clone()
-        } else {
-            args.languages.clone()
-        },
         auth: args.auth.config(args.listen)?,
         moderation: args.moderation.to_config(),
         invalid_grace_ms: (args.invalid_grace_secs * 1000) as i64,
@@ -247,10 +257,7 @@ fn config(args: &Args) -> anyhow::Result<Config> {
         balance_sigma_factor: args.balance_sigma_factor,
         web_dir: page_dir(&args.web_dir, "web")?,
         viewer_dir: page_dir(&args.viewer_dir, "viewer")?,
-        distribution_file: args
-            .distribution
-            .clone()
-            .filter(|p| !p.as_os_str().is_empty()),
+        distribution_file: args.distribution.clone(),
         ..defaults
     })
 }
@@ -260,7 +267,8 @@ async fn main() -> anyhow::Result<()> {
     if let Some(done) = ibc_coordinator::maintenance::from_args(std::env::args_os().collect()) {
         return done;
     }
-    let args = Args::parse();
+    let matches = command(|name| std::env::var_os(name)).get_matches();
+    let args = Args::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     let app = App::open(config(&args)?, &args.data)?;
     let listener = tokio::net::TcpListener::bind(args.listen).await?;
     eprintln!(
@@ -277,10 +285,62 @@ async fn main() -> anyhow::Result<()> {
             ),
         }
     }
+    if let Some(file) = app.cfg.distribution_file.as_ref().filter(|f| !f.exists()) {
+        eprintln!(
+            "IBC_DISTRIBUTION names {}, which does not exist yet: /v1/distribution answers 404 until it does",
+            file.display()
+        );
+    }
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
         eprintln!("shutting down");
     };
     ibc_coordinator::serve(app, listener, shutdown).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Args` from the required flags and these, whatever the environment of the test holds.
+    fn args(flags: &[&str]) -> Args {
+        let required = ["ibc-coordinator", "--data", "d", "--admin-token", "admin"];
+        let unbound = command(|_| Some(OsString::new()));
+        let matches = unbound
+            .try_get_matches_from(required.iter().chain(flags))
+            .unwrap();
+        Args::from_arg_matches(&matches).unwrap()
+    }
+
+    #[test]
+    fn a_variable_set_empty_leaves_its_flag_unbound() {
+        let var = |name: &OsStr| match name.to_str() {
+            Some("IBC_DISTRIBUTION" | "IBC_LEASE_SECS" | "IBC_TRUST_PROXY") => {
+                Some(OsString::new())
+            }
+            Some("IBC_WEB_DIR") => Some("web".into()),
+            _ => None,
+        };
+        let cmd = command(var);
+        let env = |id: &str| {
+            let arg = cmd.get_arguments().find(|a| a.get_id() == id).unwrap();
+            arg.get_env().and_then(OsStr::to_str)
+        };
+        assert_eq!(env("distribution"), None);
+        assert_eq!(env("lease_secs"), None);
+        assert_eq!(env("trust_proxy"), None, "flattened flags too");
+        assert_eq!(env("web_dir"), Some("IBC_WEB_DIR"));
+        assert_eq!(env("viewer_dir"), Some("IBC_VIEWER_DIR"));
+    }
+
+    #[test]
+    fn workers_register_with_the_admin_token_unless_given_another() {
+        assert_eq!(config(&args(&[])).unwrap().registration_token, "admin");
+        let given = config(&args(&["--registration-token", "reg"])).unwrap();
+        assert_eq!(given.registration_token, "reg");
+        for flag in ["--registration-token", "--trusted-registration-token"] {
+            assert!(config(&args(&[flag, ""])).is_err(), "{flag} \"\"");
+        }
+    }
 }

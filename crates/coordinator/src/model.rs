@@ -11,15 +11,35 @@ pub struct Patch {
     pub wasmtime: String,
 }
 
-fn one() -> f64 {
-    1.0
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BotRef {
     pub sha256: String,
-    #[serde(default = "one")]
-    pub fuel_mult: f64,
+    /// The bot's language: the runner applies that `[[language]]` row of the patch's ruleset. Absent: what
+    /// the module says (`ibc_replay::detect_languages`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// Replaces the row's fuel multiplier (organiser bench jobs). Absent: the row's. Submissions never set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fuel_mult: Option<f64>,
+}
+
+impl BotRef {
+    /// A submission's module, played with its language's row.
+    pub fn submission(sha256: String, language: String) -> BotRef {
+        BotRef {
+            sha256,
+            language: Some(language),
+            fuel_mult: None,
+        }
+    }
+}
+
+/// A language name as the ruleset's `[[language]]` rows spell them.
+pub fn language_name_ok(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 32
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,12 +77,17 @@ impl JobSpec {
             }
         }
         for bot in [&mut self.bot_a, &mut self.bot_b] {
-            bot.fuel_mult = normalize_fuel_mult(bot.fuel_mult).ok_or_else(|| {
-                format!(
-                    "fuel_mult {} is out of range (0.001 ..= 1000)",
-                    bot.fuel_mult
-                )
-            })?;
+            if let Some(m) = bot.fuel_mult {
+                bot.fuel_mult =
+                    Some(normalize_fuel_mult(m).ok_or_else(|| {
+                        format!("fuel_mult {m} is out of range (0.001 ..= 1000)")
+                    })?);
+            }
+            if let Some(l) = &bot.language {
+                if !language_name_ok(l) {
+                    return Err(format!("language {l:?} must be 1 to 32 of a-z, 0-9 and _"));
+                }
+            }
         }
         let p = &self.patch;
         if p.engine.is_empty()
@@ -79,19 +104,25 @@ impl JobSpec {
     }
 
     /// The idempotency key of docs/JOBS.md: SHA-256 over the newline-joined inputs, numbers in shortest
-    /// decimal form (Rust's `Display` for `f64` and integers: `1`, `1.5`, `12345`).
+    /// decimal form (Rust's `Display` for `f64` and integers: `1`, `1.5`, `12345`), an absent value empty.
     pub fn key(&self) -> String {
         let max_ticks = self.max_ticks.map(|t| t.to_string()).unwrap_or_default();
+        let bot = |b: &BotRef| {
+            let mult = b.fuel_mult.map(|m| m.to_string()).unwrap_or_default();
+            format!(
+                "{}\n{mult}\n{}",
+                b.sha256,
+                b.language.as_deref().unwrap_or("")
+            )
+        };
         let text = format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
             self.patch.engine,
             self.patch.ruleset_hash,
             self.patch.wasmtime,
             self.map.sha256,
-            self.bot_a.sha256,
-            self.bot_a.fuel_mult,
-            self.bot_b.sha256,
-            self.bot_b.fuel_mult,
+            bot(&self.bot_a),
+            bot(&self.bot_b),
             self.seed,
             max_ticks
         );
@@ -148,13 +179,11 @@ mod tests {
                 ruleset_hash: "00ff".into(),
                 wasmtime: "51.0.0".into(),
             },
-            bot_a: BotRef {
-                sha256: "a".repeat(64),
-                fuel_mult: 1.0,
-            },
+            bot_a: BotRef::submission("a".repeat(64), "rust".into()),
             bot_b: BotRef {
                 sha256: "b".repeat(64),
-                fuel_mult: 1.5,
+                language: None,
+                fuel_mult: Some(1.5),
             },
             map: MapRef {
                 sha256: "c".repeat(64),
@@ -167,7 +196,7 @@ mod tests {
     #[test]
     fn key_is_the_documented_hash() {
         let text = format!(
-            "0.1.0\n00ff\n51.0.0\n{}\n{}\n1\n{}\n1.5\n18446744073709551615\n",
+            "0.1.0\n00ff\n51.0.0\n{}\n{}\n\nrust\n{}\n1.5\n\n18446744073709551615\n",
             "c".repeat(64),
             "a".repeat(64),
             "b".repeat(64)
@@ -196,11 +225,14 @@ mod tests {
     #[test]
     fn normalize_rounds_and_rejects() {
         let mut s = spec();
-        s.bot_a.fuel_mult = 1.0004;
-        assert_eq!(s.clone().normalize().unwrap().bot_a.fuel_mult, 1.0);
-        s.bot_a.fuel_mult = 0.0;
+        s.bot_a.fuel_mult = Some(1.0004);
+        assert_eq!(s.clone().normalize().unwrap().bot_a.fuel_mult, Some(1.0));
+        s.bot_a.fuel_mult = Some(0.0);
         assert!(s.clone().normalize().is_err());
-        s.bot_a.fuel_mult = 1.0;
+        s.bot_a.fuel_mult = None;
+        s.bot_a.language = Some("C++".into());
+        assert!(s.clone().normalize().is_err());
+        s.bot_a.language = None;
         s.map.sha256 = "XYZ".into();
         assert!(s.normalize().is_err());
     }

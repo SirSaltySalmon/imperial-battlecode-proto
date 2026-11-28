@@ -163,11 +163,12 @@ export function seriesResultFor(s: SeriesSummary, teamId: string): string {
   return own > other ? "won" : own < other ? "lost" : "draw";
 }
 
-/** A pairing side's display name: the name if the server sent one, else the id, else "bye". */
+/** A pairing side's display name: the name if the server sent one, else the id, else "to be decided" while the
+ * seat waits on an earlier match, else "bye". */
 export function pairingSide(p: Pairing, side: "a" | "b"): string {
   const name = side === "a" ? p.a_name : p.b_name;
   const id = side === "a" ? p.a : p.b;
-  return name ?? id ?? "bye";
+  return name ?? id ?? (p.state === "waiting" ? "to be decided" : "bye");
 }
 
 /** "2–1 maps", "rounds 25–24", "seed": how the winner of a pairing was decided. */

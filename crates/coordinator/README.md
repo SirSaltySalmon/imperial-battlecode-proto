@@ -38,7 +38,7 @@ binary as a blob first): `{"engine": .., "ruleset_hash": .., "wasmtime": .., "ru
 
 | | auth | |
 |---|---|---|
-| `POST /v1/workers/register`, `POST /v1/jobs/lease`, `POST /v1/jobs/{id}/heartbeat\|complete\|fail\|release`, `GET\|PUT /v1/blobs/{sha256}` | worker (blobs: also admin) | protocol v1.1, see `docs/JOBS.md` |
+| `POST /v1/workers/register`, `POST /v1/jobs/lease`, `POST /v1/jobs/{id}/heartbeat\|complete\|fail\|release`, `GET\|PUT /v1/blobs/{sha256}` | worker (blobs: reads only what its leases name, uploads only while it holds one; admin: any) | protocol v1.1, see `docs/JOBS.md` |
 | `POST /v1/auth/register\|login\|logout\|device\|device/approve\|device/token`, `GET /v1/me`, `POST /v1/teams`, `/v1/teams/join\|leave\|join-code/rotate`, `POST /v1/team/token` | see [`docs/api/auth.md`](../../docs/api/auth.md) | accounts, sessions, device login, teams of users |
 | `GET /v1/team`, `POST /v1/submissions`, `GET /v1/submissions` | team | upload makes the module live if it validates, unless `?live=false` |
 | `POST /v1/submissions/{id}/live` | team (its own), or admin | make a validated submission the live one |
@@ -200,7 +200,8 @@ a pure function of its job), losing submissions is not.
 Rate limiting and per-IP abuse protection (do it in the proxy), blob garbage collection, upload quotas for
 rejected submissions, private scrimmages (all matches and replays are public), inactivity decay of ratings
 (`on_inactive` is not called), widening every rating on a balance patch (`on_balance_patch`).
-Any registered worker can upload blobs, and the registration secret is shared: a quarantined worker can
+A worker holding any lease can upload any blob, not only its replay, and the registration secret is
+shared: a quarantined worker can
 register again, so rotate the secret when someone is caught. A data directory from before the rating ledger
 has ratings but no ledger: it keeps them, but a recompute (quarantine rollback, system switch) would start
 from the ledger alone.

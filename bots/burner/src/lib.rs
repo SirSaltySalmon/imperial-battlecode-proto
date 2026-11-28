@@ -42,7 +42,8 @@ impl Bot for Idle {
 /// `bots/forcer`: the strongest bot of the reference pool, so a real strategy to burn beside.
 pub struct Forcer(Squad);
 
-const FORCER: Style = Style { attack: Attack::Execute, defence: Defence::Push, buy: Buy::Force, mixed_arms: false };
+const FORCER: Style =
+    Style { attack: Attack::Execute, defence: Defence::Push, buy: Buy::Force, mixed_arms: false, loadout: None };
 
 impl Bot for Forcer {
     fn new() -> Self {
@@ -177,7 +178,7 @@ impl Kernel for FuelCalls {
     }
 }
 
-/// `debug_draw` in a loop: free (`FUEL_DEBUG` = 0), kept up to 4096 per tick and stored in the replay.
+/// `debug_draw` in a loop (`FUEL_DEBUG` = 140): each team's first 2,048 a tick are stored in the replay.
 pub struct Draws(i32);
 
 impl Kernel for Draws {
@@ -237,10 +238,11 @@ impl Kernel for Reads {
     }
 }
 
-/// The largest `mem_read` the host takes (1 MiB), refused by the engine: `FUEL_MEM` = 20 whatever the length.
+/// A 1 MiB `mem_read`, refused by the engine: `FUEL_MEM` = 20 whatever the length.
 pub struct MemRead(Vec<u8>);
 
-/// Largest `mem_read` / `mem_write` length the runner passes on (`MAX_MEM_IO` in `crates/runner/src/vm.rs`).
+/// Length of the `MemRead` and `MemWrite` requests: 1 MiB, the most the runner passed on before it stopped
+/// allocating a buffer of the requested length.
 const MAX_MEM_IO: usize = 1 << 20;
 
 impl Kernel for MemRead {
@@ -255,8 +257,101 @@ impl Kernel for MemRead {
     }
 }
 
-/// One refused 1 MiB `mem_write` per turn, then `Alu` for the rest. Kept to one call per turn on purpose:
-/// the engine records every `mem_write` as a replay input, refused or not, so a loop of them exhausts memory.
+/// `ibc::log` of one byte in a loop: a host call that charges nothing on top of its own instructions. The
+/// unit's log stops growing at its cap (256 KiB), so after the first ticks a call stores nothing.
+pub struct Logs;
+
+impl Kernel for Logs {
+    fn new() -> Self {
+        Logs
+    }
+
+    fn run(&mut self, n: u32) {
+        for _ in 0..n {
+            ibc::log("x");
+        }
+    }
+}
+
+/// The two WASI calls whose host work grows with their arguments, imported directly.
+#[cfg(target_arch = "wasm32")]
+mod wasi {
+    #[link(wasm_import_module = "wasi_snapshot_preview1")]
+    extern "C" {
+        #[link_name = "fd_write"]
+        fn wasi_fd_write(fd: i32, iovs: *const u32, n: u32, written: *mut u32) -> i32;
+        #[link_name = "random_get"]
+        fn wasi_random_get(buf: *mut u8, len: u32) -> i32;
+    }
+
+    /// `fd_write` to stdout of `iovs`, a list of (pointer, length) pairs.
+    pub fn fd_write(iovs: &[[u32; 2]]) -> i32 {
+        let mut written = 0u32;
+        // SAFETY: `iovs` is a live slice of `[u32; 2]`, the WASI iovec layout on wasm32.
+        unsafe { wasi_fd_write(1, iovs.as_ptr().cast(), iovs.len() as u32, &mut written) }
+    }
+
+    pub fn random_get(buf: &mut [u8]) -> i32 {
+        // SAFETY: `buf` is a live, writable slice of `buf.len()` bytes.
+        unsafe { wasi_random_get(buf.as_mut_ptr(), buf.len() as u32) }
+    }
+}
+
+/// Natively the burner burns nothing (`burn`), so no kernel ever calls these.
+#[cfg(not(target_arch = "wasm32"))]
+mod wasi {
+    pub fn fd_write(_: &[[u32; 2]]) -> i32 {
+        unreachable!("the burner burns nothing natively")
+    }
+
+    pub fn random_get(_: &mut [u8]) -> i32 {
+        unreachable!("the burner burns nothing natively")
+    }
+}
+
+/// Most iovecs the runner honours per `fd_write` (`MAX_IOVS` in `crates/runner/src/wasi.rs`).
+const MAX_IOVS: usize = 64;
+
+/// `fd_write` of the most iovecs the runner honours, one byte each (`FUEL_IOV` = 5 each). Like `Logs`, the
+/// log is full after the first ticks; the host still walks every iovec.
+pub struct Prints(Vec<[u32; 2]>);
+
+static BYTE: u8 = b'x';
+
+impl Kernel for Prints {
+    fn new() -> Self {
+        // A wasm32 address; natively the kernel never runs.
+        Prints(vec![[&BYTE as *const u8 as u32, 1]; MAX_IOVS])
+    }
+
+    fn run(&mut self, n: u32) {
+        for _ in 0..n {
+            black_box(wasi::fd_write(&self.0));
+        }
+    }
+}
+
+/// Most bytes the runner fills per `random_get` (`MAX_RANDOM` in `crates/runner/src/wasi.rs`).
+const MAX_RANDOM: usize = 4096;
+
+/// `random_get` of the most bytes the runner fills per call (`FUEL_RANDOM` = 2 per 8 bytes).
+pub struct Randoms(Vec<u8>);
+
+impl Kernel for Randoms {
+    fn new() -> Self {
+        Randoms(vec![0; MAX_RANDOM])
+    }
+
+    fn run(&mut self, n: u32) {
+        for _ in 0..n {
+            black_box(wasi::random_get(&mut self.0));
+        }
+    }
+}
+
+/// One refused 1 MiB `mem_write` per turn, then `Alu` for the rest. Kept to one call per turn so that it can
+/// still be compared with engines that recorded every `mem_write`, refused or not, where a loop of them
+/// exhausts memory.
 pub struct MemWrite(Vec<u8>, Alu);
 
 impl Kernel for MemWrite {
