@@ -227,6 +227,30 @@ button.link {
   font-weight: 600;
 }
 
+.series-row {
+  cursor: pointer;
+}
+
+.series-row:hover {
+  background: var(--panel);
+}
+
+.series-games td {
+  white-space: normal;
+  padding: 4px 0 10px 1.6em;
+  background: var(--panel);
+}
+
+.games {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.games li {
+  margin: 3px 0;
+}
+
 .tier.provisional {
   color: var(--muted);
   font-style: italic;

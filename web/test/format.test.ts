@@ -7,12 +7,15 @@ import {
   errorText,
   formatBytes,
   formatDuration,
+  groupSeries,
   isFlagged,
   objectColumns,
   pairingSide,
   resultFor,
   safeUrl,
   scoreText,
+  seriesResultFor,
+  seriesScoreText,
   splitList,
   tierLabel,
   viewerHref,
@@ -101,6 +104,34 @@ describe("matches", () => {
     expect(resultFor(match(), "b")).toBe("lost");
     expect(resultFor(match({ outcome: "draw" }), "b")).toBe("draw");
     expect(resultFor(match(), "c")).toBe("");
+  });
+});
+
+describe("series", () => {
+  const swapped = { bot_a: { team_id: "b", name: "Beta" }, bot_b: { team_id: "a", name: "Alpha" } };
+  const games = [
+    match({ match_id: "m3", series_id: "s1", index: 2, outcome: "a", finished_at: "2026-11-25T10:03:00Z" }),
+    match({ match_id: "x1", series_id: "s2", index: 0, state: "running", outcome: null, score: null, finished_at: null }),
+    match({ match_id: "m2", series_id: "s1", index: 1, ...swapped, outcome: "a", finished_at: "2026-11-25T10:02:00Z" }),
+    match({ match_id: "m1", series_id: "s1", index: 0, outcome: "a" }),
+  ];
+
+  it("groups games by series in first-seen order and scores across side swaps", () => {
+    const [s1, s2] = groupSeries(games);
+    expect(s1!.matches.map((m) => m.index)).toEqual([0, 1, 2]);
+    expect([s1!.team_a.team_id, s1!.wins_a, s1!.wins_b]).toEqual(["a", 2, 1]);
+    expect(s1!.when).toBe("2026-11-25T10:03:00Z");
+    expect(seriesScoreText(s1!)).toBe("2–1");
+    expect(seriesResultFor(s1!, "a")).toBe("won");
+    expect(seriesResultFor(s1!, "b")).toBe("lost");
+    expect(seriesResultFor(s1!, "c")).toBe("");
+    expect(s2!.state).toBe("running");
+    expect(seriesScoreText(s2!)).toBe("0–0 (running)");
+    expect(seriesResultFor(s2!, "a")).toBe("");
+  });
+  it("counts draws", () => {
+    const [s] = groupSeries([match({ outcome: "draw" }), match({ index: 1, outcome: "b" })]);
+    expect(seriesScoreText(s!)).toBe("0–1, 1 draw");
   });
 });
 

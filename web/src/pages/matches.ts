@@ -1,8 +1,18 @@
-// Match lists (with filters and paging), the match table other pages reuse, and a series page.
+// Match lists (with filters and paging), the series table other pages reuse, and a series page.
 
 import type { Match, MatchKind, MatchQuery } from "../api";
-import { h, errorBox, link, notice, section, table } from "../dom";
-import { formatTime, replayPath, resultFor, scoreText, viewerHref } from "../format";
+import { h, errorBox, link, notice, section } from "../dom";
+import {
+  formatTime,
+  groupSeries,
+  replayPath,
+  resultFor,
+  scoreText,
+  seriesResultFor,
+  seriesScoreText,
+  viewerHref,
+  type SeriesSummary,
+} from "../format";
 import { href } from "../router";
 import type { Page } from "../session";
 
@@ -14,7 +24,6 @@ function teamLink(t: { team_id: string; name: string }): HTMLElement {
 
 /** Watch and download links; a match the signed-in team played opens in that team's view. */
 function matchLinks(m: Match, ownTeam?: string): HTMLElement {
-  if (m.state !== "done") return h("span", { class: "muted" }, "—");
   const played = ownTeam !== undefined && [m.bot_a.team_id, m.bot_b.team_id].includes(ownTeam);
   const view = played ? "team" : undefined;
   return h(
@@ -26,28 +35,80 @@ function matchLinks(m: Match, ownTeam?: string): HTMLElement {
   );
 }
 
-/**
- * One row per match. With `perspective` (a team id) a result column says won / lost / draw. `ownTeam` is the
- * signed-in team: its matches link to the team view of the replay.
- */
-export function matchTable(matches: Match[], perspective?: string, ownTeam?: string): HTMLElement {
-  const headers = ["When", "Kind", "Map", "Side A", "Score", "Side B"];
-  if (perspective) headers.push("Result");
-  headers.push("Series", "Replay");
-  const rows = matches.map((m) => {
-    const row: (Node | string)[] = [
-      formatTime(m.finished_at ?? m.created_at),
-      m.kind,
-      m.map,
-      teamLink(m.bot_a),
-      scoreText(m),
-      teamLink(m.bot_b),
-    ];
-    if (perspective) row.push(resultFor(m, perspective));
-    row.push(link(href(`/series/${m.series_id}`), `#${m.index + 1}`), matchLinks(m, ownTeam));
-    return row;
+/** One line per game: "Game 2 · crossfire · Alpha 7–4 Beta · won · Watch · Download". */
+export function gameList(matches: Match[], perspective?: string, ownTeam?: string): HTMLElement {
+  if (matches.length === 0) return h("p", { class: "muted" }, "No games yet.");
+  return h(
+    "ul",
+    { class: "games" },
+    matches.map((m) => {
+      const result = perspective ? resultFor(m, perspective) : "";
+      return h(
+        "li",
+        {},
+        h("strong", {}, `Game ${m.index + 1}`),
+        ` · ${m.map} · `,
+        teamLink(m.bot_a),
+        ` ${scoreText(m)} `,
+        teamLink(m.bot_b),
+        result ? ` · ${result}` : "",
+        m.state === "done" ? [" · ", matchLinks(m, ownTeam)] : null,
+        h("span", { class: "muted" }, ` · ${formatTime(m.finished_at ?? m.created_at)}`),
+      );
+    }),
+  );
+}
+
+/** A series row, and the hidden row of its games that clicking it shows. */
+function seriesRows(s: SeriesSummary, columns: number, perspective?: string, ownTeam?: string): HTMLElement[] {
+  const toggle = h("button", { type: "button", class: "link toggle", "aria-expanded": "false" }, "▸");
+  const cells: (Node | string)[] = [
+    toggle,
+    formatTime(s.when),
+    s.kind,
+    teamLink(s.team_a),
+    seriesScoreText(s),
+    teamLink(s.team_b),
+  ];
+  if (perspective) cells.push(seriesResultFor(s, perspective));
+  cells.push(String(s.matches.length));
+  const row = h("tr", { class: "series-row" }, cells.map((c) => h("td", {}, c)));
+  const games = h(
+    "tr",
+    { class: "series-games", hidden: true },
+    h(
+      "td",
+      { colspan: columns },
+      gameList(s.matches, perspective, ownTeam),
+      link(href(`/series/${s.series_id}`), "Series page"),
+    ),
+  );
+  row.addEventListener("click", (ev) => {
+    if ((ev.target as Element).closest("a")) return;
+    const open = games.hidden;
+    games.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.textContent = open ? "▾" : "▸";
   });
-  return table(headers, rows, "No matches yet.");
+  return [row, games];
+}
+
+/**
+ * One row per series; clicking a row lists its games. With `perspective` (a team id) a result column says
+ * won / lost / draw. `ownTeam` is the signed-in team: its matches link to the team view of the replay.
+ */
+export function seriesTable(matches: Match[], perspective?: string, ownTeam?: string): HTMLElement {
+  const all = groupSeries(matches);
+  if (all.length === 0) return h("p", { class: "muted" }, "No matches yet.");
+  const headers = ["", "When", "Kind", "Side A", "Series", "Side B"];
+  if (perspective) headers.push("Result");
+  headers.push("Games");
+  return h(
+    "table",
+    { class: "series" },
+    h("thead", {}, h("tr", {}, headers.map((t) => h("th", {}, t)))),
+    h("tbody", {}, all.map((s) => seriesRows(s, headers.length, perspective, ownTeam))),
+  );
 }
 
 function select(name: string, options: [string, string][], value: string): HTMLSelectElement {
@@ -83,7 +144,7 @@ export const matches: Page = (ctx) => {
       const page = await ctx.api.matches(query);
       // A server that ignores `kind` still gets the filter.
       shown.push(...page.matches.filter((m) => !kind || m.kind === kind));
-      list.replaceChildren(matchTable(shown, scope === "mine" ? myTeam?.id : undefined, myTeam?.id));
+      list.replaceChildren(seriesTable(shown, scope === "mine" ? myTeam?.id : undefined, myTeam?.id));
       query.before = page.next ?? undefined;
       more.hidden = page.next === null;
     } catch (e) {
@@ -136,7 +197,7 @@ export const series: Page = (ctx) => {
               ),
             )
           : null,
-        matchTable(s.matches, me, me),
+        gameList(s.matches, me, me),
       ];
     }),
   );

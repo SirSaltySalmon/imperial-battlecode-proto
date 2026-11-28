@@ -1,6 +1,6 @@
 // Pure text helpers behind the pages: error messages, ladder labels, match results, links.
 
-import { ApiError, type LadderRow, type Match, type Pairing } from "./api";
+import { ApiError, type LadderRow, type Match, type MatchTeam, type Pairing } from "./api";
 
 /** "45 s", "3 min", "2 h 5 min". */
 export function formatDuration(seconds: number): string {
@@ -87,6 +87,80 @@ export function resultFor(m: Pick<Match, "state" | "outcome" | "bot_a" | "bot_b"
   if (m.outcome === "draw") return "draw";
   if (m.outcome === "a" || m.outcome === "b") return m.outcome === side ? "won" : "lost";
   return "";
+}
+
+/** The listed games of one series, scored from those games alone (a page of matches may hold only some). */
+export interface SeriesSummary {
+  series_id: string;
+  kind: string;
+  /** The sides of its first listed game; later games may swap them. */
+  team_a: MatchTeam;
+  team_b: MatchTeam;
+  wins_a: number;
+  wins_b: number;
+  draws: number;
+  /** "done" once every listed game is, else the state of the first unfinished one. */
+  state: string;
+  /** When its latest game finished (or was created, if none has). */
+  when: string;
+  /** By index. */
+  matches: Match[];
+}
+
+/** Matches grouped by series, in the order each series first appears. */
+export function groupSeries(matches: readonly Match[]): SeriesSummary[] {
+  const byId = new Map<string, Match[]>();
+  for (const m of matches) {
+    const games = byId.get(m.series_id);
+    if (games) games.push(m);
+    else byId.set(m.series_id, [m]);
+  }
+  return [...byId.values()].map(summarise);
+}
+
+function summarise(games: Match[]): SeriesSummary {
+  const sorted = [...games].sort((x, y) => x.index - y.index);
+  const first = sorted[0]!;
+  let wins_a = 0;
+  let wins_b = 0;
+  let draws = 0;
+  for (const m of sorted) {
+    if (m.state !== "done") continue;
+    const winner = m.outcome === "a" ? m.bot_a.team_id : m.outcome === "b" ? m.bot_b.team_id : null;
+    if (m.outcome === "draw") draws++;
+    else if (winner === first.bot_a.team_id) wins_a++;
+    else if (winner === first.bot_b.team_id) wins_b++;
+  }
+  const open = sorted.find((m) => m.state !== "done");
+  const when = sorted.map((m) => m.finished_at ?? m.created_at).reduce((x, y) => (y > x ? y : x));
+  return {
+    series_id: first.series_id,
+    kind: first.kind,
+    team_a: first.bot_a,
+    team_b: first.bot_b,
+    wins_a,
+    wins_b,
+    draws,
+    state: open ? open.state : "done",
+    when,
+    matches: sorted,
+  };
+}
+
+/** "2–1", "1–1, 1 draw", with the state appended while the series is not done. */
+export function seriesScoreText(s: SeriesSummary): string {
+  const draws = s.draws ? `, ${s.draws} draw${s.draws > 1 ? "s" : ""}` : "";
+  const score = `${s.wins_a}–${s.wins_b}${draws}`;
+  return s.state === "done" ? score : `${score} (${s.state})`;
+}
+
+/** "won", "lost", "draw" from one team's side; "" when it is not that team's series or not done. */
+export function seriesResultFor(s: SeriesSummary, teamId: string): string {
+  if (s.state !== "done") return "";
+  const [own, other] =
+    s.team_a.team_id === teamId ? [s.wins_a, s.wins_b] : s.team_b.team_id === teamId ? [s.wins_b, s.wins_a] : [];
+  if (own === undefined || other === undefined) return "";
+  return own > other ? "won" : own < other ? "lost" : "draw";
 }
 
 /** A pairing side's display name: the name if the server sent one, else the id, else "bye". */
