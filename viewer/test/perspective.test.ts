@@ -82,8 +82,8 @@ describe("perspective", () => {
         { kind: 1, team: 1, x: 7680, y: 4608, radius: 1024, ticks_left: 9, x2: 0, y2: 0 },
       ],
       drops: [
-        { kind: DROP_WEAPON, x: 7680, y: 4608, item: 1 },
-        { kind: DROP_CHARGE, x: 7680, y: 4608, item: 0 },
+        { kind: DROP_WEAPON, x: 7680, y: 4608, item: 1, ammo: 0 },
+        { kind: DROP_CHARGE, x: 7680, y: 4608, item: 0, ammo: 0 },
       ],
     });
     const v = viewOf(f, { kind: "unit", id: 0 }, map, rules);

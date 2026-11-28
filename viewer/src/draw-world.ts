@@ -205,7 +205,7 @@ export function drawDrops(pen: Pen, drops: DropFrame[]): void {
     ctx.rect(x - s, y - s * 0.6, s * 2, s * 1.2);
     ctx.fill();
     ctx.stroke();
-    if (pen.scene.camera.ppt >= 22) label(pen, weaponName(pen.scene.rules, d.item), x, y + s + 7 * px, pal.dim, 9);
+    if (pen.scene.camera.ppt >= 22) label(pen, `${weaponName(pen.scene.rules, d.item)} ${d.ammo}`, x, y + s + 7 * px, pal.dim, 9);
   }
 }
 
