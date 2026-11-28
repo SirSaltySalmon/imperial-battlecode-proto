@@ -232,7 +232,7 @@ figure marked * was measured again after the map changed: 20 seeds, native, inte
 |---|---|---|---|---|---|---|---|---|---|
 | [`agora`](../maps/agora.ibcmap)<br>![agora](../maps/renders/agora.svg) | 5v5, 32x27, 2 sites | 31 / 31 | 25 / 25 | 6 / 6 | 28 | 3 / 3 | 24.1 | 0 | 47.8% [43.6, 52.0] |
 | [`bazaar`](../maps/bazaar.ibcmap)<br>![bazaar](../maps/renders/bazaar.svg) | 5v5, 36x27, 2 sites | 34 / 35 | 19 / 19 | 15 / 16 | 26 | 5 / 5 | 17.3 | 0 | 61.3% [55.7, 66.9] |
-| [`crossfire`](../maps/crossfire.ibcmap)<br>![crossfire](../maps/renders/crossfire.svg) | 5v5, 32x17, 2 sites | 40 / 43 | 5 / 12 | 35 / 31 | 18 | 3 / 3 | 30.6 | 6 | 68.4% [63.2, 73.5] |
+| [`crossfire`](../maps/crossfire.ibcmap)<br>![crossfire](../maps/renders/crossfire.svg) | 5v5, 32x17, 2 sites | 40 / 43 | 5 / 12 | 35 / 31 | 18 | 3 / 3 | 30.6 | 6 | 68.8% [66.8, 70.8]* |
 | [`culvert`](../maps/culvert.ibcmap)<br>![culvert](../maps/renders/culvert.svg) | 3v3, 30x21, 2 sites | 30 / 35 | 15 / 19 | 15 / 16 | 24 | 3 / 4 | 22.0 | 0 | 51.0% [46.0, 56.1] |
 | [`delta`](../maps/delta.ibcmap)<br>![delta](../maps/renders/delta.svg) | 5v5, 37x33, 3 sites | 31 / 34 / 31 | 20 / 17 / 21 | 11 / 17 / 10 | 13 / 25 / 13 | 5 / 5 / 5 | 24.6 | 0 | 51.9% [47.8, 56.1] |
 | [`fulcrum`](../maps/fulcrum.ibcmap)<br>![fulcrum](../maps/renders/fulcrum.svg) | 5v5, 37x31, 2 sites | 33 / 33 | 18 / 19 | 15 / 14 | 28 | 4 / 4 | 22.8 | 0 | 48.5% [43.5, 53.5] |
@@ -259,7 +259,7 @@ figure marked * was measured again after the map changed: 20 seeds, native, inte
 | `postern` | 3v3. Small and fast: three one-tile entrances per site, 18-tick rotation |
 | `culvert` | 3v3, diagonal. Spawns in opposite corners, sites in the other two, so each site has a different timing |
 | `quarry` | 4v4. A central pit full of low cover that you can shoot across but not run through, sites above and below it |
-| `crossfire`, `tunnels` | The two original maps. `crossfire` is unchanged (byte-identical); `tunnels` has five tiles changed to take away the attackers' edge (see "Side-balance fixes"). They predate the bands: defenders start next to the sites (advantage 23 to 35 ticks) and `crossfire` has 30-tile sightlines |
+| `crossfire`, `tunnels` | The two original maps. `crossfire`'s sites were filled from a plus to a 3x3 so every tile inside the bounding box is plantable (see "Site fill"); `tunnels` has five tiles changed to take away the attackers' edge (see "Side-balance fixes"). They predate the bands: defenders start next to the sites (advantage 23 to 35 ticks) and `crossfire` has 30-tile sightlines |
 
 The "without" rotations for `delta` and `fulcrum` were measured on a copy of the map with those doors walled.
 
@@ -305,7 +305,7 @@ slots. `n` is the number of games behind the interval. The bots are described in
 |---|---|---:|
 | `agora` | 47.8% [43.6, 52.0] | 192 |
 | `bazaar` | 61.3% [55.7, 66.9] | 192 |
-| `crossfire` | 68.4% [63.2, 73.5] | 192 |
+| `crossfire` | 68.8% [66.8, 70.8]* | 1280* |
 | `culvert` | 51.0% [46.0, 56.1] | 192 |
 | `delta` | 51.9% [47.8, 56.1] | 192 |
 | `fulcrum` | 48.5% [43.5, 53.5] | 192 |
@@ -318,15 +318,16 @@ slots. `n` is the number of games behind the interval. The bots are described in
 | `tunnels` | 48.1% [44.1, 52.2]* | 1280* |
 | `warrens` | 47.1% [42.4, 51.7] | 192 |
 
-\* Measured after the map changed, on ruleset `5795cbc069627a93`: 20 seeds, native, interval clustered by seed
-(see "Side-balance fixes"). Before the changes this run gave `longwatch` 57.0% [52.5, 61.5] and `tunnels` 72.9%
-[68.6, 77.2].
+\* `longwatch` and `tunnels`: measured after those maps changed, on ruleset `5795cbc069627a93`, 20 seeds, native,
+interval clustered by seed (see "Side-balance fixes"). Before the changes this run gave `longwatch` 57.0%
+[52.5, 61.5] and `tunnels` 72.9% [68.6, 77.2]. `crossfire`: measured after its site fill, on ruleset
+`0304dfc448350cca`, 20 seeds, native (see "Site fill"); the printed interval is over the 1067 distinct games.
 
 Over the whole pool attackers win 56.1% [54.8, 57.4] of rounds (before the `longwatch` and `tunnels` changes).
 
 Read these with the bots in mind: they were written before the timings changed and have not been retuned.
 
-- `crossfire` stays attacker-sided (68%). It and `tunnels` are the two original maps, where defenders spawn next
+- `crossfire` stays attacker-sided (69%). It and `tunnels` are the two original maps, where defenders spawn next
   to the sites, and they are the only two exempt from the bands. `tunnels` was at 73% until it was changed.
 - The four new maps sit between 48% and 61%. `bazaar` is the high one; its interval reaches 67%, so it is the
   one to watch.
@@ -337,6 +338,16 @@ Read these with the bots in mind: they were written before the timings changed a
   side-balance fix (2x2 sites, so the plant point is half a tile up and left of the box centre), on ruleset
   `5795cbc069627a93`, attackers won 72.4% [68.1, 76.8] of rounds before and 71.3% [66.8, 75.7] after, 192 games
   each: no change beyond the noise. The figures above without a * are the 2026-11-25 measurement.
+
+### Site fill
+
+`crossfire`'s sites were each a plus of five `1`/`2` tiles inside a 3x3 bounding box; the four corners were
+ordinary floor, so a carrier standing there could not plant. Those corners are now site tiles. Every other map
+in the pool already had a solid rectangle of site tiles filling its box. Bounding boxes were already computed
+from the site tiles alone (engine and viewer). Timings are unchanged; plant point and box centre stay on the
+middle tile. Measured before and after on ruleset `0304dfc448350cca`, the eight reference bots against each
+other on both slots, 20 seeds, native: every reported metric was identical, attackers 68.8% [66.8, 70.8] of
+rounds on both (1280 games, 1067 distinct). No balance movement.
 
 ### Side-balance fixes
 
