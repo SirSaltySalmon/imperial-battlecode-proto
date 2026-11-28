@@ -2,7 +2,7 @@
 
 # Ruleset reference
 
-Ruleset hash `d5db2d436893feb3`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
+Ruleset hash `8738e66cbe90cb90`. Every value as the engine loads it, defaults and clamps applied. Bots read the same numbers at runtime through `T_RULES_CORE`, `T_WEAPON`, `T_ABILITY`, `T_ITEM` and `T_KIT`: never hard-code them. Distances are fixed-point (1024 per tile), angles 65536 per full turn, times in ticks. The mechanics are in `docs/RULES.md` and `docs/rules/`.
 
 ## Core
 
@@ -60,7 +60,25 @@ and largest operand stack height, plus 2. A call that would go deeper traps and 
 the module, not on the native stack, so the depth is the same on every CPU.
 
 On detonation every living unit within this distance of the charge dies, both teams, through walls.
+
+(above [[language]] "default")
+Per-language allowances. A bot's fuel budget every tick and its memory cap (`memory_bytes`, and the
+exception heap beside it) are multiplied by its language's row, in thousandths (1000 = x1). A bot's language
+is what its module says about itself (the `ibc.language` custom section `ibc build` writes, else the
+`producers` section rustc and clang write); a module that names no single language, or one without a row
+here, gets `default`. The upload check and the ladder use the same rows. The memory cap is rounded down to
+whole 64 KiB wasm pages. Rows must come after every other key of this file.
 ```
+
+## Languages
+
+| Language | Fuel | Memory | Memory cap (bytes) |
+| --- | --- | --- | --- |
+| `cpp` | x1 | x1 | 8388608 |
+| `default` | x1 | x1 | 8388608 |
+| `rust` | x1 | x1 | 8388608 |
+
+A language without a row gets the `default` row. The fuel multiplier scales every turn's budget (`fuel_per_tick` and its draft and buy multipliers); the memory multiplier scales `memory_bytes`, rounded down to whole 64 KiB pages.
 
 ## Weapons
 
