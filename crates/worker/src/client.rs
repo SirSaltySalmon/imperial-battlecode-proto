@@ -29,7 +29,7 @@ impl fmt::Display for ApiError {
             ApiError::Transient(m) => write!(f, "transient: {m}"),
             ApiError::LeaseLost => write!(f, "lease lost (409)"),
             ApiError::NotFound => write!(f, "not found (404)"),
-            ApiError::Unauthorized => write!(f, "unauthorized (401)"),
+            ApiError::Unauthorized => write!(f, "not authorised (401 or 403)"),
             ApiError::Rejected(m) => write!(f, "rejected: {m}"),
         }
     }
